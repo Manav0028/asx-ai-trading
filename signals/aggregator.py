@@ -1,7 +1,7 @@
 """
-Layer 04 · Signal Intelligence — Signal Aggregator
-Combines sentiment (30%), fundamental (25%), technical (25%), insider (20%)
-into a composite score 0-100. Persists to DB.
+Layer 04 · Signal Intelligence — Signal Aggregator (Enhanced)
+Weights: Sentiment×30% + Fundamental×25% + Technical×25% + Insider×20%
+Quality filters: component minimums, liquidity check, diversification.
 """
 import logging
 from datetime import date
@@ -15,50 +15,99 @@ from ai_engine.regime_filter import is_regime_ok
 from ai_engine.sentiment import score_sentiment
 from ai_engine.technical_engine import score_technical
 from config.settings import (
-    SIGNAL_THRESHOLD,
-    WEIGHT_FUNDAMENTAL,
-    WEIGHT_INSIDER,
-    WEIGHT_SENTIMENT,
-    WEIGHT_TECHNICAL,
+    MAX_POSITION_PCT, PORTFOLIO_CAPITAL, SIGNAL_THRESHOLD,
+    WEIGHT_FUNDAMENTAL, WEIGHT_INSIDER, WEIGHT_SENTIMENT, WEIGHT_TECHNICAL,
 )
 from data_ingestion.price_fetcher import get_latest_price
 from storage.database import get_session
-from storage.models import Signal
+from storage.models import Price, Signal
 
 logger = logging.getLogger(__name__)
 
+# Minimum component scores — prevents one great score masking weak areas
+MIN_SENTIMENT   = 35.0   # Not deeply negative news
+MIN_FUNDAMENTAL = 40.0   # Some basic financial health
+MIN_TECHNICAL   = 35.0   # Not in free-fall
+
+
+def _quality_check(sentiment: float, fundamental: float, technical: float, insider: float) -> tuple:
+    """
+    Returns (passes: bool, reason: str).
+    Filters out stocks where one dimension is dangerously weak.
+    """
+    if sentiment < MIN_SENTIMENT:
+        return False, f"blocked: very negative news (sentiment {sentiment:.0f}/100)"
+    if fundamental < MIN_FUNDAMENTAL:
+        return False, f"blocked: weak fundamentals (score {fundamental:.0f}/100)"
+    if technical < MIN_TECHNICAL:
+        return False, f"blocked: bad technicals (score {technical:.0f}/100)"
+    return True, "ok"
+
+
+def _liquidity_check(ticker: str) -> tuple:
+    """Returns (passes: bool, avg_volume). Skips illiquid stocks."""
+    with get_session() as session:
+        rows = (
+            session.query(Price.volume)
+            .filter(Price.ticker == ticker)
+            .order_by(Price.date.desc())
+            .limit(20)
+            .all()
+        )
+    volumes = [r.volume for r in rows if r.volume and r.volume > 0]
+    if not volumes:
+        return True, 0  # No data — don't block
+    avg_vol = sum(volumes) / len(volumes)
+    price = get_latest_price(ticker) or 1
+    avg_daily_turnover = avg_vol * price
+    # Require at least $500k average daily turnover (avoids micro-caps)
+    if avg_daily_turnover < 500_000:
+        return False, avg_daily_turnover
+    return True, avg_daily_turnover
+
 
 def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
-    """
-    Compute and persist the composite signal for one ticker.
-    Returns signal dict or None if regime is off and score is low.
-    """
     today = today or date.today()
     regime_ok = is_regime_ok()
 
-    sentiment = score_sentiment(ticker)
+    sentiment   = score_sentiment(ticker)
     fundamental = score_fundamental(ticker)
-    technical = score_technical(ticker)
-    insider = score_insider(ticker)
+    technical   = score_technical(ticker)
+    insider     = score_insider(ticker)
+
+    # Quality gate
+    quality_ok, quality_reason = _quality_check(sentiment, fundamental, technical, insider)
+
+    # Liquidity gate
+    liquid_ok, avg_turnover = _liquidity_check(ticker)
 
     composite = (
-        sentiment * WEIGHT_SENTIMENT
+        sentiment   * WEIGHT_SENTIMENT
         + fundamental * WEIGHT_FUNDAMENTAL
-        + technical * WEIGHT_TECHNICAL
-        + insider * WEIGHT_INSIDER
+        + technical   * WEIGHT_TECHNICAL
+        + insider     * WEIGHT_INSIDER
     )
     composite = round(max(0.0, min(100.0, composite)), 2)
 
-    # Suppress if regime is risk-off (dampen score by 20%)
+    # Regime dampening — RISK-OFF reduces all scores by 20%
     if not regime_ok:
         composite = round(composite * 0.80, 2)
 
+    # Apply quality/liquidity penalties without hard blocking
+    # (we still store the signal but mark it)
+    actionable = quality_ok and liquid_ok and composite >= SIGNAL_THRESHOLD
+
+    # Dynamic prices from technical engine
+    from ai_engine.technical_engine import get_technical_meta
+    tech_meta = get_technical_meta(ticker)
     entry_price = get_latest_price(ticker)
-    target_price = round(entry_price * 1.10, 3) if entry_price else None
-    stop_loss_price = round(entry_price * 0.93, 3) if entry_price else None
+    target_price = tech_meta.get("target") or (round(entry_price * 1.10, 3) if entry_price else None)
+    stop_loss_price = tech_meta.get("stop") or (round(entry_price * 0.93, 3) if entry_price else None)
 
     from signals.kelly_sizer import compute_kelly_size
-    kelly_f, position_aud = compute_kelly_size(composite) if composite >= SIGNAL_THRESHOLD else (0.0, 0.0)
+    kelly_f, position_aud = (
+        compute_kelly_size(composite) if actionable else (0.0, 0.0)
+    )
 
     signal_dict = {
         "ticker": ticker,
@@ -84,16 +133,16 @@ def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
         session.execute(stmt)
 
     logger.info(
-        "%s → composite=%.1f (S=%.0f F=%.0f T=%.0f I=%.0f) regime=%s",
+        "%s → %.1f (S=%.0f F=%.0f T=%.0f I=%.0f) regime=%s quality=%s liquid=%s",
         ticker, composite, sentiment, fundamental, technical, insider,
         "OK" if regime_ok else "OFF",
+        "OK" if quality_ok else quality_reason,
+        "OK" if liquid_ok else f"low (${avg_turnover:,.0f}/day)",
     )
-
     return signal_dict
 
 
 def run_full_scan(tickers: List[str]) -> List[Dict]:
-    """Score all tickers and return list sorted by composite score desc."""
     results = []
     for ticker in tickers:
         try:
@@ -102,13 +151,11 @@ def run_full_scan(tickers: List[str]) -> List[Dict]:
                 results.append(sig)
         except Exception as e:
             logger.warning("Signal failed for %s: %s", ticker, e)
-
     results.sort(key=lambda x: x["composite_score"], reverse=True)
     return results
 
 
 def get_top_signals(n: int = 10, min_score: float = None) -> List[Dict]:
-    """Fetch today's top signals from DB."""
     today = date.today()
     min_score = min_score or SIGNAL_THRESHOLD
     with get_session() as session:

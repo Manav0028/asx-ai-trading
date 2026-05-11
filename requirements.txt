@@ -23,6 +23,6 @@ pandas>=2.2.0
 APScheduler>=3.10.4
 
 # ── Phase 2+ (uncomment when needed) ─────────────────────────────────────────
-# vectorbt>=0.26.0        # heavy build — add for walk-forward backtesting
-# ib_insync>=0.9.86       # IBKR live trading (Phase 3)
-# supabase>=2.0.0         # cloud signal backup (Phase 2)
+# vectorbt>=0.26.0    # requires numba — use conda: conda install -c numba numba
+# ib_insync>=0.9.86   # IBKR live trading (Phase 3)
+# supabase>=2.0.0     # cloud signal backup (Phase 2)
