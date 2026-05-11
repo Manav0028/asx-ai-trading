@@ -1,135 +1,170 @@
 """
 Layer 03 · AI Engine — Walk-Forward Backtester
-Uses vectorbt (OSS) with rolling 6-month windows.
-Runs every Sunday to re-optimise signal thresholds.
+Pure-Python backtester (no vectorbt dependency).
+Runs on stored signals + prices to measure strategy performance.
+Reports: win rate, avg return, Sharpe-like ratio, max drawdown.
 """
 import logging
 from datetime import date, timedelta
-from typing import Dict
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-try:
-    import vectorbt as vbt
-    VBT_AVAILABLE = True
-except ImportError:
-    VBT_AVAILABLE = False
-    logger.warning("vectorbt not installed — backtester will use simple returns")
+
+def _sharpe(returns: List[float], risk_free: float = 0.0) -> float:
+    if len(returns) < 2:
+        return 0.0
+    arr = np.array(returns)
+    excess = arr - risk_free / 252
+    return float(np.mean(excess) / (np.std(excess) + 1e-9) * np.sqrt(252))
 
 
-def _simple_backtest(prices_df: pd.DataFrame, signals_df: pd.DataFrame) -> Dict:
-    """Fallback backtester when vectorbt is not available."""
-    results = {}
-    for ticker in prices_df.columns:
-        if ticker not in signals_df.columns:
+def _max_drawdown(equity_curve: List[float]) -> float:
+    if not equity_curve:
+        return 0.0
+    arr = np.array(equity_curve)
+    peak = np.maximum.accumulate(arr)
+    dd = (arr - peak) / (peak + 1e-9)
+    return float(np.min(dd))
+
+
+def _run_ticker_backtest(
+    prices: pd.Series,
+    signal_dates: List[date],
+    stop_pct: float = 0.07,
+    target_pct: float = 0.10,
+    hold_days: int = 45,
+) -> Dict:
+    """Simulate entry on signal date, exit on stop/target/timeout."""
+    returns = []
+    equity = [10_000.0]
+
+    for entry_date in signal_dates:
+        try:
+            entry_ts = pd.Timestamp(entry_date)
+            if entry_ts not in prices.index:
+                # Find next available trading day
+                future = prices.index[prices.index >= entry_ts]
+                if len(future) == 0:
+                    continue
+                entry_ts = future[0]
+
+            entry_price = prices[entry_ts]
+            stop_price  = entry_price * (1 - stop_pct)
+            target_price = entry_price * (1 + target_pct)
+            exit_price = None
+            exit_reason = "timeout"
+
+            # Walk forward day by day
+            future_prices = prices[prices.index > entry_ts].head(hold_days)
+            for ts, px in future_prices.items():
+                if px <= stop_price:
+                    exit_price = px
+                    exit_reason = "stop"
+                    break
+                if px >= target_price:
+                    exit_price = px
+                    exit_reason = "target"
+                    break
+            if exit_price is None and len(future_prices) > 0:
+                exit_price = future_prices.iloc[-1]
+
+            if exit_price is None:
+                continue
+
+            ret = (exit_price - entry_price) / entry_price
+            returns.append(ret)
+            equity.append(equity[-1] * (1 + ret))
+        except Exception:
             continue
-        prices = prices_df[ticker].dropna()
-        signals = signals_df[ticker].reindex(prices.index).fillna(0)
 
-        position = 0
-        entry_price = 0.0
-        returns = []
-
-        for i, (dt, price) in enumerate(prices.items()):
-            sig = signals.iloc[i] if i < len(signals) else 0
-            if sig >= 1 and position == 0:
-                position = 1
-                entry_price = price
-            elif position == 1:
-                ret = (price - entry_price) / entry_price
-                if ret <= -0.07 or ret >= 0.15:   # stop-loss / target
-                    returns.append(ret)
-                    position = 0
-                    entry_price = 0.0
-
-        results[ticker] = {
-            "num_trades": len(returns),
-            "win_rate": sum(1 for r in returns if r > 0) / max(len(returns), 1),
-            "avg_return": float(np.mean(returns)) if returns else 0.0,
-            "total_return": float(np.prod([1 + r for r in returns]) - 1) if returns else 0.0,
+    if not returns:
+        return {
+            "num_trades": 0, "win_rate": 0.0, "avg_return_pct": 0.0,
+            "sharpe": 0.0, "max_drawdown_pct": 0.0, "total_return_pct": 0.0,
         }
-    return results
+
+    win_rate = sum(1 for r in returns if r > 0) / len(returns)
+    total_ret = (equity[-1] / equity[0] - 1) * 100 if len(equity) > 1 else 0.0
+
+    return {
+        "num_trades": len(returns),
+        "win_rate": round(win_rate, 3),
+        "avg_return_pct": round(float(np.mean(returns)) * 100, 2),
+        "sharpe": round(_sharpe(returns), 2),
+        "max_drawdown_pct": round(_max_drawdown(equity) * 100, 2),
+        "total_return_pct": round(total_ret, 2),
+    }
 
 
 def run_walk_forward(
-    tickers: list,
+    tickers: List[str],
     lookback_months: int = 6,
     signal_threshold: float = 75.0,
 ) -> Dict:
-    """
-    Walk-forward backtest over the last `lookback_months` months.
-    Returns per-ticker performance metrics and the optimal threshold.
-    """
     from data_ingestion.price_fetcher import get_price_series
     from storage.database import get_session
     from storage.models import Signal
 
     end_date = date.today()
     start_date = end_date - timedelta(days=lookback_months * 30)
+    results = {}
+    summary_lines = []
 
-    # Build price matrix
-    price_data = {}
     for ticker in tickers:
+        # Get price series
         series = get_price_series(ticker, days=lookback_months * 35)
-        if series:
-            dates, closes = zip(*[(d, c) for d, c in reversed(series)])
-            price_data[ticker] = pd.Series(closes, index=pd.to_datetime(dates))
+        if len(series) < 20:
+            continue
+        dates_prices = [(d, c) for d, c in reversed(series)]
+        price_series = pd.Series(
+            [c for _, c in dates_prices],
+            index=pd.to_datetime([d for d, _ in dates_prices]),
+        )
 
-    if not price_data:
-        logger.warning("No price data for backtest")
-        return {}
-
-    prices_df = pd.DataFrame(price_data).sort_index()
-
-    # Build signal matrix from DB
-    signal_data = {}
-    with get_session() as session:
-        for ticker in tickers:
+        # Get signal dates from DB
+        with get_session() as session:
             rows = (
-                session.query(Signal.date, Signal.composite_score)
+                session.query(Signal.date)
                 .filter(
                     Signal.ticker == ticker,
+                    Signal.composite_score >= signal_threshold,
                     Signal.date >= start_date,
                     Signal.date <= end_date,
                 )
                 .all()
             )
-            if rows:
-                dates, scores = zip(*[(r.date, r.composite_score) for r in rows])
-                s = pd.Series(scores, index=pd.to_datetime(dates))
-                # Convert composite score to binary entry signal
-                signal_data[ticker] = (s >= signal_threshold).astype(int)
+        signal_dates = [r.date for r in rows]
 
-    signals_df = pd.DataFrame(signal_data).sort_index()
+        if not signal_dates:
+            continue
 
-    if VBT_AVAILABLE and not prices_df.empty and not signals_df.empty:
-        try:
-            aligned_prices = prices_df.reindex(signals_df.index, method="ffill")
-            entries = signals_df.astype(bool)
-            exits = entries.shift(1, fill_value=False)  # hold 1 period
+        result = _run_ticker_backtest(price_series, signal_dates)
+        results[ticker] = result
 
-            pf = vbt.Portfolio.from_signals(
-                aligned_prices,
-                entries=entries,
-                exits=exits,
-                fees=0.001,        # 0.1% slippage
-                fixed_fees=9.95,   # brokerage per trade
-                init_cash=100_000,
-                sl_stop=0.07,      # 7% stop-loss
+        if result["num_trades"] >= 2:
+            summary_lines.append(
+                f"  {ticker}: {result['num_trades']} trades | "
+                f"win rate {result['win_rate']*100:.0f}% | "
+                f"avg {result['avg_return_pct']:+.1f}% | "
+                f"Sharpe {result['sharpe']:.2f}"
             )
-            stats = pf.stats()
-            logger.info("VectorBT backtest complete:\n%s", stats)
-            return {"vectorbt_stats": stats.to_dict(), "tickers": tickers}
-        except Exception as e:
-            logger.warning("VectorBT failed, falling back to simple backtest: %s", e)
 
-    results = _simple_backtest(prices_df, signals_df)
-    winning_tickers = [t for t, r in results.items() if r["win_rate"] >= 0.55]
-    logger.info(
-        "Simple backtest: %d tickers, %d winners (win_rate ≥ 55%%)",
-        len(results), len(winning_tickers),
-    )
+    if summary_lines:
+        logger.info("Walk-forward backtest results:\n%s", "\n".join(summary_lines))
+
+    # Aggregate stats
+    all_win_rates = [r["win_rate"] for r in results.values() if r["num_trades"] >= 2]
+    if all_win_rates:
+        logger.info(
+            "Backtest summary: %d tickers | avg win rate %.0f%% | "
+            "%d tickers beating 55%%",
+            len(all_win_rates),
+            np.mean(all_win_rates) * 100,
+            sum(1 for w in all_win_rates if w >= 0.55),
+        )
+
     return results

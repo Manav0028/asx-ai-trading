@@ -97,24 +97,50 @@ def job_place_orders():
         fills = process_new_signals(signals)
         logger.info("Paper orders placed: %d", len(fills))
 
-        # Send Telegram alerts for new signals
+        # Send rich Telegram alert for each new position opened
         from alerts.telegram_bot import send_signal_alert
-        for sig in signals[:5]:
-            send_signal_alert(sig)
+        from ai_engine.technical_engine import get_technical_meta
+        from ai_engine.fundamental_scorer import get_fundamental_meta
+        from ai_engine.sentiment import get_sentiment_meta
+        from signals.watchlist import get_active_watchlist
+        active_tickers = {p["ticker"] for p in get_active_watchlist()}
+        for fill in fills:
+            ticker = fill["ticker"]
+            sig = next((s for s in signals if s["ticker"] == ticker), None)
+            if sig:
+                send_signal_alert(
+                    sig,
+                    tech_meta=get_technical_meta(ticker),
+                    fund_meta=get_fundamental_meta(ticker),
+                    sent_meta=get_sentiment_meta(ticker),
+                )
+
+        # Also alert on high-score stocks NOT yet traded (for awareness)
+        from alerts.telegram_bot import send_volume_spike_alert
+        from ai_engine.technical_engine import get_technical_meta as gtm
+        for sig in signals:
+            if sig["composite_score"] >= 70:
+                meta = gtm(sig["ticker"])
+                vol_signals = [s for s in (meta.get("signals") or []) if "volume" in s.lower()]
+                if vol_signals:
+                    ratio_str = vol_signals[0].split("volume ")[1].split("x")[0] if "x" in vol_signals[0] else "2"
+                    try:
+                        ratio = float(ratio_str)
+                    except Exception:
+                        ratio = 2.0
+                    if ratio >= 2.0:
+                        send_volume_spike_alert(
+                            sig["ticker"], sig.get("entry_price", 0),
+                            ratio, sig["composite_score"]
+                        )
 
 
 def job_market_close():
     logger.info("[4:00] Market close — evaluating exits + updating P&L")
     from execution.stop_loss import evaluate_exits, check_stale_positions
-    from alerts.telegram_bot import send_stop_loss_alert, send_target_alert
 
-    stops, targets = evaluate_exits()
-    stale = check_stale_positions()
-
-    for s in stops:
-        send_stop_loss_alert(s["ticker"], s["fill_price"], s["pnl"])
-    for t in targets:
-        send_target_alert(t["ticker"], t["fill_price"], t["pnl"])
+    stops, targets = evaluate_exits()  # alerts now sent inside evaluate_exits
+    stale = check_stale_positions()    # alerts now sent inside check_stale_positions
 
     if stale:
         logger.info("Exited %d stale positions", len(stale))
@@ -127,16 +153,31 @@ def job_news_refresh():
 
 
 def job_weekly_sunday():
-    logger.info("[Sunday] Running walk-forward backtest + Claude batch")
+    logger.info("[Sunday] Running walk-forward backtest + weekly summary")
     from ai_engine.backtester import run_walk_forward
     from ai_engine.claude_summarizer import generate_weekly_summaries
+    from alerts.telegram_bot import send_weekly_summary, _send
+    from signals.aggregator import get_top_signals
+    from signals.watchlist import get_watchlist_summary
+    from ai_engine.regime_filter import get_regime_summary
     from config.settings import BACKTESTER_LOOKBACK_MONTHS
 
     results = run_walk_forward(ASX200_TICKERS[:50], lookback_months=BACKTESTER_LOOKBACK_MONTHS)
     logger.info("Backtest complete for %d tickers", len(results))
 
     summaries = generate_weekly_summaries()
-    logger.info("Claude summaries generated for %d tickers", len(summaries))
+    logger.info("Summaries generated for %d tickers", len(summaries))
+
+    top_signals  = get_top_signals(n=5, min_score=60)
+    port_summary = get_watchlist_summary()
+    regime       = get_regime_summary()
+    send_weekly_summary(results, top_signals, port_summary, regime)
+
+    # Send individual Claude/rule-based summaries for top 5 stocks
+    if summaries:
+        _send("📝 *Top Stock Summaries This Week:*")
+        for ticker, summary in list(summaries.items())[:5]:
+            _send(f"*{ticker}*\n{summary}")
 
 
 # ── Scheduler setup ───────────────────────────────────────────────────────────
