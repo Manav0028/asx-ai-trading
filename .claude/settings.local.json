@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(brew services *)",
+      "Bash(ollama list *)",
+      "Bash(psql --version)",
+      "Bash(redis-cli ping *)",
+      "Bash(pip3 list *)",
+      "Bash(conda info *)",
+      "Bash(conda create *)",
+      "Bash(/Users/manavsharma/opt/anaconda3/bin/conda create *)",
+      "Bash(/Users/manavsharma/opt/anaconda3/envs/asx_trading/bin/pip install *)",
+      "Bash(pg_isready)",
+      "Bash(createdb asx_trading)",
+      "Bash(brew install *)",
+      "Bash(psql -U manavsharma -d postgres -c \"SELECT datname FROM pg_database WHERE datname='asx_trading';\")",
+      "Bash(grep -v \"^$\")",
+      "Bash(/opt/homebrew/opt/postgresql@14/bin/psql -h /tmp -U manavsharma -d postgres -c \"\\\\du\")",
+      "Bash(ls /tmp/.s.PGSQL* 2>/dev/null && echo \"Socket exists\" || echo \"No socket\")",
+      "Bash(cat /Library/PostgreSQL/14/data/pg_hba.conf | grep -v \"^#\" | grep -v \"^$\")",
+      "Bash(echo \"port = 5433\")",
+      "Bash(echo \"unix_socket_directories = '/tmp'\")",
+      "Bash(/opt/homebrew/opt/postgresql@14/bin/pg_isready -p 5433)",
+      "Bash(curl -s http://localhost:11434/api/tags)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('Ollama running, models:', [m['name'] for m in d.get\\('models',[]\\)]\\)\")",
+      "Bash(ollama pull *)",
+      "Bash(echo \"Pull started in background \\(PID: $!\\)\")"
+    ]
+  }
+}

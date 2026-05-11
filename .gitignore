@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.DS_Store
+asx_trading.log
+ai_engine/insider_model.pkl
+*.pkl
