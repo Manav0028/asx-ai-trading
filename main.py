@@ -15,6 +15,7 @@ Usage:
 import argparse
 import logging
 import sys
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,6 +26,17 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger("main")
+
+
+def _wait_for_db(retries: int = 10, delay: int = 5) -> bool:
+    """Wait for PostgreSQL to be ready — important when started via launchd at login."""
+    from storage.database import health_check
+    for i in range(retries):
+        if health_check():
+            return True
+        logger.info("Waiting for database... (%d/%d)", i + 1, retries)
+        time.sleep(delay)
+    return False
 
 
 def run_full_pipeline():
@@ -120,6 +132,9 @@ def main():
         test_alerts()
 
     else:
+        if not _wait_for_db():
+            logger.error("Database unavailable after retries — exiting")
+            sys.exit(1)
         from scheduler.main_scheduler import start
         start()
 
