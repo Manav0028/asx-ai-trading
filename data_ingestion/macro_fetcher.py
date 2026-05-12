@@ -1,31 +1,18 @@
 """
 Layer 01 · Data Ingestion — Macro Indicators
-Runs daily. Fetches RBA rate, AUD/USD, iron ore, gold, oil via yFinance.
+Runs daily. Fetches exchange-specific macro indicators via yFinance.
 """
 import logging
 from datetime import date, timedelta
 
 import yfinance as yf
 
+from config import get_active_exchange
 from storage.database import get_session
 from storage.models import MacroIndicator
 from sqlalchemy.dialects.postgresql import insert
 
 logger = logging.getLogger(__name__)
-
-MACRO_SYMBOLS = {
-    "aud_usd":   "AUDUSD=X",
-    "iron_ore":  "IRON.L",       # proxy — London-listed iron ore ETF
-    "gold_usd":  "GC=F",
-    "oil_brent": "BZ=F",
-    "xjo_index": "^AXJO",
-    "sp500":     "^GSPC",
-    "vix":       "^VIX",
-    "copper":    "HG=F",
-}
-
-# RBA cash rate — updated from RBA website (static refresh weekly is fine)
-RBA_RATE_TICKER = None  # We'll store manually / scrape separately
 
 
 def _extract_close(df, symbol: str):
@@ -37,10 +24,12 @@ def _extract_close(df, symbol: str):
 
 
 def fetch_macro(days_back: int = 5) -> int:
+    exchange = get_active_exchange()
+    macro_symbols = exchange.macro_symbols
     start = date.today() - timedelta(days=days_back)
     stored = 0
 
-    for indicator, yf_symbol in MACRO_SYMBOLS.items():
+    for indicator, yf_symbol in macro_symbols.items():
         try:
             df = yf.download(
                 yf_symbol,
@@ -73,10 +62,11 @@ def fetch_macro(days_back: int = 5) -> int:
 
 
 def get_macro_snapshot() -> dict:
-    """Returns latest value of each macro indicator."""
+    """Returns latest value of each macro indicator for the active exchange."""
+    exchange = get_active_exchange()
     snapshot = {}
     with get_session() as session:
-        for indicator in MACRO_SYMBOLS:
+        for indicator in exchange.macro_symbols:
             row = (
                 session.query(MacroIndicator)
                 .filter(MacroIndicator.indicator == indicator)
@@ -87,14 +77,20 @@ def get_macro_snapshot() -> dict:
     return snapshot
 
 
-def get_xjo_series(days: int = 250):
-    """Returns list of (date, close) for XJO regime filter."""
+def get_index_series(days: int = 250):
+    """Returns list of (date, close) for the active exchange's benchmark index."""
+    exchange = get_active_exchange()
     with get_session() as session:
         rows = (
             session.query(MacroIndicator.date, MacroIndicator.value)
-            .filter(MacroIndicator.indicator == "xjo_index")
+            .filter(MacroIndicator.indicator == exchange.index_macro_key)
             .order_by(MacroIndicator.date.desc())
             .limit(days)
             .all()
         )
         return [(r.date, r.value) for r in rows]
+
+
+# Backward-compat alias used by older regime_filter code
+def get_xjo_series(days: int = 250):
+    return get_index_series(days)

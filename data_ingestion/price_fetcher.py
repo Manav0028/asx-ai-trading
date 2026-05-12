@@ -1,6 +1,6 @@
 """
 Layer 01 · Data Ingestion — yFinance OHLCV
-Runs daily at 6:00 AM for all ASX200 tickers.
+Runs daily before market open for all tickers of the active exchange.
 """
 import logging
 from datetime import date, timedelta
@@ -9,7 +9,7 @@ from typing import List, Optional
 import yfinance as yf
 from sqlalchemy.dialects.postgresql import insert
 
-from config.asx200_tickers import ASX200_TICKERS
+from config import get_active_exchange
 from storage.database import get_session
 from storage.models import Price
 
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def fetch_prices(tickers: List[str] = None, days_back: int = 5) -> int:
-    tickers = tickers or ASX200_TICKERS
+    tickers = tickers or get_active_exchange().tickers
     start = date.today() - timedelta(days=days_back)
     stored = 0
 

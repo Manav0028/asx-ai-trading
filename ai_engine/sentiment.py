@@ -20,7 +20,7 @@ from storage.models import NewsItem
 logger = logging.getLogger(__name__)
 
 SENTIMENT_PROMPT = """\
-You are a financial news analyst for the Australian stock market (ASX).
+You are a financial news analyst for the {market_name} stock market.
 
 Analyse these recent news headlines about {ticker} ({company_hint}) and rate the overall sentiment.
 
@@ -37,8 +37,9 @@ Scoring guide:
 -0.5 = mildly negative (cost pressures, downgrade)
 -1.0 = very bearish (profit warning, scandal, regulatory action)"""
 
-# Map of known ASX tickers to company names for better LLM context
+# Ticker → company name for better LLM context. Covers both ASX and NSE.
 _COMPANY_NAMES = {
+    # ASX
     "CBA.AX": "Commonwealth Bank", "BHP.AX": "BHP Group", "CSL.AX": "CSL Limited",
     "WBC.AX": "Westpac Banking", "ANZ.AX": "ANZ Bank", "NAB.AX": "NAB Bank",
     "WES.AX": "Wesfarmers", "MQG.AX": "Macquarie Group", "RIO.AX": "Rio Tinto",
@@ -46,6 +47,42 @@ _COMPANY_NAMES = {
     "FMG.AX": "Fortescue Metals", "COL.AX": "Coles Group", "STO.AX": "Santos",
     "ALL.AX": "Aristocrat Leisure", "TCL.AX": "Transurban", "IAG.AX": "IAG Insurance",
     "QBE.AX": "QBE Insurance", "SHL.AX": "Sonic Healthcare",
+    # NSE NIFTY 100
+    "RELIANCE.NS": "Reliance Industries", "TCS.NS": "Tata Consultancy Services",
+    "HDFCBANK.NS": "HDFC Bank", "INFY.NS": "Infosys", "ICICIBANK.NS": "ICICI Bank",
+    "HINDUNILVR.NS": "Hindustan Unilever", "ITC.NS": "ITC Limited",
+    "SBIN.NS": "State Bank of India", "BHARTIARTL.NS": "Bharti Airtel",
+    "KOTAKBANK.NS": "Kotak Mahindra Bank", "LT.NS": "Larsen & Toubro",
+    "AXISBANK.NS": "Axis Bank", "ASIANPAINT.NS": "Asian Paints",
+    "MARUTI.NS": "Maruti Suzuki", "TITAN.NS": "Titan Company",
+    "SUNPHARMA.NS": "Sun Pharmaceutical", "BAJFINANCE.NS": "Bajaj Finance",
+    "WIPRO.NS": "Wipro", "ULTRACEMCO.NS": "UltraTech Cement",
+    "NESTLEIND.NS": "Nestle India", "TECHM.NS": "Tech Mahindra",
+    "POWERGRID.NS": "Power Grid Corporation", "HCLTECH.NS": "HCL Technologies",
+    "BAJAJFINSV.NS": "Bajaj Finserv", "ONGC.NS": "ONGC",
+    "NTPC.NS": "NTPC", "JSWSTEEL.NS": "JSW Steel",
+    "TATAMOTORS.NS": "Tata Motors", "M&M.NS": "Mahindra & Mahindra",
+    "TATASTEEL.NS": "Tata Steel", "DRREDDY.NS": "Dr. Reddy's Laboratories",
+    "HDFCLIFE.NS": "HDFC Life Insurance", "GRASIM.NS": "Grasim Industries",
+    "CIPLA.NS": "Cipla", "COALINDIA.NS": "Coal India",
+    "ADANIPORTS.NS": "Adani Ports", "DIVISLAB.NS": "Divi's Laboratories",
+    "EICHERMOT.NS": "Eicher Motors", "BPCL.NS": "BPCL",
+    "BRITANNIA.NS": "Britannia Industries", "INDUSINDBK.NS": "IndusInd Bank",
+    "TATACONSUM.NS": "Tata Consumer Products", "HINDALCO.NS": "Hindalco Industries",
+    "VEDL.NS": "Vedanta", "ADANIENT.NS": "Adani Enterprises",
+    "SIEMENS.NS": "Siemens India", "HAVELLS.NS": "Havells India",
+    "BAJAJ-AUTO.NS": "Bajaj Auto", "HEROMOTOCO.NS": "Hero MotoCorp",
+    "TORNTPHARM.NS": "Torrent Pharmaceuticals", "COLPAL.NS": "Colgate-Palmolive India",
+    "ABB.NS": "ABB India", "MUTHOOTFIN.NS": "Muthoot Finance",
+    "CHOLAFIN.NS": "Cholamandalam Finance", "DLF.NS": "DLF",
+    "GODREJCP.NS": "Godrej Consumer Products", "BANKBARODA.NS": "Bank of Baroda",
+    "CANBK.NS": "Canara Bank", "HAL.NS": "Hindustan Aeronautics",
+    "IRFC.NS": "Indian Railway Finance Corp", "RECLTD.NS": "REC Limited",
+    "PFC.NS": "Power Finance Corporation", "LICI.NS": "LIC India",
+    "ZOMATO.NS": "Zomato", "NYKAA.NS": "Nykaa", "IRCTC.NS": "IRCTC",
+    "TRENT.NS": "Trent", "DMART.NS": "DMart (Avenue Supermarts)",
+    "PAGEIND.NS": "Page Industries", "PIDILITIND.NS": "Pidilite Industries",
+    "LUPIN.NS": "Lupin", "MARICO.NS": "Marico", "NMDC.NS": "NMDC",
 }
 
 
@@ -78,10 +115,17 @@ def score_sentiment(ticker: str, hours: int = 72) -> float:
         cache_score(ticker, "sentiment", 50.0, ttl=1800)
         return 50.0
 
-    company = _COMPANY_NAMES.get(ticker, ticker.replace(".AX", ""))
+    from config import get_active_exchange
+    exchange = get_active_exchange()
+    # Fallback company name: strip exchange suffix
+    suffix = f".{ticker.split('.')[-1]}" if "." in ticker else ""
+    company = _COMPANY_NAMES.get(ticker, ticker.replace(suffix, ""))
     headline_text = "\n".join(f"- {h}" for h in headlines[:15])
     prompt = SENTIMENT_PROMPT.format(
-        ticker=ticker, company_hint=company, headlines=headline_text
+        ticker=ticker,
+        company_hint=company,
+        market_name=exchange.name,
+        headlines=headline_text,
     )
     result = _call_ollama(prompt)
 
