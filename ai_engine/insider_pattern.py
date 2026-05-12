@@ -67,7 +67,7 @@ def _extract_features(ticker: str, days: int = 90) -> np.ndarray:
 def _rule_based_score(features: np.ndarray) -> float:
     net_buy_m, buy_count, sell_count, price_ratio, days_since_buy, cluster = features
 
-    score = 50.0  # neutral baseline
+    score = 50.0  # neutral baseline — no data means no opinion
 
     # Net buy value bonus
     if net_buy_m > 5:
@@ -81,13 +81,14 @@ def _rule_based_score(features: np.ndarray) -> float:
     elif net_buy_m < 0:
         score -= 8
 
-    # Buy freshness
-    if days_since_buy < 7:
-        score += 10
-    elif days_since_buy < 30:
-        score += 5
-    elif days_since_buy > 60:
-        score -= 5
+    # Buy freshness — only penalise staleness if we actually have trade history
+    if buy_count > 0 or sell_count > 0:
+        if days_since_buy < 7:
+            score += 10
+        elif days_since_buy < 30:
+            score += 5
+        elif days_since_buy > 60:
+            score -= 5
 
     # Cluster buy
     if cluster:
