@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """
-ASX AI Trading System — Main Entry Point
+AI Trading System — Main Entry Point
+Exchange is selected via the EXCHANGE env var (default: asx, options: asx, nse).
 
 Usage:
-  python main.py                    # Start the full scheduler
-  python main.py --run-now          # Run today's full pipeline once immediately
-  python main.py --report           # Generate and send today's report
-  python main.py --scan             # Run signal scan only
-  python main.py --backtest         # Run walk-forward backtest
-  python main.py --init-db          # Initialise database tables
-  python main.py --backfill 30      # Backfill 30 days of price history
-  python main.py --test-alerts      # Send test Telegram + email alert
+  EXCHANGE=nse python main.py             # Start scheduler for NSE NIFTY 100
+  python main.py                          # Start scheduler (default: ASX 200)
+  python main.py --run-now                # Run today's full pipeline once immediately
+  python main.py --report                 # Generate and send today's report
+  python main.py --scan                   # Run signal scan only
+  python main.py --backtest               # Run walk-forward backtest
+  python main.py --init-db                # Initialise database tables
+  python main.py --backfill 30            # Backfill 30 days of price history
+  python main.py --test-alerts            # Send test Telegram + email alert
+  python main.py --list-exchanges         # List all supported exchanges
 """
 import argparse
 import logging
@@ -22,7 +25,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("asx_trading.log"),
+        logging.FileHandler("trading.log"),
     ],
 )
 logger = logging.getLogger("main")
@@ -40,10 +43,10 @@ def _wait_for_db(retries: int = 10, delay: int = 5) -> bool:
 
 
 def run_full_pipeline():
-    """Execute the entire daily pipeline sequentially."""
     from scheduler.main_scheduler import (
         job_fetch_prices,
         job_fetch_announcements,
+        job_news_refresh,
         job_ai_sentiment_fundamental,
         job_technical_regime,
         job_signal_scan,
@@ -53,6 +56,7 @@ def run_full_pipeline():
     logger.info("=== Running full pipeline ===")
     job_fetch_prices()
     job_fetch_announcements()
+    job_news_refresh()           # fetch headlines before sentiment scoring
     job_ai_sentiment_fundamental()
     job_technical_regime()
     job_signal_scan()
@@ -86,15 +90,30 @@ def test_alerts():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ASX AI Trading System")
-    parser.add_argument("--run-now",  action="store_true", help="Run full pipeline once")
-    parser.add_argument("--report",   action="store_true", help="Generate today's report")
-    parser.add_argument("--scan",     action="store_true", help="Run signal scan")
-    parser.add_argument("--backtest", action="store_true", help="Run walk-forward backtest")
-    parser.add_argument("--init-db",  action="store_true", help="Initialise DB tables")
-    parser.add_argument("--backfill", type=int, metavar="DAYS", help="Backfill N days of prices")
-    parser.add_argument("--test-alerts", action="store_true", help="Send test alert")
+    from config import get_active_exchange
+    from config.exchange_registry import list_exchanges
+    exchange = get_active_exchange()
+
+    parser = argparse.ArgumentParser(
+        description=f"AI Trading System ({exchange.name})"
+    )
+    parser.add_argument("--run-now",        action="store_true", help="Run full pipeline once")
+    parser.add_argument("--report",         action="store_true", help="Generate today's report")
+    parser.add_argument("--scan",           action="store_true", help="Run signal scan")
+    parser.add_argument("--backtest",       action="store_true", help="Run walk-forward backtest")
+    parser.add_argument("--init-db",        action="store_true", help="Initialise DB tables")
+    parser.add_argument("--backfill",       type=int, metavar="DAYS", help="Backfill N days of prices")
+    parser.add_argument("--test-alerts",    action="store_true", help="Send test alert")
+    parser.add_argument("--list-exchanges", action="store_true", help="List supported exchanges")
     args = parser.parse_args()
+
+    if args.list_exchanges:
+        print("Supported exchanges (set with EXCHANGE env var):")
+        for ex_id in list_exchanges():
+            print(f"  {ex_id}")
+        return
+
+    logger.info("Active exchange: %s (%s)", exchange.name, exchange.timezone)
 
     if args.init_db:
         init_database()
@@ -110,22 +129,21 @@ def main():
         generate_and_send()
 
     elif args.scan:
-        from config.asx200_tickers import ASX200_TICKERS
         from signals.aggregator import run_full_scan
-        results = run_full_scan(ASX200_TICKERS)
-        top = [r for r in results if r["composite_score"] >= 75]
-        print(f"\nTop signals (score ≥ 75): {len(top)}")
+        from config.settings import SIGNAL_THRESHOLD
+        results = run_full_scan(exchange.tickers)
+        top = [r for r in results if r["composite_score"] >= SIGNAL_THRESHOLD]
+        print(f"\nTop signals (score ≥ {SIGNAL_THRESHOLD}): {len(top)}")
         for s in top[:10]:
             print(
-                f"  {s['ticker']:10s} score={s['composite_score']:.1f}  "
-                f"entry=${s.get('entry_price', 0):.3f}"
+                f"  {s['ticker']:15s} score={s['composite_score']:.1f}  "
+                f"entry={exchange.currency_symbol}{s.get('entry_price', 0):.3f}"
             )
 
     elif args.backtest:
-        from config.asx200_tickers import ASX200_TICKERS
         from ai_engine.backtester import run_walk_forward
         from config.settings import BACKTESTER_LOOKBACK_MONTHS
-        results = run_walk_forward(ASX200_TICKERS[:50], lookback_months=BACKTESTER_LOOKBACK_MONTHS)
+        results = run_walk_forward(exchange.tickers[:50], lookback_months=BACKTESTER_LOOKBACK_MONTHS)
         print(f"Backtest complete: {len(results)} tickers")
 
     elif args.test_alerts:

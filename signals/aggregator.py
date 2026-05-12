@@ -89,12 +89,7 @@ def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
     )
     composite = round(max(0.0, min(100.0, composite)), 2)
 
-    # Regime dampening — RISK-OFF reduces all scores by 20%
-    if not regime_ok:
-        composite = round(composite * 0.80, 2)
-
-    # Apply quality/liquidity penalties without hard blocking
-    # (we still store the signal but mark it)
+    # Scores are pure quality — regime affects position sizing, not score
     actionable = quality_ok and liquid_ok and composite >= SIGNAL_THRESHOLD
 
     # Dynamic prices from technical engine
@@ -108,6 +103,10 @@ def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
     kelly_f, position_aud = (
         compute_kelly_size(composite) if actionable else (0.0, 0.0)
     )
+    # In RISK-OFF, deploy half the normal position size — same signal, less capital risk
+    if not regime_ok and position_aud > 0:
+        position_aud = round(position_aud * 0.50, 2)
+        kelly_f = round(kelly_f * 0.50, 4)
 
     signal_dict = {
         "ticker": ticker,

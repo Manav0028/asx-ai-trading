@@ -1,6 +1,6 @@
 """
 Layer 01 · Data Ingestion — Google News RSS per ticker
-Runs every 2 hours. Headlines per ASX200 stock.
+Runs every 2 hours. Headlines per stock for the active exchange.
 """
 import logging
 from datetime import datetime, timezone
@@ -9,19 +9,24 @@ from urllib.parse import quote_plus
 
 import feedparser
 
-from config.asx200_tickers import ASX200_TICKERS
+from config import get_active_exchange
 from storage.database import get_session
 from storage.models import NewsItem
 
 logger = logging.getLogger(__name__)
 
-GNEWS_RSS = "https://news.google.com/rss/search?q={query}&hl=en-AU&gl=AU&ceid=AU:en"
+GNEWS_RSS = "https://news.google.com/rss/search?q={query}&hl={hl}&gl={gl}&ceid={ceid}"
 
 
 def _gnews_url(ticker: str) -> str:
-    code = ticker.replace(".AX", "")
-    query = quote_plus(f"{code} ASX stock")
-    return GNEWS_RSS.format(query=query)
+    exchange = get_active_exchange()
+    query = quote_plus(exchange.news_query_fn(ticker))
+    return GNEWS_RSS.format(
+        query=query,
+        hl=exchange.gnews_hl,
+        gl=exchange.gnews_gl,
+        ceid=exchange.gnews_ceid,
+    )
 
 
 def _parse_published(entry) -> datetime:
@@ -31,7 +36,7 @@ def _parse_published(entry) -> datetime:
 
 
 def fetch_news(tickers: List[str] = None, max_per_ticker: int = 10) -> int:
-    tickers = tickers or ASX200_TICKERS
+    tickers = tickers or get_active_exchange().tickers
     stored = 0
 
     for ticker in tickers:

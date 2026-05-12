@@ -1,33 +1,38 @@
 """
 Master Scheduler — Daily Execution Schedule
-Uses APScheduler for cron-style job execution (all times AEST).
+Uses APScheduler for cron-style job execution in the active exchange's timezone.
 
-6:00 AM   → yFinance OHLCV + macro fetch
-6:30 AM   → ASX announcements + Form 604
-7:00 AM   → Ollama sentiment + fundamental scores
-7:15 AM   → Technical engine + regime filter
-7:20 AM   → Signal aggregator (full scan)
-7:30 AM   → Daily report → Telegram + email
-10:00 AM  → Paper/live orders placed for score ≥ 75
-4:00 PM   → Stop-loss/target evaluation + watchlist P&L
-Every 2h  → Google News RSS refresh
-Sunday    → Walk-forward backtest + Claude batch summaries
+Times below are relative to exchange local time (configured via EXCHANGE env var).
+
+pre_market_hour+0:00  → yFinance OHLCV + macro fetch
+pre_market_hour+0:30  → Exchange announcements
+pre_market_hour+1:00  → Ollama sentiment + fundamental scores
+pre_market_hour+1:15  → Technical engine + regime filter
+pre_market_hour+1:20  → Signal aggregator (full scan)
+pre_market_hour+1:30  → Daily report → Telegram + email
+market_open+0:45      → Paper/live orders placed for score ≥ 75
+market_close+0:00     → Stop-loss/target evaluation + watchlist P&L
+Every 2h              → Google News RSS refresh
+Sunday 08:00          → Walk-forward backtest + Claude batch summaries
 """
 import logging
-import os
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from config.asx200_tickers import ASX200_TICKERS
+from config import get_active_exchange
 
 logger = logging.getLogger(__name__)
+
+
+def _tickers():
+    return get_active_exchange().tickers
 
 
 # ── Individual job functions ──────────────────────────────────────────────────
 
 def job_fetch_prices():
-    logger.info("[6:00] Fetching OHLCV prices")
+    logger.info("Fetching OHLCV prices + macro indicators")
     from data_ingestion.price_fetcher import fetch_prices
     from data_ingestion.macro_fetcher import fetch_macro
     fetch_prices()
@@ -35,49 +40,54 @@ def job_fetch_prices():
 
 
 def job_fetch_announcements():
-    logger.info("[6:30] Fetching ASX announcements + Form 604")
-    from data_ingestion.asx_announcements import fetch_asx_announcements
-    from data_ingestion.form604_scraper import fetch_form604
-    fetch_asx_announcements()
-    fetch_form604()
+    exchange = get_active_exchange()
+    logger.info("Fetching %s announcements", exchange.name)
+    if exchange.announcement_fetcher:
+        exchange.announcement_fetcher()
+    # ASX also scrapes Form 604 insider trades
+    if exchange.id == "asx":
+        from data_ingestion.form604_scraper import fetch_form604
+        fetch_form604()
 
 
 def job_ai_sentiment_fundamental():
-    logger.info("[7:00] Running Ollama sentiment + fundamental scores")
+    logger.info("Running Ollama sentiment + fundamental scores")
     from ai_engine.sentiment import batch_score_sentiment
     from ai_engine.fundamental_scorer import batch_score_fundamental
-    batch_score_sentiment(ASX200_TICKERS)
-    batch_score_fundamental(ASX200_TICKERS)
+    tickers = _tickers()
+    batch_score_sentiment(tickers)
+    batch_score_fundamental(tickers)
 
 
 def job_technical_regime():
-    logger.info("[7:15] Running technical engine + regime filter")
+    logger.info("Running technical engine + regime filter")
     from ai_engine.technical_engine import batch_score_technical
     from ai_engine.regime_filter import is_regime_ok
-    batch_score_technical(ASX200_TICKERS)
+    batch_score_technical(_tickers())
     ok = is_regime_ok()
     logger.info("Regime: %s", "RISK-ON" if ok else "RISK-OFF")
 
 
 def job_signal_scan():
-    logger.info("[7:20] Running full signal scan")
+    logger.info("Running full signal scan")
     from signals.aggregator import run_full_scan
-    results = run_full_scan(ASX200_TICKERS)
-    above_threshold = [r for r in results if r["composite_score"] >= 75]
+    from config.settings import SIGNAL_THRESHOLD
+    results = run_full_scan(_tickers())
+    above_threshold = [r for r in results if r["composite_score"] >= SIGNAL_THRESHOLD]
     logger.info(
-        "Signal scan complete: %d tickers scored, %d above threshold",
-        len(results), len(above_threshold),
+        "Signal scan complete: %d tickers scored, %d above threshold (%.0f)",
+        len(results), len(above_threshold), SIGNAL_THRESHOLD,
     )
 
 
 def job_daily_report():
-    logger.info("[7:30] Generating daily report")
+    logger.info("Generating daily report")
     from reports.daily_report import generate_and_send
     generate_and_send()
 
 
 def job_place_orders():
-    logger.info("[10:00] Placing paper/live orders")
+    logger.info("Placing paper/live orders")
     from signals.aggregator import get_top_signals
     from execution.paper_trader import process_new_signals
     from config.settings import LIVE_TRADING_ENABLED
@@ -97,7 +107,6 @@ def job_place_orders():
         fills = process_new_signals(signals)
         logger.info("Paper orders placed: %d", len(fills))
 
-        # Send rich Telegram alert for each new position opened
         from alerts.telegram_bot import send_signal_alert
         from ai_engine.technical_engine import get_technical_meta
         from ai_engine.fundamental_scorer import get_fundamental_meta
@@ -115,7 +124,6 @@ def job_place_orders():
                     sent_meta=get_sentiment_meta(ticker),
                 )
 
-        # Also alert on high-score stocks NOT yet traded (for awareness)
         from alerts.telegram_bot import send_volume_spike_alert
         from ai_engine.technical_engine import get_technical_meta as gtm
         for sig in signals:
@@ -136,24 +144,22 @@ def job_place_orders():
 
 
 def job_market_close():
-    logger.info("[4:00] Market close — evaluating exits + updating P&L")
+    logger.info("Market close — evaluating exits + updating P&L")
     from execution.stop_loss import evaluate_exits, check_stale_positions
-
-    stops, targets = evaluate_exits()  # alerts now sent inside evaluate_exits
-    stale = check_stale_positions()    # alerts now sent inside check_stale_positions
-
+    evaluate_exits()
+    stale = check_stale_positions()
     if stale:
         logger.info("Exited %d stale positions", len(stale))
 
 
 def job_news_refresh():
-    logger.info("[2h] Refreshing Google News RSS")
+    logger.info("Refreshing Google News RSS")
     from data_ingestion.news_fetcher import fetch_news
     fetch_news()
 
 
 def job_weekly_sunday():
-    logger.info("[Sunday] Running walk-forward backtest + weekly summary")
+    logger.info("Running walk-forward backtest + weekly summary")
     from ai_engine.backtester import run_walk_forward
     from ai_engine.claude_summarizer import generate_weekly_summaries
     from alerts.telegram_bot import send_weekly_summary, _send
@@ -162,7 +168,7 @@ def job_weekly_sunday():
     from ai_engine.regime_filter import get_regime_summary
     from config.settings import BACKTESTER_LOOKBACK_MONTHS
 
-    results = run_walk_forward(ASX200_TICKERS[:50], lookback_months=BACKTESTER_LOOKBACK_MONTHS)
+    results = run_walk_forward(_tickers()[:50], lookback_months=BACKTESTER_LOOKBACK_MONTHS)
     logger.info("Backtest complete for %d tickers", len(results))
 
     summaries = generate_weekly_summaries()
@@ -173,7 +179,6 @@ def job_weekly_sunday():
     regime       = get_regime_summary()
     send_weekly_summary(results, top_signals, port_summary, regime)
 
-    # Send individual Claude/rule-based summaries for top 5 stocks
     if summaries:
         _send("📝 *Top Stock Summaries This Week:*")
         for ticker, summary in list(summaries.items())[:5]:
@@ -183,25 +188,42 @@ def job_weekly_sunday():
 # ── Scheduler setup ───────────────────────────────────────────────────────────
 
 def build_scheduler() -> BlockingScheduler:
-    tz = os.getenv("TZ", "Australia/Sydney")
+    exchange = get_active_exchange()
+    tz = exchange.timezone
     scheduler = BlockingScheduler(timezone=tz)
 
-    scheduler.add_job(job_fetch_prices,             CronTrigger(hour=6,  minute=0,  day_of_week="mon-fri"))
-    scheduler.add_job(job_fetch_announcements,       CronTrigger(hour=6,  minute=30, day_of_week="mon-fri"))
-    scheduler.add_job(job_ai_sentiment_fundamental,  CronTrigger(hour=7,  minute=0,  day_of_week="mon-fri"))
-    scheduler.add_job(job_technical_regime,          CronTrigger(hour=7,  minute=15, day_of_week="mon-fri"))
-    scheduler.add_job(job_signal_scan,               CronTrigger(hour=7,  minute=20, day_of_week="mon-fri"))
-    scheduler.add_job(job_daily_report,              CronTrigger(hour=7,  minute=30, day_of_week="mon-fri"))
-    scheduler.add_job(job_place_orders,              CronTrigger(hour=10, minute=0,  day_of_week="mon-fri"))
-    scheduler.add_job(job_market_close,              CronTrigger(hour=16, minute=0,  day_of_week="mon-fri"))
-    scheduler.add_job(job_news_refresh,              CronTrigger(minute=0, hour="*/2"))
-    scheduler.add_job(job_weekly_sunday,             CronTrigger(day_of_week="sun", hour=8, minute=0))
+    ph = exchange.pre_market_hour          # pre-market pipeline start hour
+    mo_h, mo_m = exchange.market_open      # market open
+    mc_h, mc_m = exchange.market_close     # market close
 
+    # Orders ~45 min after market open
+    orders_h = mo_h
+    orders_m = mo_m + 45
+    if orders_m >= 60:
+        orders_h += 1
+        orders_m -= 60
+
+    scheduler.add_job(job_fetch_prices,            CronTrigger(hour=ph,      minute=0,       day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_fetch_announcements,      CronTrigger(hour=ph,      minute=30,      day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_ai_sentiment_fundamental, CronTrigger(hour=ph + 1,  minute=0,       day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_technical_regime,         CronTrigger(hour=ph + 1,  minute=15,      day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_signal_scan,              CronTrigger(hour=ph + 1,  minute=20,      day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_daily_report,             CronTrigger(hour=ph + 1,  minute=30,      day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_place_orders,             CronTrigger(hour=orders_h, minute=orders_m, day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_market_close,             CronTrigger(hour=mc_h,    minute=mc_m,    day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_news_refresh,             CronTrigger(minute=0,     hour="*/2",                            timezone=tz))
+    scheduler.add_job(job_weekly_sunday,            CronTrigger(day_of_week="sun", hour=8, minute=0,                 timezone=tz))
+
+    logger.info(
+        "Scheduler built for %s (%s) — pipeline starts %02d:00, market %02d:%02d–%02d:%02d",
+        exchange.name, tz, ph, mo_h, mo_m, mc_h, mc_m,
+    )
     return scheduler
 
 
 def start():
-    logger.info("Starting ASX AI Trading scheduler")
+    exchange = get_active_exchange()
+    logger.info("Starting AI Trading scheduler — %s", exchange.name)
     scheduler = build_scheduler()
     try:
         scheduler.start()
