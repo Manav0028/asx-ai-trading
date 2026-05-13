@@ -46,6 +46,7 @@ def run_full_pipeline():
     from scheduler.main_scheduler import (
         job_fetch_prices,
         job_fetch_announcements,
+        job_fetch_insider_trades,
         job_news_refresh,
         job_ai_sentiment_fundamental,
         job_technical_regime,
@@ -56,6 +57,7 @@ def run_full_pipeline():
     logger.info("=== Running full pipeline ===")
     job_fetch_prices()
     job_fetch_announcements()
+    job_fetch_insider_trades()   # director/promoter trade disclosures
     job_news_refresh()           # fetch headlines before sentiment scoring
     job_ai_sentiment_fundamental()
     job_technical_regime()

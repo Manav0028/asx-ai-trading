@@ -1,16 +1,19 @@
 """
-Layer 01 · Data Ingestion — Form 604 Director Trade Disclosures
-Runs daily at 7:00 AM. ASX Form 604 = change in director's interest.
+Layer 01 · Data Ingestion — ASX Form 604 Director Trade Disclosures
+Runs daily. ASX Form 604 = "Change in director's interest notice".
+Queries the ASX announcements API and parses director buy/sell details.
+
+NOTE: ASX API sometimes returns 403 without a live browser session.
+      Results are best-effort; the insider_pattern scorer handles missing data.
 """
 import logging
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta
 from typing import List
 
 import requests
 from bs4 import BeautifulSoup
 
-from config.asx200_tickers import ASX200_CODES
 from storage.database import get_session
 from storage.models import DirectorTrade
 
@@ -21,9 +24,19 @@ ASX_DISCLOSURE_URL = (
     "?count=20&market_sensitive=false"
 )
 
+_session = requests.Session()
+_session.headers.update({
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, */*",
+    "Referer": "https://www.asx.com.au/",
+})
+
 
 def _parse_trade_value(text: str) -> float:
-    """Extract numeric value from strings like '$1,234,567'."""
     cleaned = re.sub(r"[^\d.]", "", text)
     try:
         return float(cleaned)
@@ -31,66 +44,8 @@ def _parse_trade_value(text: str) -> float:
         return 0.0
 
 
-def fetch_form604(codes: List[str] = None) -> int:
-    codes = codes or ASX200_CODES
-    stored = 0
-
-    for code in codes:
-        url = ASX_DISCLOSURE_URL.format(code=code)
-        try:
-            resp = requests.get(url, timeout=10, headers={"Accept": "application/json"})
-            if resp.status_code != 200:
-                continue
-            announcements = resp.json().get("data", [])
-
-            for ann in announcements:
-                header = ann.get("header", "")
-                # Form 604 = "Change in director's interest notice"
-                if "604" not in header and "director" not in header.lower():
-                    continue
-
-                doc_url = ann.get("url", "")
-                trade_date_str = ann.get("document_date", "")
-                try:
-                    trade_date = datetime.fromisoformat(
-                        trade_date_str.replace("Z", "+00:00")
-                    ).date()
-                except Exception:
-                    trade_date = date.today()
-
-                # Fetch PDF/HTML for details (best-effort parse)
-                trade_type, shares, price, director = _parse_announcement_detail(doc_url, header)
-
-                with get_session() as session:
-                    exists = (
-                        session.query(DirectorTrade)
-                        .filter(
-                            DirectorTrade.ticker == f"{code}.AX",
-                            DirectorTrade.trade_date == trade_date,
-                            DirectorTrade.director_name == director,
-                        )
-                        .first()
-                    )
-                    if not exists:
-                        session.add(DirectorTrade(
-                            ticker=f"{code}.AX",
-                            director_name=director,
-                            trade_date=trade_date,
-                            trade_type=trade_type,
-                            shares=shares,
-                            price=price,
-                            value=shares * price if shares and price else 0,
-                        ))
-                        stored += 1
-        except Exception as e:
-            logger.warning("Form 604 fetch failed for %s: %s", code, e)
-
-    logger.info("Stored %d director trade records", stored)
-    return stored
-
-
 def _parse_announcement_detail(url: str, header: str):
-    """Best-effort extraction from announcement header text."""
+    """Best-effort extraction from announcement header and HTML."""
     trade_type = "buy"
     if any(w in header.lower() for w in ["sell", "sold", "disposal", "decrease"]):
         trade_type = "sell"
@@ -99,25 +54,21 @@ def _parse_announcement_detail(url: str, header: str):
     price = 0.0
     director = "Unknown"
 
-    # Try to pull from HTML if URL is accessible
     if url and url.startswith("http"):
         try:
-            resp = requests.get(url, timeout=8)
+            resp = _session.get(url, timeout=8)
             if resp.status_code == 200 and "html" in resp.headers.get("content-type", ""):
                 soup = BeautifulSoup(resp.text, "html.parser")
                 text = soup.get_text(" ", strip=True)
 
-                # Extract share count
                 share_match = re.search(r"([\d,]+)\s+(?:ordinary\s+)?shares?", text, re.I)
                 if share_match:
                     shares = _parse_trade_value(share_match.group(1))
 
-                # Extract price
                 price_match = re.search(r"\$\s*([\d.,]+)\s*(?:per\s+share)?", text, re.I)
                 if price_match:
                     price = _parse_trade_value(price_match.group(1))
 
-                # Extract director name (rough heuristic)
                 name_match = re.search(r"Name of director[:\s]+([A-Z][a-z]+ [A-Z][a-z]+)", text)
                 if name_match:
                     director = name_match.group(1)
@@ -127,8 +78,87 @@ def _parse_announcement_detail(url: str, header: str):
     return trade_type, shares, price, director
 
 
+def _fetch_for_code(code: str) -> int:
+    """Fetch and store Form 604 disclosures for one ASX bare code."""
+    url = ASX_DISCLOSURE_URL.format(code=code)
+    stored = 0
+    try:
+        resp = _session.get(url, timeout=10)
+        if resp.status_code != 200:
+            return 0
+        announcements = resp.json().get("data", [])
+
+        for ann in announcements:
+            header = ann.get("header", "")
+            if "604" not in header and "director" not in header.lower():
+                continue
+
+            doc_url = ann.get("url", "")
+            trade_date_str = ann.get("document_date", "")
+            try:
+                trade_date = datetime.fromisoformat(
+                    trade_date_str.replace("Z", "+00:00")
+                ).date()
+            except Exception:
+                trade_date = date.today()
+
+            trade_type, shares, price, director = _parse_announcement_detail(doc_url, header)
+            ticker = f"{code}.AX"
+
+            with get_session() as session:
+                exists = (
+                    session.query(DirectorTrade)
+                    .filter(
+                        DirectorTrade.ticker == ticker,
+                        DirectorTrade.trade_date == trade_date,
+                        DirectorTrade.director_name == director,
+                    )
+                    .first()
+                )
+                if not exists:
+                    session.add(DirectorTrade(
+                        ticker=ticker,
+                        director_name=director,
+                        trade_date=trade_date,
+                        trade_type=trade_type,
+                        shares=shares,
+                        price=price,
+                        value=shares * price if shares and price else 0,
+                    ))
+                    stored += 1
+    except Exception as e:
+        logger.warning("Form 604 fetch failed for %s: %s", code, e)
+    return stored
+
+
+def fetch_director_trades(codes: List[str] = None) -> int:
+    """
+    Fetch ASX Form 604 director trade disclosures.
+    If no codes supplied, uses the active exchange's ticker_codes.
+    """
+    if codes is None:
+        from config import get_active_exchange
+        codes = get_active_exchange().ticker_codes
+
+    stored = 0
+    try:
+        _session.get("https://www.asx.com.au", timeout=8)
+    except Exception:
+        pass
+
+    for code in codes:
+        stored += _fetch_for_code(code)
+
+    logger.info("Stored %d ASX director trade records (Form 604)", stored)
+    return stored
+
+
+# Backward-compat alias
+def fetch_form604(codes: List[str] = None) -> int:
+    return fetch_director_trades(codes)
+
+
 def get_recent_director_trades(ticker: str, days: int = 90) -> List[DirectorTrade]:
-    from datetime import timedelta
     cutoff = date.today() - timedelta(days=days)
     with get_session() as session:
         return (
