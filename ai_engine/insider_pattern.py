@@ -13,7 +13,6 @@ from typing import Optional
 
 import numpy as np
 
-from data_ingestion.form604_scraper import get_recent_director_trades
 from data_ingestion.price_fetcher import get_latest_price
 from storage.cache import cache_score, get_cached_score
 
@@ -22,8 +21,20 @@ logger = logging.getLogger(__name__)
 MODEL_PATH = Path(__file__).parent / "insider_model.pkl"
 
 
+def _get_recent_trades(ticker: str, days: int = 90):
+    """Route to the correct insider trade source based on active exchange."""
+    from config import get_active_exchange
+    exchange = get_active_exchange()
+    if exchange.id == "nse":
+        from data_ingestion.nse_insider_scraper import get_recent_insider_trades
+        return get_recent_insider_trades(ticker, days=days)
+    else:
+        from data_ingestion.form604_scraper import get_recent_director_trades
+        return get_recent_director_trades(ticker, days=days)
+
+
 def _extract_features(ticker: str, days: int = 90) -> np.ndarray:
-    trades = get_recent_director_trades(ticker, days=days)
+    trades = _get_recent_trades(ticker, days=days)
     current_price = get_latest_price(ticker) or 1.0
 
     buy_trades = [t for t in trades if t.trade_type == "buy"]

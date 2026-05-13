@@ -1,10 +1,11 @@
 """
 Layer 01 · Data Ingestion — yFinance OHLCV
 Runs daily before market open for all tickers of the active exchange.
+Batch downloads first; per-ticker fallback for any that fail in the batch.
 """
 import logging
 from datetime import date, timedelta
-from typing import List, Optional
+from typing import List, Optional, Set
 
 import yfinance as yf
 from sqlalchemy.dialects.postgresql import insert
@@ -16,47 +17,82 @@ from storage.models import Price
 logger = logging.getLogger(__name__)
 
 
+def _store_rows(session, ticker: str, df) -> int:
+    """Upsert rows from a single-ticker DataFrame. Returns count stored."""
+    df = df.dropna(subset=["Close"])
+    count = 0
+    for idx, row in df.iterrows():
+        stmt = insert(Price).values(
+            ticker=ticker,
+            date=idx.date(),
+            open=float(row.get("Open", 0) or 0),
+            high=float(row.get("High", 0) or 0),
+            low=float(row.get("Low", 0) or 0),
+            close=float(row["Close"]),
+            volume=float(row.get("Volume", 0) or 0),
+        ).on_conflict_do_update(
+            constraint="uq_price_ticker_date",
+            set_={"close": float(row["Close"]), "volume": float(row.get("Volume", 0) or 0)},
+        )
+        session.execute(stmt)
+        count += 1
+    return count
+
+
+def _fetch_single(ticker: str, start: str) -> int:
+    """Individual ticker fallback when batch download fails."""
+    try:
+        df = yf.download(ticker, start=start, auto_adjust=True, progress=False)
+        if df.empty:
+            return 0
+        # Single-ticker download has flat columns
+        import pandas as pd
+        if isinstance(df.columns, pd.MultiIndex):
+            df = df.xs(ticker, axis=1, level="Ticker")
+        with get_session() as session:
+            return _store_rows(session, ticker, df)
+    except Exception as e:
+        logger.warning("Per-ticker fallback failed for %s: %s", ticker, e)
+        return 0
+
+
 def fetch_prices(tickers: List[str] = None, days_back: int = 5) -> int:
     tickers = tickers or get_active_exchange().tickers
-    start = date.today() - timedelta(days=days_back)
+    start = (date.today() - timedelta(days=days_back)).isoformat()
     stored = 0
+    failed: Set[str] = set()
 
     logger.info("Fetching OHLCV for %d tickers from %s", len(tickers), start)
     data = yf.download(
         tickers,
-        start=start.isoformat(),
+        start=start,
         auto_adjust=True,
         progress=False,
         threads=True,
     )
 
     if data.empty:
-        logger.warning("yFinance returned empty dataframe")
-        return 0
+        logger.warning("Batch download returned empty — falling back to per-ticker")
+        failed = set(tickers)
+    else:
+        with get_session() as session:
+            for ticker in tickers:
+                try:
+                    df = data.xs(ticker, axis=1, level="Ticker")
+                    stored += _store_rows(session, ticker, df)
+                except Exception:
+                    failed.add(ticker)
 
-    with get_session() as session:
-        for ticker in tickers:
-            try:
-                # yfinance 1.x always returns MultiIndex (Price, Ticker)
-                df = data.xs(ticker, axis=1, level="Ticker")
-                df = df.dropna(subset=["Close"])
-                for idx, row in df.iterrows():
-                    stmt = insert(Price).values(
-                        ticker=ticker,
-                        date=idx.date(),
-                        open=float(row.get("Open", 0) or 0),
-                        high=float(row.get("High", 0) or 0),
-                        low=float(row.get("Low", 0) or 0),
-                        close=float(row["Close"]),
-                        volume=float(row.get("Volume", 0) or 0),
-                    ).on_conflict_do_update(
-                        constraint="uq_price_ticker_date",
-                        set_={"close": float(row["Close"]), "volume": float(row.get("Volume", 0) or 0)},
-                    )
-                    session.execute(stmt)
-                    stored += 1
-            except Exception as e:
-                logger.warning("Failed to store prices for %s: %s", ticker, e)
+    # Per-ticker retry for any that failed in the batch
+    if failed:
+        logger.info("Retrying %d tickers individually: %s", len(failed), sorted(failed))
+        for ticker in sorted(failed):
+            n = _fetch_single(ticker, start)
+            if n:
+                stored += n
+                logger.info("Fallback OK: %s (%d rows)", ticker, n)
+            else:
+                logger.warning("No data for %s — may be delisted or symbol changed", ticker)
 
     logger.info("Stored %d price rows", stored)
     return stored

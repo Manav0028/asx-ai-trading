@@ -28,6 +28,7 @@ class Exchange:
     gnews_ceid: str                     # Google News ceid, e.g. "AU:en"
     news_query_fn: Callable[[str], str] # builds search query string from ticker
     announcement_fetcher: Optional[Callable] = None   # exchange-specific filings fetcher
+    insider_fetcher: Optional[Callable] = None         # director/promoter trade fetcher
     ticker_codes: List[str] = field(default_factory=list)  # bare codes (no suffix)
 
 

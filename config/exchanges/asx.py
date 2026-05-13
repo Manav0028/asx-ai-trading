@@ -24,6 +24,11 @@ def _asx_announcement_fetcher():
     return fetch_asx_announcements()
 
 
+def _asx_insider_fetcher():
+    from data_ingestion.form604_scraper import fetch_director_trades
+    return fetch_director_trades()
+
+
 ASX = Exchange(
     id="asx",
     name="ASX 200",
@@ -44,6 +49,7 @@ ASX = Exchange(
     gnews_ceid="AU:en",
     news_query_fn=_asx_news_query,
     announcement_fetcher=_asx_announcement_fetcher,
+    insider_fetcher=_asx_insider_fetcher,
 )
 
 register(ASX)
