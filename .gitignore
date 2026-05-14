@@ -4,6 +4,19 @@ __pycache__/
 *.pyo
 *.egg-info/
 .DS_Store
+
+# Logs (all exchanges)
+*.log
 asx_trading.log
+nse_trading.log
+trading.log
+launchd.log
+
+# Runtime state
+*.pid
+scheduler.pid
+scheduler_nse.pid
+
+# ML models (trained locally)
 ai_engine/insider_model.pkl
 *.pkl
