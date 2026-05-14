@@ -20,3 +20,4 @@ scheduler_nse.pid
 # ML models (trained locally)
 ai_engine/insider_model.pkl
 *.pkl
+.claude/

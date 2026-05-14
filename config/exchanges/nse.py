@@ -33,6 +33,7 @@ def _nse_insider_fetcher():
 NSE = Exchange(
     id="nse",
     name="NSE NIFTY 100",
+    flag="🇮🇳",
     tickers=NIFTY100_TICKERS,
     ticker_codes=NIFTY100_CODES,
     index_ticker="^CNX100",
