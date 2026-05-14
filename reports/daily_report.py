@@ -20,6 +20,13 @@ from signals.watchlist import get_watchlist_summary, update_watchlist_prices
 
 logger = logging.getLogger(__name__)
 
+_MD_SPECIAL = str.maketrans({"*": "", "_": "", "`": "", "[": "", "]": ""})
+
+def _safe(text: str, max_len: int = 90) -> str:
+    """Strip Markdown special chars from dynamic content and truncate."""
+    cleaned = str(text or "").translate(_MD_SPECIAL).strip()
+    return cleaned[:max_len] + "…" if len(cleaned) > max_len else cleaned
+
 
 def _score_emoji(score: float) -> str:
     if score >= 85: return "🔥"
@@ -62,23 +69,20 @@ def _format_signal_block(s: Dict, rank: int, currency: str) -> str:
     tech_meta  = get_technical_meta(ticker)
     fund_meta  = get_fundamental_meta(ticker)
 
-    news_theme  = sent_meta.get("key_theme", "") or "mixed news"
-    news_reason = sent_meta.get("reasoning", "")
+    news_theme  = _safe(sent_meta.get("key_theme") or "mixed news", 50)
+    news_reason = _safe(sent_meta.get("reasoning") or news_theme, 85)
     tech_sigs   = tech_meta.get("signals") or []
-    tech_line   = tech_sigs[0] if tech_sigs else "Technicals constructive"
-    fund_line   = fund_meta.get("highlights", "")
-
-    # Trim long explanations
-    if len(news_reason) > 80:
-        news_reason = news_reason[:77] + "..."
+    tech_line   = _safe(tech_sigs[0] if tech_sigs else "Technicals constructive", 70)
+    fund_raw    = fund_meta.get("highlights", "") or ""
+    fund_line   = _safe(fund_raw.split(".")[0] if fund_raw else "Data loading", 70)
 
     return (
         f"\n{emoji} *#{rank} {ticker}* `{score:.1f}/100` {bar}\n"
         f"  💰 Buy `{currency}{entry:.2f}` → Target `{currency}{target:.2f}` ({upside}) | Stop `{currency}{stop:.2f}`\n"
         f"  📦 {shares} shares ≈ `{currency}{pos:,.0f}` ({size_note})\n"
-        f"  📰 News `{s.get('sentiment_score',50):.0f}` — {news_reason or news_theme}\n"
+        f"  📰 News `{s.get('sentiment_score',50):.0f}` — {news_reason}\n"
         f"  📊 Chart `{s.get('technical_score',50):.0f}` — {tech_line}\n"
-        f"  🏦 Biz `{s.get('fundamental_score',50):.0f}` — {fund_line.split('.')[0] if fund_line else 'Data loading'}"
+        f"  🏦 Biz `{s.get('fundamental_score',50):.0f}` — {fund_line}"
     )
 
 

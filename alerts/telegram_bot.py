@@ -13,6 +13,13 @@ from config.settings import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 logger = logging.getLogger(__name__)
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
+_MD_SPECIAL = str.maketrans({"*": "", "_": "", "`": "", "[": "", "]": ""})
+
+def _safe(text: str, max_len: int = 90) -> str:
+    """Strip Markdown-breaking chars from dynamic content before embedding in messages."""
+    cleaned = str(text or "").translate(_MD_SPECIAL).strip()
+    return cleaned[:max_len] + "…" if len(cleaned) > max_len else cleaned
+
 # ── Exchange badge helpers ─────────────────────────────────────────────────────
 
 def _exchange_badge() -> str:
@@ -110,10 +117,10 @@ def send_signal_alert(signal: Dict, tech_meta: dict = None,
     s_tech = signal.get("technical_score", 50)
     s_ins  = signal.get("insider_score", 50)
 
-    news_line  = (sent_meta or {}).get("reasoning", "Recent news is broadly positive.")
-    fund_line  = (fund_meta or {}).get("highlights", "")
+    news_line  = _safe((sent_meta or {}).get("reasoning") or "Recent news is broadly positive.", 85)
+    fund_line  = _safe((fund_meta or {}).get("highlights") or "", 85)
     tech_sigs  = (tech_meta or {}).get("signals", [])
-    tech_line  = tech_sigs[0] if tech_sigs else "Technicals looking constructive."
+    tech_line  = _safe(tech_sigs[0] if tech_sigs else "Technicals looking constructive.", 75)
 
     msg = (
         f"🟢 *NEW BUY SIGNAL*\n"
