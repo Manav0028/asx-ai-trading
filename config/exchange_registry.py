@@ -30,6 +30,7 @@ class Exchange:
     announcement_fetcher: Optional[Callable] = None   # exchange-specific filings fetcher
     insider_fetcher: Optional[Callable] = None         # director/promoter trade fetcher
     ticker_codes: List[str] = field(default_factory=list)  # bare codes (no suffix)
+    flag: str = "📈"                                   # country flag emoji for Telegram alerts
 
 
 _REGISTRY: Dict[str, "Exchange"] = {}
