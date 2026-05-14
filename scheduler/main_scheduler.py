@@ -44,10 +44,15 @@ def job_fetch_announcements():
     logger.info("Fetching %s announcements", exchange.name)
     if exchange.announcement_fetcher:
         exchange.announcement_fetcher()
-    # ASX also scrapes Form 604 insider trades
-    if exchange.id == "asx":
-        from data_ingestion.form604_scraper import fetch_form604
-        fetch_form604()
+
+
+def job_fetch_insider_trades():
+    exchange = get_active_exchange()
+    logger.info("Fetching %s insider/director trades", exchange.name)
+    if exchange.insider_fetcher:
+        exchange.insider_fetcher()
+    else:
+        logger.info("No insider fetcher configured for %s", exchange.name)
 
 
 def job_ai_sentiment_fundamental():
@@ -204,7 +209,8 @@ def build_scheduler() -> BlockingScheduler:
         orders_m -= 60
 
     scheduler.add_job(job_fetch_prices,            CronTrigger(hour=ph,      minute=0,       day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_fetch_announcements,      CronTrigger(hour=ph,      minute=30,      day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_fetch_announcements,      CronTrigger(hour=ph,      minute=20,      day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_fetch_insider_trades,     CronTrigger(hour=ph,      minute=40,      day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_ai_sentiment_fundamental, CronTrigger(hour=ph + 1,  minute=0,       day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_technical_regime,         CronTrigger(hour=ph + 1,  minute=15,      day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_signal_scan,              CronTrigger(hour=ph + 1,  minute=20,      day_of_week="mon-fri", timezone=tz))
