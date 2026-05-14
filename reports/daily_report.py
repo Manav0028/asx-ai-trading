@@ -188,8 +188,30 @@ def generate_and_send() -> str:
 
     report_text = "\n".join(lines)
 
-    # Send to Telegram (no extra prefix — the report header IS the badge)
-    _send(report_text)
+    # ── Send to Telegram in 3 parts to avoid length/Markdown parse errors ────
+    # Part 1: header + regime + portfolio summary (first 10 lines)
+    _send("\n".join(lines[:10]))
+
+    # Part 2: signals (one message per signal to guarantee clean Markdown)
+    if signals:
+        _send(f"🏆 *Top {len(signals)} Signals — Score ≥ {SIGNAL_THRESHOLD:.0f}:*")
+        for i, sig in enumerate(signals, 1):
+            _send(_format_signal_block(sig, i, currency))
+
+    # Part 3: watchlist
+    if watchlist["positions"]:
+        wl_lines = ["📋 *Open Positions:*"]
+        for pos in watchlist["positions"]:
+            wl_lines.append(_format_watchlist_line(pos, currency))
+        wl_lines += [
+            "",
+            f"{'─' * 30}",
+            f"_Next report Mon 7:30 AM | Orders at market open_",
+        ]
+        _send("\n".join(wl_lines))
+    else:
+        _send(f"{'─' * 30}\n_Next report Mon 7:30 AM | Orders at market open_")
+
     send_daily_email(signals, watchlist, regime)
 
     plain = report_text.replace("*", "").replace("`", "").replace("_", "")
