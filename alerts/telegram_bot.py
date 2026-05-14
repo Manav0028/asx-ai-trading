@@ -2,18 +2,21 @@
 Layer 05 · Alerts — Telegram Bot
 Every message carries a clear exchange badge so ASX and NSE alerts
 are instantly distinguishable in the same chat.
+Exchange-aware: currency symbol, index name, and country flag are all
+read from the active exchange at send-time.
 """
 import logging
 from typing import Dict, List, Optional
 
 import requests
 
-from config.settings import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+from config.settings import SIGNAL_THRESHOLD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 logger = logging.getLogger(__name__)
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
-# ── Exchange badge helpers ─────────────────────────────────────────────────────
+
+# ── Exchange badge helpers ────────────────────────────────────────────────────
 
 def _exchange_badge() -> str:
     """Returns e.g. '🇦🇺 ASX 200' or '🇮🇳 NSE NIFTY 100'."""
@@ -41,7 +44,7 @@ def _index_name() -> str:
         return "Index"
 
 
-# ── Core sender ────────────────────────────────────────────────────────────────
+# ── Core sender ───────────────────────────────────────────────────────────────
 
 def _send(text: str, parse_mode: str = "Markdown") -> bool:
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -68,10 +71,18 @@ def _score_bar(score: float, length: int = 10) -> str:
 
 
 def _conviction(score: float) -> str:
-    if score >= 88: return "⭐⭐⭐ Very High"
-    if score >= 80: return "⭐⭐ High"
-    if score >= 75: return "⭐ Moderate-High"
+    """Conviction tiers relative to SIGNAL_THRESHOLD so they scale with any threshold."""
+    if score >= SIGNAL_THRESHOLD + 23: return "⭐⭐⭐ Very High"
+    if score >= SIGNAL_THRESHOLD + 15: return "⭐⭐ High"
+    if score >= SIGNAL_THRESHOLD + 10: return "⭐ Moderate-High"
     return "— Moderate"
+
+# Backward-compat alias
+_conviction_label = _conviction
+
+
+def _divider(badge: str) -> str:
+    return f"{'─' * 30}\n{badge}\n{'─' * 30}"
 
 
 def _upside_pct(entry: float, target: float) -> str:
@@ -84,11 +95,7 @@ def _downside_pct(entry: float, stop: float) -> str:
     return f"-{(entry - stop) / entry * 100:.1f}%"
 
 
-def _divider(badge: str) -> str:
-    return f"{'─' * 30}\n{badge}\n{'─' * 30}"
-
-
-# ── New Trade Signal ───────────────────────────────────────────────────────────
+# ── New Trade Signal ──────────────────────────────────────────────────────────
 
 def send_signal_alert(signal: Dict, tech_meta: dict = None,
                       fund_meta: dict = None, sent_meta: dict = None) -> bool:
@@ -110,10 +117,10 @@ def send_signal_alert(signal: Dict, tech_meta: dict = None,
     s_tech = signal.get("technical_score", 50)
     s_ins  = signal.get("insider_score", 50)
 
-    news_line  = (sent_meta or {}).get("reasoning", "Recent news is broadly positive.")
-    fund_line  = (fund_meta or {}).get("highlights", "")
-    tech_sigs  = (tech_meta or {}).get("signals", [])
-    tech_line  = tech_sigs[0] if tech_sigs else "Technicals looking constructive."
+    news_line = (sent_meta or {}).get("reasoning", "Recent news is broadly positive.")
+    fund_line = (fund_meta or {}).get("highlights", "")
+    tech_sigs = (tech_meta or {}).get("signals", [])
+    tech_line = tech_sigs[0] if tech_sigs else "Technicals looking constructive."
 
     msg = (
         f"🟢 *NEW BUY SIGNAL*\n"
@@ -139,7 +146,7 @@ def send_signal_alert(signal: Dict, tech_meta: dict = None,
     return _send(msg)
 
 
-# ── Stop-Loss Triggered ────────────────────────────────────────────────────────
+# ── Stop-Loss Triggered ───────────────────────────────────────────────────────
 
 def send_stop_loss_alert(ticker: str, fill_price: float, pnl: float,
                          entry_price: float = None, days_held: int = None) -> bool:
@@ -151,7 +158,7 @@ def send_stop_loss_alert(ticker: str, fill_price: float, pnl: float,
         f"🔴 *STOP-LOSS HIT*\n"
         f"{_divider(badge)}\n"
         f"\n"
-        f"*{ticker}* dropped 7% from entry, triggering the automatic safety exit{held_str}.\n"
+        f"*{ticker}* dropped from entry, triggering the automatic safety exit{held_str}.\n"
         f"\n"
         f"  Sold at: `{cur}{fill_price:.2f}`\n"
         f"  Loss:    `{cur}{abs(pnl):,.2f}` ({loss_pct:.1f}% of position)\n"
@@ -186,16 +193,16 @@ def send_target_alert(ticker: str, fill_price: float, pnl: float,
 # ── Daily Report ──────────────────────────────────────────────────────────────
 
 def send_daily_report(report_text: str) -> bool:
-    badge = _exchange_badge()
-    return _send(f"📊 *DAILY REPORT — {badge}*\n\n{report_text}")
+    # The report body already contains the full exchange banner — no prefix needed
+    return _send(report_text)
 
 
 # ── Regime Change ─────────────────────────────────────────────────────────────
 
-def send_regime_change(regime_ok: bool, xjo: float, ema200: float) -> bool:
-    badge    = _exchange_badge()
-    idx      = _index_name()
-    pct      = (xjo - ema200) / ema200 * 100
+def send_regime_change(regime_ok: bool, index_val: float, ema200: float) -> bool:
+    badge = _exchange_badge()
+    idx   = _index_name()
+    pct   = (index_val - ema200) / ema200 * 100
     if regime_ok:
         msg = (
             f"✅ *MARKET TURNED BULLISH*\n"
@@ -203,7 +210,7 @@ def send_regime_change(regime_ok: bool, xjo: float, ema200: float) -> bool:
             f"\n"
             f"The {idx} has climbed back above its 200-day average — a positive sign.\n"
             f"\n"
-            f"  {idx}: `{xjo:,.0f}` ({pct:+.1f}% above average)\n"
+            f"  {idx}: `{index_val:,.0f}` ({pct:+.1f}% above average)\n"
             f"\n"
             f"🟢 _Full signals active. New trade alerts may follow._"
         )
@@ -214,7 +221,7 @@ def send_regime_change(regime_ok: bool, xjo: float, ema200: float) -> bool:
             f"\n"
             f"The {idx} dropped below its 200-day average. Position sizes halved as a precaution.\n"
             f"\n"
-            f"  {idx}: `{xjo:,.0f}` ({pct:.1f}% below average)\n"
+            f"  {idx}: `{index_val:,.0f}` ({pct:.1f}% below average)\n"
             f"\n"
             f"🔴 _Smaller positions until market recovers._"
         )
@@ -240,7 +247,7 @@ def send_stale_exit_alert(ticker: str, fill_price: float, pnl: float, days_held:
     return _send(msg)
 
 
-# ── Volume Spike ──────────────────────────────────────────────────────────────
+# ── Volume Spike Alert ────────────────────────────────────────────────────────
 
 def send_volume_spike_alert(ticker: str, price: float, volume_ratio: float, score: float) -> bool:
     badge = _exchange_badge()
@@ -271,6 +278,8 @@ def send_weekly_summary(backtest_results: dict, top_signals: list,
     port_pnl  = portfolio_summary.get("total_unrealised_pnl", 0)
     positions = portfolio_summary.get("total_positions", 0)
     regime_str = "Bullish ✅" if regime.get("regime_ok") else "Cautious ⚠️"
+    # Support both 'index' (new) and 'xjo' (legacy) regime dict keys
+    index_val = regime.get("index", regime.get("xjo", "N/A"))
 
     top_lines = ""
     for i, s in enumerate(top_signals[:5], 1):
@@ -281,7 +290,7 @@ def send_weekly_summary(backtest_results: dict, top_signals: list,
         f"📅 *WEEKLY SUMMARY*\n"
         f"{_divider(badge)}\n"
         f"\n"
-        f"*Market:* {regime_str} | {_index_name()} `{regime.get('xjo', 'N/A')}`\n"
+        f"*Market:* {regime_str} | {_index_name()} `{index_val}`\n"
         f"*Portfolio:* {positions} open | P&L `{cur}{port_pnl:+,.2f}`\n"
         f"\n"
         f"*Backtest (6 months):* {wins}/{total} strategies ≥ 55% win rate\n"
@@ -293,7 +302,7 @@ def send_weekly_summary(backtest_results: dict, top_signals: list,
     return _send(msg)
 
 
-# ── Test ──────────────────────────────────────────────────────────────────────
+# ── Test Message ──────────────────────────────────────────────────────────────
 
 def send_test_message() -> bool:
     badge = _exchange_badge()

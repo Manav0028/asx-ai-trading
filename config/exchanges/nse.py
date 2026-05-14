@@ -6,7 +6,7 @@ from config.nifty100_tickers import NIFTY100_TICKERS, NIFTY100_CODES
 _MACRO_SYMBOLS = {
     "nifty100_index": "^CNX100",
     "inr_usd":        "INRUSD=X",
-    "gold_inr":       "GC=F",         # gold in USD — close enough for regime
+    "gold_inr":       "GC=F",
     "oil_brent":      "BZ=F",
     "sp500":          "^GSPC",
     "vix":            "^VIX",
@@ -23,6 +23,11 @@ def _nse_news_query(ticker: str) -> str:
 def _nse_announcement_fetcher():
     from data_ingestion.nse_announcements import fetch_nse_announcements
     return fetch_nse_announcements()
+
+
+def _nse_insider_fetcher():
+    from data_ingestion.nse_insider_scraper import fetch_nse_insider_trades
+    return fetch_nse_insider_trades()
 
 
 NSE = Exchange(
@@ -46,6 +51,7 @@ NSE = Exchange(
     gnews_ceid="IN:en",
     news_query_fn=_nse_news_query,
     announcement_fetcher=_nse_announcement_fetcher,
+    insider_fetcher=_nse_insider_fetcher,
 )
 
 register(NSE)
