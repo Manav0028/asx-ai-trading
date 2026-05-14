@@ -1,0 +1,551 @@
+2026-05-13 04:33:30 Starting NSE Trading Scheduler
+2026-05-13 04:33:30,714 [INFO] main — Active exchange: NSE NIFTY 100 (Asia/Kolkata)
+2026-05-13 04:33:31,136 [INFO] scheduler.main_scheduler — Starting AI Trading scheduler — NSE NIFTY 100
+2026-05-13 04:33:31,137 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-13 04:33:31,137 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-13 04:33:31,137 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-13 04:33:31,138 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-13 04:33:31,138 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-13 04:33:31,138 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-13 04:33:31,138 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-13 04:33:31,138 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-13 04:33:31,138 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-13 04:33:31,138 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-13 04:33:31,138 [INFO] scheduler.main_scheduler — Scheduler built for NSE NIFTY 100 (Asia/Kolkata) — pipeline starts 09:00, market 09:15–15:30
+2026-05-13 04:33:31,139 [INFO] apscheduler.scheduler — Added job "job_fetch_prices" to job store "default"
+2026-05-13 04:33:31,139 [INFO] apscheduler.scheduler — Added job "job_fetch_announcements" to job store "default"
+2026-05-13 04:33:31,139 [INFO] apscheduler.scheduler — Added job "job_ai_sentiment_fundamental" to job store "default"
+2026-05-13 04:33:31,139 [INFO] apscheduler.scheduler — Added job "job_technical_regime" to job store "default"
+2026-05-13 04:33:31,140 [INFO] apscheduler.scheduler — Added job "job_signal_scan" to job store "default"
+2026-05-13 04:33:31,140 [INFO] apscheduler.scheduler — Added job "job_daily_report" to job store "default"
+2026-05-13 04:33:31,140 [INFO] apscheduler.scheduler — Added job "job_place_orders" to job store "default"
+2026-05-13 04:33:31,140 [INFO] apscheduler.scheduler — Added job "job_market_close" to job store "default"
+2026-05-13 04:33:31,140 [INFO] apscheduler.scheduler — Added job "job_news_refresh" to job store "default"
+2026-05-13 04:33:31,140 [INFO] apscheduler.scheduler — Added job "job_weekly_sunday" to job store "default"
+2026-05-13 04:33:31,140 [INFO] apscheduler.scheduler — Scheduler started
+2026-05-13 04:33:36 NSE Watchdog started
+2026-05-13 06:00:00,018 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 06:00:00 IST)" (scheduled at 2026-05-13 06:00:00+05:30)
+2026-05-13 06:00:00,024 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-13 06:01:30,691 [INFO] data_ingestion.news_fetcher — Stored 152 Google News items
+2026-05-13 06:01:30,691 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 08:00:00 IST)" executed successfully
+2026-05-13 08:00:00,007 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 10:00:00 IST)" (scheduled at 2026-05-13 08:00:00+05:30)
+2026-05-13 08:00:00,009 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-13 08:01:38,114 [INFO] data_ingestion.news_fetcher — Stored 41 Google News items
+2026-05-13 08:01:38,115 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 10:00:00 IST)" executed successfully
+2026-05-13 09:00:00,052 [INFO] apscheduler.executors.default — Running job "job_fetch_prices (trigger: cron[day_of_week='mon-fri', hour='9', minute='0'], next run at: 2026-05-14 09:00:00 IST)" (scheduled at 2026-05-13 09:00:00+05:30)
+2026-05-13 09:00:00,062 [INFO] scheduler.main_scheduler — Fetching OHLCV prices + macro indicators
+2026-05-13 09:00:02,114 [INFO] data_ingestion.price_fetcher — Fetching OHLCV for 100 tickers from 2026-05-08
+2026-05-13 09:00:15,059 [ERROR] yfinance — $MCDOWELL-N.NS: possibly delisted; no timezone found
+2026-05-13 09:00:15,059 [ERROR] yfinance — $ZOMATO.NS: possibly delisted; no timezone found
+2026-05-13 09:00:19,338 [ERROR] yfinance — $TATAMOTORS.NS: possibly delisted; no timezone found
+2026-05-13 09:00:19,349 [ERROR] yfinance — 
+3 Failed downloads:
+2026-05-13 09:00:19,349 [ERROR] yfinance — ['MCDOWELL-N.NS', 'ZOMATO.NS', 'TATAMOTORS.NS']: possibly delisted; no timezone found
+2026-05-13 09:00:19,883 [INFO] data_ingestion.price_fetcher — Stored 291 price rows
+2026-05-13 09:00:29,453 [INFO] data_ingestion.macro_fetcher — Stored 25 macro indicator rows
+2026-05-13 09:00:29,454 [INFO] apscheduler.executors.default — Job "job_fetch_prices (trigger: cron[day_of_week='mon-fri', hour='9', minute='0'], next run at: 2026-05-14 09:00:00 IST)" executed successfully
+2026-05-13 09:30:00,024 [INFO] apscheduler.executors.default — Running job "job_fetch_announcements (trigger: cron[day_of_week='mon-fri', hour='9', minute='30'], next run at: 2026-05-14 09:30:00 IST)" (scheduled at 2026-05-13 09:30:00+05:30)
+2026-05-13 09:30:00,032 [INFO] scheduler.main_scheduler — Fetching NSE NIFTY 100 announcements
+2026-05-13 09:31:32,885 [INFO] data_ingestion.nse_announcements — NSE announcements: 0 new items stored (API succeeded for 0/100 tickers)
+2026-05-13 09:31:32,888 [INFO] apscheduler.executors.default — Job "job_fetch_announcements (trigger: cron[day_of_week='mon-fri', hour='9', minute='30'], next run at: 2026-05-14 09:30:00 IST)" executed successfully
+2026-05-13 10:00:00,045 [INFO] apscheduler.executors.default — Running job "job_ai_sentiment_fundamental (trigger: cron[day_of_week='mon-fri', hour='10', minute='0'], next run at: 2026-05-14 10:00:00 IST)" (scheduled at 2026-05-13 10:00:00+05:30)
+2026-05-13 10:00:00,047 [INFO] apscheduler.executors.default — Running job "job_place_orders (trigger: cron[day_of_week='mon-fri', hour='10', minute='0'], next run at: 2026-05-14 10:00:00 IST)" (scheduled at 2026-05-13 10:00:00+05:30)
+2026-05-13 10:00:00,048 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 12:00:00 IST)" (scheduled at 2026-05-13 10:00:00+05:30)
+2026-05-13 10:00:00,049 [INFO] scheduler.main_scheduler — Running Ollama sentiment + fundamental scores
+2026-05-13 10:00:00,049 [INFO] scheduler.main_scheduler — Placing paper/live orders
+2026-05-13 10:00:00,049 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-13 10:00:00,134 [INFO] storage.cache — Redis connected at localhost:6379
+2026-05-13 10:00:00,166 [INFO] scheduler.main_scheduler — Paper orders placed: 0
+2026-05-13 10:00:00,167 [INFO] ai_engine.sentiment — Running Ollama sentiment for 100 tickers (3 workers)
+2026-05-13 10:00:01,851 [INFO] apscheduler.executors.default — Job "job_place_orders (trigger: cron[day_of_week='mon-fri', hour='10', minute='0'], next run at: 2026-05-14 10:00:00 IST)" executed successfully
+2026-05-13 10:01:43,347 [INFO] data_ingestion.news_fetcher — Stored 46 Google News items
+2026-05-13 10:01:43,349 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 12:00:00 IST)" executed successfully
+2026-05-13 10:01:56,761 [ERROR] yfinance — HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"Quote not found for symbol: TATAMOTORS.NS"}}}
+2026-05-13 10:02:27,555 [INFO] apscheduler.executors.default — Job "job_ai_sentiment_fundamental (trigger: cron[day_of_week='mon-fri', hour='10', minute='0'], next run at: 2026-05-14 10:00:00 IST)" executed successfully
+2026-05-13 10:15:00,034 [INFO] apscheduler.executors.default — Running job "job_technical_regime (trigger: cron[day_of_week='mon-fri', hour='10', minute='15'], next run at: 2026-05-14 10:15:00 IST)" (scheduled at 2026-05-13 10:15:00+05:30)
+2026-05-13 10:15:00,037 [INFO] scheduler.main_scheduler — Running technical engine + regime filter
+2026-05-13 10:15:00,807 [INFO] ai_engine.regime_filter — Regime filter: NIFTY 100=24303.05 EMA200=25489.66 → RISK-OFF (-4.66%)
+2026-05-13 10:15:00,808 [INFO] scheduler.main_scheduler — Regime: RISK-OFF
+2026-05-13 10:15:00,808 [INFO] apscheduler.executors.default — Job "job_technical_regime (trigger: cron[day_of_week='mon-fri', hour='10', minute='15'], next run at: 2026-05-14 10:15:00 IST)" executed successfully
+2026-05-13 10:20:00,020 [INFO] apscheduler.executors.default — Running job "job_signal_scan (trigger: cron[day_of_week='mon-fri', hour='10', minute='20'], next run at: 2026-05-14 10:20:00 IST)" (scheduled at 2026-05-13 10:20:00+05:30)
+2026-05-13 10:20:00,022 [INFO] scheduler.main_scheduler — Running full signal scan
+2026-05-13 10:20:00,061 [INFO] signals.aggregator — ADANIENT.NS → 48.3 (S=50 F=45 T=48 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,083 [INFO] signals.aggregator — ADANIPORTS.NS → 55.2 (S=50 F=68 T=53 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,109 [INFO] signals.aggregator — APOLLOHOSP.NS → 49.9 (S=50 F=52 T=48 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,125 [INFO] signals.aggregator — ASIANPAINT.NS → 52.6 (S=50 F=53 T=58 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,150 [INFO] signals.aggregator — AXISBANK.NS → 61.1 (S=50 F=78 T=66 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,168 [INFO] signals.aggregator — BAJAJ-AUTO.NS → 40.7 (S=0 F=72 T=51 I=50) regime=OFF quality=blocked: very negative news (sentiment 0/100) liquid=OK
+2026-05-13 10:20:00,189 [INFO] signals.aggregator — BAJFINANCE.NS → 56.5 (S=60 F=63 T=51 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,203 [INFO] signals.aggregator — BAJAJFINSV.NS → 55.3 (S=50 F=58 T=63 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,223 [INFO] signals.aggregator — BPCL.NS → 54.9 (S=50 F=53 T=66 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,250 [INFO] signals.aggregator — BHARTIARTL.NS → 56.8 (S=50 F=64 T=63 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,268 [INFO] signals.aggregator — BRITANNIA.NS → 57.4 (S=50 F=63 T=66 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,294 [INFO] signals.aggregator — CIPLA.NS → 55.2 (S=50 F=60 T=61 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,316 [INFO] signals.aggregator — COALINDIA.NS → 60.4 (S=50 F=88 T=53 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,334 [INFO] signals.aggregator — DIVISLAB.NS → 51.3 (S=50 F=55 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,388 [INFO] signals.aggregator — DRREDDY.NS → 57.2 (S=50 F=74 T=55 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,425 [INFO] signals.aggregator — EICHERMOT.NS → 52.6 (S=50 F=61 T=49 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,441 [INFO] signals.aggregator — GRASIM.NS → 47.1 (S=40 F=50 T=51 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,485 [INFO] signals.aggregator — HCLTECH.NS → 59.0 (S=38 F=85 T=66 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,507 [INFO] signals.aggregator — HDFCBANK.NS → 56.2 (S=38 F=78 T=61 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,529 [INFO] signals.aggregator — HDFCLIFE.NS → 50.7 (S=50 F=53 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,564 [INFO] signals.aggregator — HEROMOTOCO.NS → 58.5 (S=50 F=80 T=54 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,605 [INFO] signals.aggregator — HINDALCO.NS → 48.7 (S=25 F=69 T=56 I=50) regime=OFF quality=blocked: very negative news (sentiment 25/100) liquid=OK
+2026-05-13 10:20:00,624 [INFO] signals.aggregator — HINDUNILVR.NS → 53.4 (S=50 F=63 T=51 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,641 [INFO] signals.aggregator — ICICIBANK.NS → 48.8 (S=12 F=74 T=66 I=50) regime=OFF quality=blocked: very negative news (sentiment 12/100) liquid=OK
+2026-05-13 10:20:00,664 [INFO] signals.aggregator — ICICIPRULI.NS → 50.5 (S=50 F=54 T=48 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,701 [INFO] signals.aggregator — INDUSINDBK.NS → 59.2 (S=75 F=53 T=54 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,722 [INFO] signals.aggregator — INFY.NS → 61.2 (S=50 F=81 T=63 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,742 [INFO] signals.aggregator — ITC.NS → 54.1 (S=50 F=66 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,765 [INFO] signals.aggregator — JSWSTEEL.NS → 50.4 (S=50 F=52 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,779 [INFO] signals.aggregator — KOTAKBANK.NS → 56.4 (S=50 F=74 T=51 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,807 [INFO] signals.aggregator — LT.NS → 55.7 (S=50 F=64 T=59 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,822 [INFO] signals.aggregator — M&M.NS → 42.1 (S=15 F=60 T=50 I=50) regime=OFF quality=blocked: very negative news (sentiment 15/100) liquid=OK
+2026-05-13 10:20:00,840 [INFO] signals.aggregator — MARUTI.NS → 55.1 (S=50 F=70 T=51 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,865 [INFO] signals.aggregator — NESTLEIND.NS → 54.7 (S=50 F=71 T=48 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,902 [INFO] signals.aggregator — NTPC.NS → 66.7 (S=85 F=66 T=58 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,926 [INFO] signals.aggregator — ONGC.NS → 57.3 (S=50 F=79 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,948 [INFO] signals.aggregator — POWERGRID.NS → 57.9 (S=50 F=69 T=62 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,973 [INFO] signals.aggregator — RELIANCE.NS → 52.4 (S=50 F=64 T=46 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:00,985 [INFO] signals.aggregator — SBILIFE.NS → 42.4 (S=12 F=52 T=62 I=50) regime=OFF quality=blocked: very negative news (sentiment 12/100) liquid=OK
+2026-05-13 10:20:01,016 [INFO] signals.aggregator — SBIN.NS → 62.2 (S=50 F=78 T=71 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,033 [INFO] signals.aggregator — SHREECEM.NS → 52.3 (S=50 F=56 T=54 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,046 [INFO] signals.aggregator — SUNPHARMA.NS → 48.5 (S=40 F=55 T=51 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,064 [INFO] signals.aggregator — TATACONSUM.NS → 65.0 (S=95 F=57 T=49 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,091 [INFO] signals.aggregator — TATAMOTORS.NS → 49.6 (S=50 F=48 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,116 [INFO] signals.aggregator — TATASTEEL.NS → 53.2 (S=50 F=60 T=53 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,129 [INFO] signals.aggregator — TCS.NS → 60.4 (S=38 F=86 T=71 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,142 [INFO] signals.aggregator — TECHM.NS → 55.5 (S=50 F=76 T=46 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,152 [INFO] signals.aggregator — TITAN.NS → 45.6 (S=15 F=61 T=63 I=50) regime=OFF quality=blocked: very negative news (sentiment 15/100) liquid=OK
+2026-05-13 10:20:01,168 [INFO] signals.aggregator — ULTRACEMCO.NS → 53.0 (S=50 F=54 T=58 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,183 [INFO] signals.aggregator — WIPRO.NS → 61.4 (S=50 F=76 T=70 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,199 [INFO] signals.aggregator — ABB.NS → 58.7 (S=50 F=58 T=77 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,218 [INFO] signals.aggregator — ADANIGREEN.NS → 46.3 (S=40 F=48 T=49 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,229 [INFO] signals.aggregator — AMBUJACEM.NS → 49.3 (S=40 F=52 T=57 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,249 [INFO] signals.aggregator — ATGL.NS → 52.3 (S=50 F=52 T=57 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,271 [INFO] signals.aggregator — BANKBARODA.NS → 58.1 (S=50 F=66 T=66 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,282 [INFO] signals.aggregator — BERGEPAINT.NS → 53.5 (S=50 F=53 T=61 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,301 [INFO] signals.aggregator — BOSCHLTD.NS → 50.0 (S=50 F=49 T=51 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,333 [INFO] signals.aggregator — CANBK.NS → 59.2 (S=50 F=66 T=71 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,349 [INFO] signals.aggregator — CGPOWER.NS → 51.7 (S=50 F=62 T=45 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,362 [INFO] signals.aggregator — CHOLAFIN.NS → 59.6 (S=60 F=70 T=56 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,381 [INFO] signals.aggregator — COLPAL.NS → 49.5 (S=50 F=51 T=47 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,400 [INFO] signals.aggregator — CUMMINSIND.NS → 50.9 (S=50 F=53 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,434 [INFO] signals.aggregator — DLF.NS → 52.6 (S=50 F=62 T=49 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,483 [INFO] signals.aggregator — DMART.NS → 57.8 (S=50 F=59 T=72 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,506 [INFO] signals.aggregator — GODREJCP.NS → 55.8 (S=50 F=60 T=63 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,523 [INFO] signals.aggregator — GUJGASLTD.NS → 50.9 (S=50 F=56 T=47 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,550 [INFO] signals.aggregator — HAL.NS → 54.3 (S=50 F=58 T=59 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,580 [INFO] signals.aggregator — HAVELLS.NS → 56.6 (S=50 F=60 T=66 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,599 [INFO] signals.aggregator — IDFCFIRSTB.NS → 54.8 (S=50 F=65 T=54 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,615 [INFO] signals.aggregator — INDIGO.NS → 53.5 (S=50 F=48 T=66 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,633 [INFO] signals.aggregator — IRCTC.NS → 52.8 (S=50 F=61 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,664 [INFO] signals.aggregator — IRFC.NS → 67.3 (S=75 F=74 T=66 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,692 [INFO] signals.aggregator — JSWENERGY.NS → 44.1 (S=10 F=52 T=73 I=50) regime=OFF quality=blocked: very negative news (sentiment 10/100) liquid=OK
+2026-05-13 10:20:01,710 [INFO] signals.aggregator — LICI.NS → 59.9 (S=50 F=73 T=66 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,729 [INFO] signals.aggregator — LUPIN.NS → 55.4 (S=50 F=67 T=55 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,745 [INFO] signals.aggregator — MANKIND.NS → 51.0 (S=50 F=53 T=51 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,776 [INFO] signals.aggregator — MARICO.NS → 54.3 (S=50 F=71 T=46 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,792 [INFO] signals.aggregator — MCDOWELL-N.NS → 49.6 (S=50 F=48 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,810 [INFO] signals.aggregator — MOTHERSON.NS → 54.8 (S=50 F=60 T=59 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,826 [INFO] signals.aggregator — MUTHOOTFIN.NS → 63.3 (S=50 F=81 T=72 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,844 [INFO] signals.aggregator — NHPC.NS → 55.6 (S=50 F=57 T=66 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,860 [INFO] signals.aggregator — NMDC.NS → 59.8 (S=50 F=80 T=59 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,885 [INFO] signals.aggregator — NYKAA.NS → 50.0 (S=50 F=51 T=49 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,906 [INFO] signals.aggregator — OFSS.NS → 55.8 (S=50 F=80 T=43 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,923 [INFO] signals.aggregator — PAGEIND.NS → 64.7 (S=75 F=55 T=74 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,939 [INFO] signals.aggregator — PFC.NS → 53.6 (S=50 F=52 T=62 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,956 [INFO] signals.aggregator — PIIND.NS → 53.0 (S=50 F=54 T=58 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:01,988 [INFO] signals.aggregator — PIDILITIND.NS → 53.7 (S=50 F=67 T=48 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:02,014 [INFO] signals.aggregator — PNB.NS → 52.0 (S=25 F=68 T=70 I=50) regime=OFF quality=blocked: very negative news (sentiment 25/100) liquid=OK
+2026-05-13 10:20:02,030 [INFO] signals.aggregator — RECLTD.NS → 60.3 (S=50 F=65 T=76 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:02,045 [INFO] signals.aggregator — SAIL.NS → 54.0 (S=50 F=66 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:02,060 [INFO] signals.aggregator — SIEMENS.NS → 56.4 (S=50 F=53 T=72 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:02,085 [INFO] signals.aggregator — SRF.NS → 52.2 (S=50 F=58 T=51 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:02,098 [INFO] signals.aggregator — TATAPOWER.NS → 54.3 (S=50 F=55 T=62 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:02,107 [INFO] signals.aggregator — TORNTPHARM.NS → 49.3 (S=50 F=47 T=51 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:02,117 [INFO] signals.aggregator — TRENT.NS → 57.8 (S=50 F=63 T=68 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:02,128 [INFO] signals.aggregator — UPL.NS → 54.0 (S=50 F=61 T=55 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:02,140 [INFO] signals.aggregator — VBL.NS → 51.8 (S=50 F=59 T=49 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:02,152 [INFO] signals.aggregator — VEDL.NS → 62.2 (S=50 F=82 T=67 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:02,163 [INFO] signals.aggregator — ZOMATO.NS → 49.6 (S=50 F=48 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-13 10:20:02,164 [INFO] scheduler.main_scheduler — Signal scan complete: 100 tickers scored, 2 above threshold (65)
+2026-05-13 10:20:02,164 [INFO] apscheduler.executors.default — Job "job_signal_scan (trigger: cron[day_of_week='mon-fri', hour='10', minute='20'], next run at: 2026-05-14 10:20:00 IST)" executed successfully
+2026-05-13 10:30:00,021 [INFO] apscheduler.executors.default — Running job "job_daily_report (trigger: cron[day_of_week='mon-fri', hour='10', minute='30'], next run at: 2026-05-14 10:30:00 IST)" (scheduled at 2026-05-13 10:30:00+05:30)
+2026-05-13 10:30:00,024 [INFO] scheduler.main_scheduler — Generating daily report
+2026-05-13 10:30:06,566 [INFO] reports.daily_report — Daily report sent:
+Wednesday 13 May 2026
+
+🌏 Market (NSE NIFTY 100): CAUTIOUS ⚠️
+NIFTY 100 at 24,303.05 vs 200-day avg 25,489.66 (-4.7%)
+Position sizes halved — market 4.7% below its 200-day average.
+
+💼 Portfolio: 19 positions | P&L ₹-181.85
+   ✅ 0 winning | ❌ 19 losing
+
+🏆 Top 10 Signals Today (score ≥ 65):
+🟡 1. RMD.AX — 74.3/100
+   Buy ₹27.60 → Target ₹29.71 (+7.7%) | Stop ₹26.19
+   Position: ₹10,000 | news: mixed news | rsi 23
+
+🟡 2. MYS.AX — 72.7/100
+   Buy ₹4.60 → Target ₹4.93 (+7.1%) | Stop ₹4.38
+   Position: ₹10,000 | news: mixed news | rsi 54
+
+🟡 3. GQG.AX — 72.2/100
+   Buy ₹1.55 → Target ₹1.70 (+9.5%) | Stop ₹1.46
+   Position: ₹10,000 | news: mixed news | rsi 34
+
+🟡 4. FLT.AX — 69.3/100
+   Buy ₹10.42 → Target ₹11.40 (+9.4%) | Stop ₹9.77
+   Position: ₹10,000 | news: mixed news | rsi 34
+
+🟡 5. QAN.AX — 68.1/100
+   Buy ₹8.61 → Target ₹9.25 (+7.4%) | Stop ₹8.18
+   Position: ₹10,000 | news: mixed news | rsi 43
+
+🟡 6. BHP.AX — 67.7/100
+   Buy ₹59.78 → Target ₹63.51 (+6.2%) | Stop ₹57.29
+   Position: ₹10,000 | news: mixed news | rsi 67
+
+🟡 7. IRFC.NS — 67.3/100
+   Buy ₹99.36 → Target ₹105.82 (+6.5%) | Stop ₹95.05
+   Position: ₹10,000 | news: Deserving watchlist spot | rsi 28
+
+🟡 8. WAF.AX — 67.0/100
+   Buy ₹3.25 → Target ₹3.65 (+12.3%) | Stop ₹2.98
+   Position: ₹10,000 | news: mixed news | rsi 43
+
+🟡 9. NTPC.NS — 66.7/100
+   Buy ₹392.70 → Target ₹417.69 (+6.4%) | Stop ₹376.04
+   Position: ₹10,000 | news: NTPC inks nuclear deal | rsi 36
+
+🟡 10. AIS.AX — 66.5/100
+   Buy ₹0.44 → Target ₹0.52 (+16.6%) | Stop ₹0.40
+   Position: ₹10,000 | news: mixed news | rsi 74
+
+📋 Open Positions:
+📉 TCS.NS -0.1% (₹-9) | 1d held | 5.0% to stop | 7.5% to target
+📉 RECLTD.NS -0.1% (₹-10) | 1d held | 5.4% to stop | 8.1% to target
+📉 TECHM.NS -0.1% (₹-10) | 1d held | 5.6% to stop | 8.4% to target
+📉 CHOLAFIN.NS -0.1% (₹-9) | 1d held | 6.7% to stop | 10.0% to target
+📉 TATACONSUM.NS -0.1% (₹-9) | 1d held | 5.0% to stop | 7.5% to target
+📉 RMD.AX -0.1% (₹-10) | 0d held | 5.1% to stop | 7.7% to target
+📉 MYS.AX -0.1% (₹-10) | 0d held | 4.7% to stop | 7.1% to target
+📉 GQG.AX -0.1% (₹-10) | 0d held | 6.3% to stop | 9.5% to target
+📉 FLT.AX -0.1% (₹-10) | 0d held | 6.2% to stop | 9.4% to target
+📉 QAN.AX -0.1% (₹-10) | 0d held | 4.9% to stop | 7.4% to target
+📉 BHP.AX -0.1% (₹-10) | 0d held | 4.2% to stop | 6.2% to target
+📉 WAF.AX -0.1% (₹-10) | 0d held | 8.2% to stop | 12.3% to target
+📉 AIS.AX -0.1% (₹-10) | 0d held | 11.2% to stop | 16.6% to target
+📉 GPT.AX -0.1% (₹-10) | 0d held | 4.2% to stop | 6.3% to target
+📉 MHJ.AX -0.1% (₹-5) | 0d held | 6.5% to stop | 9.6% to target
+📉 STO.AX -0.1% (₹-10) | 0d held | 4.4% to stop | 6.7% to target
+📉 NEM.AX -0.1% (₹-10) | 0d held | 6.1% to stop | 9.1% to target
+📉 SUL.AX -0.1% (₹-10) | 0d held | 6.8% to stop | 10.2% to target
+📉 SFR.AX -0.1% (₹-10) | 0d held | 6.5% to stop | 9.8% to target
+2026-05-13 10:30:06,567 [INFO] apscheduler.executors.default — Job "job_daily_report (trigger: cron[day_of_week='mon-fri', hour='10', minute='30'], next run at: 2026-05-14 10:30:00 IST)" executed successfully
+2026-05-13 12:00:00,014 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 14:00:00 IST)" (scheduled at 2026-05-13 12:00:00+05:30)
+2026-05-13 12:00:00,018 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-13 12:01:48,650 [INFO] data_ingestion.news_fetcher — Stored 38 Google News items
+2026-05-13 12:01:48,652 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 14:00:00 IST)" executed successfully
+2026-05-13 14:00:00,007 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 16:00:00 IST)" (scheduled at 2026-05-13 14:00:00+05:30)
+2026-05-13 14:00:00,012 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-13 14:01:45,073 [INFO] data_ingestion.news_fetcher — Stored 40 Google News items
+2026-05-13 14:01:45,074 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 16:00:00 IST)" executed successfully
+2026-05-13 15:30:00,029 [INFO] apscheduler.executors.default — Running job "job_market_close (trigger: cron[day_of_week='mon-fri', hour='15', minute='30'], next run at: 2026-05-14 15:30:00 IST)" (scheduled at 2026-05-13 15:30:00+05:30)
+2026-05-13 15:30:00,032 [INFO] scheduler.main_scheduler — Market close — evaluating exits + updating P&L
+2026-05-13 15:30:00,114 [INFO] apscheduler.executors.default — Job "job_market_close (trigger: cron[day_of_week='mon-fri', hour='15', minute='30'], next run at: 2026-05-14 15:30:00 IST)" executed successfully
+2026-05-13 16:00:00,033 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 18:00:00 IST)" (scheduled at 2026-05-13 16:00:00+05:30)
+2026-05-13 16:00:00,037 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-13 16:01:42,502 [INFO] data_ingestion.news_fetcher — Stored 34 Google News items
+2026-05-13 16:01:42,504 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 18:00:00 IST)" executed successfully
+2026-05-13 18:00:00,037 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 20:00:00 IST)" (scheduled at 2026-05-13 18:00:00+05:30)
+2026-05-13 18:00:00,044 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-13 18:01:41,546 [INFO] data_ingestion.news_fetcher — Stored 29 Google News items
+2026-05-13 18:01:41,547 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 20:00:00 IST)" executed successfully
+2026-05-13 20:00:00,015 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 22:00:00 IST)" (scheduled at 2026-05-13 20:00:00+05:30)
+2026-05-13 20:00:00,019 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-13 20:01:46,132 [INFO] data_ingestion.news_fetcher — Stored 26 Google News items
+2026-05-13 20:01:46,133 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-13 22:00:00 IST)" executed successfully
+2026-05-13 22:00:00,013 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 00:00:00 IST)" (scheduled at 2026-05-13 22:00:00+05:30)
+2026-05-13 22:00:00,020 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-13 22:01:46,101 [INFO] data_ingestion.news_fetcher — Stored 25 Google News items
+2026-05-13 22:01:46,101 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 00:00:00 IST)" executed successfully
+2026-05-14 00:00:00,052 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 02:00:00 IST)" (scheduled at 2026-05-14 00:00:00+05:30)
+2026-05-14 00:00:00,066 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-14 00:01:36,182 [INFO] data_ingestion.news_fetcher — Stored 18 Google News items
+2026-05-14 00:01:36,183 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 02:00:00 IST)" executed successfully
+2026-05-14 02:00:00,020 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 04:00:00 IST)" (scheduled at 2026-05-14 02:00:00+05:30)
+2026-05-14 02:00:00,028 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-14 02:01:33,492 [INFO] data_ingestion.news_fetcher — Stored 18 Google News items
+2026-05-14 02:01:33,493 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 04:00:00 IST)" executed successfully
+2026-05-14 04:00:00,014 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 06:00:00 IST)" (scheduled at 2026-05-14 04:00:00+05:30)
+2026-05-14 04:00:00,017 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-14 04:01:29,110 [INFO] data_ingestion.news_fetcher — Stored 27 Google News items
+2026-05-14 04:01:29,111 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 06:00:00 IST)" executed successfully
+2026-05-14 06:00:00,011 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 08:00:00 IST)" (scheduled at 2026-05-14 06:00:00+05:30)
+2026-05-14 06:00:00,014 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-14 06:01:25,513 [INFO] data_ingestion.news_fetcher — Stored 18 Google News items
+2026-05-14 06:01:25,514 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 08:00:00 IST)" executed successfully
+2026-05-14 08:00:00,004 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 10:00:00 IST)" (scheduled at 2026-05-14 08:00:00+05:30)
+2026-05-14 08:00:00,007 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-14 08:01:49,230 [INFO] data_ingestion.news_fetcher — Stored 14 Google News items
+2026-05-14 08:01:49,231 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 10:00:00 IST)" executed successfully
+2026-05-14 09:00:00,016 [INFO] apscheduler.executors.default — Running job "job_fetch_prices (trigger: cron[day_of_week='mon-fri', hour='9', minute='0'], next run at: 2026-05-15 09:00:00 IST)" (scheduled at 2026-05-14 09:00:00+05:30)
+2026-05-14 09:00:00,020 [INFO] scheduler.main_scheduler — Fetching OHLCV prices + macro indicators
+2026-05-14 09:00:00,021 [INFO] data_ingestion.price_fetcher — Fetching OHLCV for 100 tickers from 2026-05-09
+2026-05-14 09:00:03,219 [ERROR] yfinance — $ZOMATO.NS: possibly delisted; no timezone found
+2026-05-14 09:00:03,220 [ERROR] yfinance — $MCDOWELL-N.NS: possibly delisted; no timezone found
+2026-05-14 09:00:06,695 [ERROR] yfinance — $TATAMOTORS.NS: possibly delisted; no timezone found
+2026-05-14 09:00:06,702 [ERROR] yfinance — 
+3 Failed downloads:
+2026-05-14 09:00:06,702 [ERROR] yfinance — ['ZOMATO.NS', 'MCDOWELL-N.NS', 'TATAMOTORS.NS']: possibly delisted; no timezone found
+2026-05-14 09:00:07,256 [INFO] data_ingestion.price_fetcher — Stored 291 price rows
+2026-05-14 09:00:10,366 [INFO] data_ingestion.macro_fetcher — Stored 25 macro indicator rows
+2026-05-14 09:00:10,367 [INFO] apscheduler.executors.default — Job "job_fetch_prices (trigger: cron[day_of_week='mon-fri', hour='9', minute='0'], next run at: 2026-05-15 09:00:00 IST)" executed successfully
+2026-05-14 09:30:00,022 [INFO] apscheduler.executors.default — Running job "job_fetch_announcements (trigger: cron[day_of_week='mon-fri', hour='9', minute='30'], next run at: 2026-05-15 09:30:00 IST)" (scheduled at 2026-05-14 09:30:00+05:30)
+2026-05-14 09:30:00,025 [INFO] scheduler.main_scheduler — Fetching NSE NIFTY 100 announcements
+2026-05-14 09:31:36,876 [INFO] data_ingestion.nse_announcements — NSE announcements: 0 new items stored (API succeeded for 0/100 tickers)
+2026-05-14 09:31:36,879 [INFO] apscheduler.executors.default — Job "job_fetch_announcements (trigger: cron[day_of_week='mon-fri', hour='9', minute='30'], next run at: 2026-05-15 09:30:00 IST)" executed successfully
+2026-05-14 10:00:00,017 [INFO] apscheduler.executors.default — Running job "job_ai_sentiment_fundamental (trigger: cron[day_of_week='mon-fri', hour='10', minute='0'], next run at: 2026-05-15 10:00:00 IST)" (scheduled at 2026-05-14 10:00:00+05:30)
+2026-05-14 10:00:00,019 [INFO] apscheduler.executors.default — Running job "job_place_orders (trigger: cron[day_of_week='mon-fri', hour='10', minute='0'], next run at: 2026-05-15 10:00:00 IST)" (scheduled at 2026-05-14 10:00:00+05:30)
+2026-05-14 10:00:00,019 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 12:00:00 IST)" (scheduled at 2026-05-14 10:00:00+05:30)
+2026-05-14 10:00:00,021 [INFO] scheduler.main_scheduler — Running Ollama sentiment + fundamental scores
+2026-05-14 10:00:00,021 [INFO] scheduler.main_scheduler — Placing paper/live orders
+2026-05-14 10:00:00,021 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-14 10:00:00,067 [INFO] scheduler.main_scheduler — Paper orders placed: 0
+2026-05-14 10:00:00,095 [INFO] apscheduler.executors.default — Job "job_place_orders (trigger: cron[day_of_week='mon-fri', hour='10', minute='0'], next run at: 2026-05-15 10:00:00 IST)" executed successfully
+2026-05-14 10:00:00,099 [INFO] ai_engine.sentiment — Running Ollama sentiment for 100 tickers (3 workers)
+2026-05-14 10:01:34,109 [INFO] data_ingestion.news_fetcher — Stored 36 Google News items
+2026-05-14 10:01:34,111 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 12:00:00 IST)" executed successfully
+2026-05-14 10:02:28,031 [ERROR] yfinance — HTTP Error 404: {"quoteSummary":{"result":null,"error":{"code":"Not Found","description":"Quote not found for symbol: TATAMOTORS.NS"}}}
+2026-05-14 10:02:57,725 [INFO] apscheduler.executors.default — Job "job_ai_sentiment_fundamental (trigger: cron[day_of_week='mon-fri', hour='10', minute='0'], next run at: 2026-05-15 10:00:00 IST)" executed successfully
+2026-05-14 10:15:00,020 [INFO] apscheduler.executors.default — Running job "job_technical_regime (trigger: cron[day_of_week='mon-fri', hour='10', minute='15'], next run at: 2026-05-15 10:15:00 IST)" (scheduled at 2026-05-14 10:15:00+05:30)
+2026-05-14 10:15:00,025 [INFO] scheduler.main_scheduler — Running technical engine + regime filter
+2026-05-14 10:15:00,744 [INFO] ai_engine.regime_filter — Regime filter: NIFTY 100=24369.05 EMA200=25469.91 → RISK-OFF (-4.32%)
+2026-05-14 10:15:00,745 [INFO] scheduler.main_scheduler — Regime: RISK-OFF
+2026-05-14 10:15:00,745 [INFO] apscheduler.executors.default — Job "job_technical_regime (trigger: cron[day_of_week='mon-fri', hour='10', minute='15'], next run at: 2026-05-15 10:15:00 IST)" executed successfully
+2026-05-14 10:20:00,019 [INFO] apscheduler.executors.default — Running job "job_signal_scan (trigger: cron[day_of_week='mon-fri', hour='10', minute='20'], next run at: 2026-05-15 10:20:00 IST)" (scheduled at 2026-05-14 10:20:00+05:30)
+2026-05-14 10:20:00,021 [INFO] scheduler.main_scheduler — Running full signal scan
+2026-05-14 10:20:00,045 [INFO] signals.aggregator — ADANIENT.NS → 46.1 (S=50 F=45 T=40 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,061 [INFO] signals.aggregator — ADANIPORTS.NS → 53.6 (S=50 F=68 T=46 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,082 [INFO] signals.aggregator — APOLLOHOSP.NS → 51.8 (S=50 F=53 T=55 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,103 [INFO] signals.aggregator — ASIANPAINT.NS → 51.1 (S=50 F=56 T=48 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,121 [INFO] signals.aggregator — AXISBANK.NS → 61.1 (S=50 F=78 T=66 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,137 [INFO] signals.aggregator — BAJAJ-AUTO.NS → 49.1 (S=25 F=72 T=54 I=50) regime=OFF quality=blocked: very negative news (sentiment 25/100) liquid=OK
+2026-05-14 10:20:00,159 [INFO] signals.aggregator — BAJFINANCE.NS → 58.4 (S=60 F=63 T=59 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,181 [INFO] signals.aggregator — BAJAJFINSV.NS → 60.0 (S=75 F=58 T=52 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,206 [INFO] signals.aggregator — BPCL.NS → 50.9 (S=50 F=53 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,220 [INFO] signals.aggregator — BHARTIARTL.NS → 53.9 (S=50 F=62 T=53 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,236 [INFO] signals.aggregator — BRITANNIA.NS → 57.4 (S=50 F=63 T=66 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,260 [INFO] signals.aggregator — CIPLA.NS → 44.9 (S=12 F=59 T=66 I=50) regime=OFF quality=blocked: very negative news (sentiment 12/100) liquid=OK
+2026-05-14 10:20:00,289 [INFO] signals.aggregator — COALINDIA.NS → 60.4 (S=50 F=88 T=53 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,322 [INFO] signals.aggregator — DIVISLAB.NS → 50.8 (S=50 F=59 T=44 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,356 [INFO] signals.aggregator — DRREDDY.NS → 58.0 (S=50 F=67 T=65 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,377 [INFO] signals.aggregator — EICHERMOT.NS → 52.8 (S=50 F=61 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,409 [INFO] signals.aggregator — GRASIM.NS → 46.3 (S=40 F=50 T=48 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,433 [INFO] signals.aggregator — HCLTECH.NS → 59.4 (S=40 F=85 T=64 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,449 [INFO] signals.aggregator — HDFCBANK.NS → 59.6 (S=50 F=78 T=60 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,471 [INFO] signals.aggregator — HDFCLIFE.NS → 50.5 (S=50 F=54 T=48 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,486 [INFO] signals.aggregator — HEROMOTOCO.NS → 69.8 (S=85 F=80 T=57 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,500 [INFO] signals.aggregator — HINDALCO.NS → 45.7 (S=25 F=69 T=44 I=50) regime=OFF quality=blocked: very negative news (sentiment 25/100) liquid=OK
+2026-05-14 10:20:00,515 [INFO] signals.aggregator — HINDUNILVR.NS → 53.8 (S=50 F=63 T=53 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,544 [INFO] signals.aggregator — ICICIBANK.NS → 48.1 (S=10 F=74 T=66 I=50) regime=OFF quality=blocked: very negative news (sentiment 10/100) liquid=OK
+2026-05-14 10:20:00,570 [INFO] signals.aggregator — ICICIPRULI.NS → 50.7 (S=50 F=55 T=48 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,586 [INFO] signals.aggregator — INDUSINDBK.NS → 52.3 (S=60 F=53 T=44 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,595 [INFO] signals.aggregator — INFY.NS → 60.9 (S=50 F=81 T=62 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,608 [INFO] signals.aggregator — ITC.NS → 52.7 (S=50 F=66 T=45 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,625 [INFO] signals.aggregator — JSWSTEEL.NS → 49.7 (S=50 F=52 T=47 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,641 [INFO] signals.aggregator — KOTAKBANK.NS → 55.4 (S=50 F=74 T=47 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,656 [INFO] signals.aggregator — LT.NS → 55.7 (S=50 F=64 T=59 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,683 [INFO] signals.aggregator — M&M.NS → 43.1 (S=15 F=60 T=54 I=50) regime=OFF quality=blocked: very negative news (sentiment 15/100) liquid=OK
+2026-05-14 10:20:00,706 [INFO] signals.aggregator — MARUTI.NS → 54.5 (S=50 F=74 T=44 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,734 [INFO] signals.aggregator — NESTLEIND.NS → 53.2 (S=50 F=71 T=42 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,758 [INFO] signals.aggregator — NTPC.NS → 67.8 (S=85 F=66 T=63 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,789 [INFO] signals.aggregator — ONGC.NS → 55.7 (S=50 F=79 T=44 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,807 [INFO] signals.aggregator — POWERGRID.NS → 60.1 (S=50 F=69 T=71 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,836 [INFO] signals.aggregator — RELIANCE.NS → 51.1 (S=50 F=64 T=41 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,856 [INFO] signals.aggregator — SBILIFE.NS → 35.5 (S=0 F=52 T=50 I=50) regime=OFF quality=blocked: very negative news (sentiment 0/100) liquid=OK
+2026-05-14 10:20:00,874 [INFO] signals.aggregator — SBIN.NS → 62.0 (S=50 F=78 T=70 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,897 [INFO] signals.aggregator — SHREECEM.NS → 55.8 (S=62 F=56 T=52 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,917 [INFO] signals.aggregator — SUNPHARMA.NS → 55.0 (S=60 F=55 T=52 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,943 [INFO] signals.aggregator — TATACONSUM.NS → 64.2 (S=90 F=57 T=52 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,968 [INFO] signals.aggregator — TATAMOTORS.NS → 49.6 (S=50 F=48 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,988 [INFO] signals.aggregator — TATASTEEL.NS → 51.4 (S=50 F=60 T=45 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:00,999 [INFO] signals.aggregator — TCS.NS → 54.9 (S=20 F=86 T=70 I=50) regime=OFF quality=blocked: very negative news (sentiment 20/100) liquid=OK
+2026-05-14 10:20:01,007 [INFO] signals.aggregator — TECHM.NS → 58.1 (S=50 F=76 T=57 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,016 [INFO] signals.aggregator — TITAN.NS → 45.8 (S=15 F=62 T=63 I=50) regime=OFF quality=blocked: very negative news (sentiment 15/100) liquid=OK
+2026-05-14 10:20:01,026 [INFO] signals.aggregator — ULTRACEMCO.NS → 54.3 (S=50 F=54 T=63 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,035 [INFO] signals.aggregator — WIPRO.NS → 61.4 (S=50 F=76 T=70 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,043 [INFO] signals.aggregator — ABB.NS → 58.4 (S=50 F=58 T=76 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,051 [INFO] signals.aggregator — ADANIGREEN.NS → 45.0 (S=40 F=48 T=44 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,060 [INFO] signals.aggregator — AMBUJACEM.NS → 50.6 (S=50 F=52 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,069 [INFO] signals.aggregator — ATGL.NS → 51.4 (S=50 F=52 T=54 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,090 [INFO] signals.aggregator — BANKBARODA.NS → 57.4 (S=50 F=66 T=63 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,105 [INFO] signals.aggregator — BERGEPAINT.NS → 52.0 (S=50 F=56 T=52 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,112 [INFO] signals.aggregator — BOSCHLTD.NS → 48.8 (S=40 F=49 T=58 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,121 [INFO] signals.aggregator — CANBK.NS → 59.0 (S=50 F=66 T=70 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,129 [INFO] signals.aggregator — CGPOWER.NS → 52.2 (S=50 F=62 T=47 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,138 [INFO] signals.aggregator — CHOLAFIN.NS → 64.5 (S=85 F=70 T=46 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,146 [INFO] signals.aggregator — COLPAL.NS → 51.9 (S=50 F=51 T=56 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,155 [INFO] signals.aggregator — CUMMINSIND.NS → 50.9 (S=50 F=53 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,170 [INFO] signals.aggregator — DLF.NS → 55.6 (S=50 F=69 T=54 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,190 [INFO] signals.aggregator — DMART.NS → 55.4 (S=50 F=59 T=63 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,205 [INFO] signals.aggregator — GODREJCP.NS → 55.7 (S=50 F=61 T=62 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,216 [INFO] signals.aggregator — GUJGASLTD.NS → 52.6 (S=50 F=56 T=54 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,228 [INFO] signals.aggregator — HAL.NS → 52.7 (S=50 F=58 T=53 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,247 [INFO] signals.aggregator — HAVELLS.NS → 55.2 (S=50 F=60 T=61 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,260 [INFO] signals.aggregator — IDFCFIRSTB.NS → 59.5 (S=75 F=65 T=43 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,292 [INFO] signals.aggregator — INDIGO.NS → 52.6 (S=50 F=48 T=62 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,306 [INFO] signals.aggregator — IRCTC.NS → 53.7 (S=50 F=64 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,325 [INFO] signals.aggregator — IRFC.NS → 57.7 (S=50 F=74 T=57 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,356 [INFO] signals.aggregator — JSWENERGY.NS → 44.2 (S=10 F=53 T=72 I=50) regime=OFF quality=blocked: very negative news (sentiment 10/100) liquid=OK
+2026-05-14 10:20:01,373 [INFO] signals.aggregator — LICI.NS → 56.6 (S=50 F=73 T=53 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,404 [INFO] signals.aggregator — LUPIN.NS → 57.4 (S=50 F=68 T=62 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,419 [INFO] signals.aggregator — MANKIND.NS → 51.2 (S=50 F=54 T=51 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,438 [INFO] signals.aggregator — MARICO.NS → 54.3 (S=50 F=71 T=46 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,454 [INFO] signals.aggregator — MCDOWELL-N.NS → 49.6 (S=50 F=48 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,499 [INFO] signals.aggregator — MOTHERSON.NS → 53.2 (S=50 F=58 T=55 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,535 [INFO] signals.aggregator — MUTHOOTFIN.NS → 57.4 (S=50 F=79 T=51 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,557 [INFO] signals.aggregator — NHPC.NS → 54.7 (S=50 F=57 T=62 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,583 [INFO] signals.aggregator — NMDC.NS → 56.1 (S=50 F=80 T=44 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,611 [INFO] signals.aggregator — NYKAA.NS → 50.0 (S=50 F=51 T=49 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,630 [INFO] signals.aggregator — OFSS.NS → 57.8 (S=50 F=80 T=52 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,646 [INFO] signals.aggregator — PAGEIND.NS → 72.1 (S=100 F=55 T=74 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,668 [INFO] signals.aggregator — PFC.NS → 64.1 (S=90 F=52 T=56 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,690 [INFO] signals.aggregator — PIIND.NS → 51.8 (S=50 F=54 T=53 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,707 [INFO] signals.aggregator — PIDILITIND.NS → 64.0 (S=85 F=67 T=47 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,727 [INFO] signals.aggregator — PNB.NS → 47.5 (S=10 F=68 T=70 I=50) regime=OFF quality=blocked: very negative news (sentiment 10/100) liquid=OK
+2026-05-14 10:20:01,748 [INFO] signals.aggregator — RECLTD.NS → 59.3 (S=50 F=65 T=72 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,768 [INFO] signals.aggregator — SAIL.NS → 51.5 (S=50 F=61 T=45 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,792 [INFO] signals.aggregator — SIEMENS.NS → 57.3 (S=50 F=53 T=76 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,815 [INFO] signals.aggregator — SRF.NS → 53.2 (S=50 F=58 T=55 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,839 [INFO] signals.aggregator — TATAPOWER.NS → 48.3 (S=25 F=52 T=71 I=50) regime=OFF quality=blocked: very negative news (sentiment 25/100) liquid=OK
+2026-05-14 10:20:01,860 [INFO] signals.aggregator — TORNTPHARM.NS → 51.2 (S=50 F=47 T=58 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,878 [INFO] signals.aggregator — TRENT.NS → 56.4 (S=50 F=63 T=63 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,899 [INFO] signals.aggregator — UPL.NS → 52.9 (S=50 F=61 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,923 [INFO] signals.aggregator — VBL.NS → 51.8 (S=50 F=59 T=49 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,954 [INFO] signals.aggregator — VEDL.NS → 61.4 (S=50 F=82 T=64 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,961 [INFO] signals.aggregator — ZOMATO.NS → 49.6 (S=50 F=48 T=50 I=50) regime=OFF quality=OK liquid=OK
+2026-05-14 10:20:01,961 [INFO] scheduler.main_scheduler — Signal scan complete: 100 tickers scored, 3 above threshold (65)
+2026-05-14 10:20:01,961 [INFO] apscheduler.executors.default — Job "job_signal_scan (trigger: cron[day_of_week='mon-fri', hour='10', minute='20'], next run at: 2026-05-15 10:20:00 IST)" executed successfully
+2026-05-14 10:30:00,020 [INFO] apscheduler.executors.default — Running job "job_daily_report (trigger: cron[day_of_week='mon-fri', hour='10', minute='30'], next run at: 2026-05-15 10:30:00 IST)" (scheduled at 2026-05-14 10:30:00+05:30)
+2026-05-14 10:30:00,023 [INFO] scheduler.main_scheduler — Generating daily report
+2026-05-14 10:30:06,080 [INFO] reports.daily_report — Daily report sent:
+Thursday 14 May 2026
+
+🌏 Market (NSE NIFTY 100): CAUTIOUS ⚠️
+NIFTY 100 at 24,369.05 vs 200-day avg 25,469.91 (-4.3%)
+Position sizes halved — market 4.3% below its 200-day average.
+
+💼 Portfolio: 23 positions | P&L ₹+1,939.36
+   ✅ 15 winning | ❌ 8 losing
+
+🏆 Top 10 Signals Today (score ≥ 65):
+🟡 1. RMD.AX — 73.7/100
+   Buy ₹28.21 → Target ₹30.39 (+7.7%) | Stop ₹26.75
+   Position: ₹10,000 | news: mixed news | rsi 28
+
+🟡 2. PAGEIND.NS — 72.1/100
+   Buy ₹35330.00 → Target ₹37866.07 (+7.2%) | Stop ₹33639.29
+   Position: ₹10,000 | news: stock rises on strong position | rsi 24
+
+🟡 3. MHJ.AX — 71.0/100
+   Buy ₹0.36 → Target ₹0.39 (+9.7%) | Stop ₹0.34
+   Position: ₹0 | news: mixed news | rsi 24
+
+🟡 4. HEROMOTOCO.NS — 69.8/100
+   Buy ₹4995.00 → Target ₹5459.89 (+9.3%) | Stop ₹4685.07
+   Position: ₹10,000 | news: Strong Earnings Reported | rsi 48
+
+🟡 5. JBH.AX — 69.4/100
+   Buy ₹71.43 → Target ₹79.12 (+10.8%) | Stop ₹66.30
+   Position: ₹10,000 | news: mixed news | rsi 36
+
+🟡 6. BHP.AX — 68.9/100
+   Buy ₹61.52 → Target ₹65.58 (+6.6%) | Stop ₹58.81
+   Position: ₹10,000 | news: mixed news | rsi 73
+
+🟡 7. SUL.AX — 68.5/100
+   Buy ₹11.27 → Target ₹12.40 (+10.0%) | Stop ₹10.52
+   Position: ₹10,000 | news: mixed news | rsi 26
+
+🟡 8. WAF.AX — 68.0/100
+   Buy ₹3.31 → Target ₹3.71 (+12.0%) | Stop ₹3.05
+   Position: ₹10,000 | news: mixed news | rsi 53
+
+🟡 9. NTPC.NS — 67.8/100
+   Buy ₹390.45 → Target ₹416.02 (+6.6%) | Stop ₹373.40
+   Position: ₹10,000 | news: nuclear project collaboration | rsi 37
+
+🟡 10. RIO.AX — 67.3/100
+   Buy ₹189.00 → Target ₹201.03 (+6.4%) | Stop ₹180.98
+   Position: ₹10,000 | news: mixed news | rsi 75
+
+📋 Open Positions:
+📈 GQG.AX +4.7% (₹+472) | 1d held | 10.6% to stop | 4.4% to target
+📈 SFR.AX +4.4% (₹+440) | 1d held | 10.5% to stop | 5.0% to target
+📈 AIS.AX +4.4% (₹+439) | 1d held | 15.1% to stop | 11.6% to target
+📈 BHP.AX +2.8% (₹+281) | 1d held | 6.9% to stop | 3.2% to target
+📈 RMD.AX +2.1% (₹+210) | 1d held | 7.2% to stop | 5.3% to target
+📈 WAF.AX +1.7% (₹+174) | 1d held | 9.9% to stop | 10.3% to target
+📈 STO.AX +1.5% (₹+149) | 1d held | 5.9% to stop | 5.0% to target
+📈 FLT.AX +1.2% (₹+124) | 1d held | 7.5% to stop | 7.9% to target
+📈 GPT.AX +1.0% (₹+98) | 1d held | 5.2% to stop | 5.2% to target
+📈 CHOLAFIN.NS +0.8% (₹+72) | 2d held | 7.5% to stop | 9.0% to target
+📈 MHJ.AX +0.6% (₹+30) | 1d held | 7.1% to stop | 8.8% to target
+📈 QAN.AX +0.6% (₹+60) | 1d held | 5.6% to stop | 6.7% to target
+📈 RECLTD.NS +0.5% (₹+54) | 2d held | 6.0% to stop | 7.4% to target
+📈 SUL.AX +0.4% (₹+43) | 1d held | 7.3% to stop | 9.6% to target
+📈 NEM.AX +0.1% (₹+15) | 1d held | 6.3% to stop | 8.9% to target
+📉 ALL.AX -0.1% (₹-10) | 0d held | 6.4% to stop | 9.6% to target
+📉 JBH.AX -0.1% (₹-10) | 0d held | 7.2% to stop | 10.8% to target
+📉 RIO.AX -0.1% (₹-10) | 0d held | 4.2% to stop | 6.4% to target
+📉 FMG.AX -0.1% (₹-10) | 0d held | 4.9% to stop | 7.4% to target
+📉 TCS.NS -1.3% (₹-119) | 2d held | 3.9% to stop | 8.8% to target
+📉 TECHM.NS -1.4% (₹-135) | 2d held | 4.4% to stop | 9.8% to target
+📉 TATACONSUM.NS -1.5% (₹-135) | 2d held | 3.6% to stop | 9.1% to target
+📉 MYS.AX -2.9% (₹-292) | 1d held | 2.0% to stop | 10.2% to target
+2026-05-14 10:30:06,080 [INFO] apscheduler.executors.default — Job "job_daily_report (trigger: cron[day_of_week='mon-fri', hour='10', minute='30'], next run at: 2026-05-15 10:30:00 IST)" executed successfully
+2026-05-14 12:00:00,008 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 14:00:00 IST)" (scheduled at 2026-05-14 12:00:00+05:30)
+2026-05-14 12:00:00,011 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-14 12:01:32,951 [INFO] data_ingestion.news_fetcher — Stored 22 Google News items
+2026-05-14 12:01:32,951 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 14:00:00 IST)" executed successfully
+2026-05-14 14:00:00,012 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 16:00:00 IST)" (scheduled at 2026-05-14 14:00:00+05:30)
+2026-05-14 14:00:00,016 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-14 14:01:38,041 [INFO] data_ingestion.news_fetcher — Stored 26 Google News items
+2026-05-14 14:01:38,043 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 16:00:00 IST)" executed successfully
+2026-05-14 15:30:00,009 [INFO] apscheduler.executors.default — Running job "job_market_close (trigger: cron[day_of_week='mon-fri', hour='15', minute='30'], next run at: 2026-05-15 15:30:00 IST)" (scheduled at 2026-05-14 15:30:00+05:30)
+2026-05-14 15:30:00,013 [INFO] scheduler.main_scheduler — Market close — evaluating exits + updating P&L
+2026-05-14 15:30:00,096 [INFO] apscheduler.executors.default — Job "job_market_close (trigger: cron[day_of_week='mon-fri', hour='15', minute='30'], next run at: 2026-05-15 15:30:00 IST)" executed successfully
+2026-05-14 16:00:00,035 [INFO] apscheduler.executors.default — Running job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 18:00:00 IST)" (scheduled at 2026-05-14 16:00:00+05:30)
+2026-05-14 16:00:00,043 [INFO] scheduler.main_scheduler — Refreshing Google News RSS
+2026-05-14 16:01:35,947 [INFO] data_ingestion.news_fetcher — Stored 16 Google News items
+2026-05-14 16:01:35,949 [INFO] apscheduler.executors.default — Job "job_news_refresh (trigger: cron[hour='*/2', minute='0'], next run at: 2026-05-14 18:00:00 IST)" executed successfully
+2026-05-14 18:35:37 Starting NSE Trading Scheduler
+2026-05-14 18:35:37,385 [INFO] main — Active exchange: NSE NIFTY 100 (Asia/Kolkata)
+2026-05-14 18:35:37,787 [INFO] scheduler.main_scheduler — Starting AI Trading scheduler — NSE NIFTY 100
+2026-05-14 18:35:37,788 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-14 18:35:37,788 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-14 18:35:37,788 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-14 18:35:37,788 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-14 18:35:37,788 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-14 18:35:37,788 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-14 18:35:37,788 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-14 18:35:37,789 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-14 18:35:37,789 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-14 18:35:37,789 [INFO] apscheduler.scheduler — Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-05-14 18:35:37,789 [INFO] scheduler.main_scheduler — Scheduler built for NSE NIFTY 100 (Asia/Kolkata) — pipeline starts 09:00, market 09:15–15:30
+2026-05-14 18:35:37,790 [INFO] apscheduler.scheduler — Added job "job_fetch_prices" to job store "default"
+2026-05-14 18:35:37,790 [INFO] apscheduler.scheduler — Added job "job_fetch_announcements" to job store "default"
+2026-05-14 18:35:37,790 [INFO] apscheduler.scheduler — Added job "job_ai_sentiment_fundamental" to job store "default"
+2026-05-14 18:35:37,790 [INFO] apscheduler.scheduler — Added job "job_technical_regime" to job store "default"
+2026-05-14 18:35:37,790 [INFO] apscheduler.scheduler — Added job "job_signal_scan" to job store "default"
+2026-05-14 18:35:37,790 [INFO] apscheduler.scheduler — Added job "job_daily_report" to job store "default"
+2026-05-14 18:35:37,790 [INFO] apscheduler.scheduler — Added job "job_place_orders" to job store "default"
+2026-05-14 18:35:37,790 [INFO] apscheduler.scheduler — Added job "job_market_close" to job store "default"
+2026-05-14 18:35:37,790 [INFO] apscheduler.scheduler — Added job "job_news_refresh" to job store "default"
+2026-05-14 18:35:37,790 [INFO] apscheduler.scheduler — Added job "job_weekly_sunday" to job store "default"
+2026-05-14 18:35:37,790 [INFO] apscheduler.scheduler — Scheduler started
+2026-05-14 18:35:43 NSE Watchdog started

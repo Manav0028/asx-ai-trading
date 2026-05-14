@@ -29,6 +29,7 @@ class Exchange:
     news_query_fn: Callable[[str], str] # builds search query string from ticker
     announcement_fetcher: Optional[Callable] = None   # exchange-specific filings fetcher
     ticker_codes: List[str] = field(default_factory=list)  # bare codes (no suffix)
+    flag: str = "📈"                                   # country flag emoji for Telegram alerts
 
 
 _REGISTRY: Dict[str, "Exchange"] = {}
