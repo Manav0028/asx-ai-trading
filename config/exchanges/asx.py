@@ -27,6 +27,7 @@ def _asx_announcement_fetcher():
 ASX = Exchange(
     id="asx",
     name="ASX 200",
+    flag="🇦🇺",
     tickers=ASX200_TICKERS,
     ticker_codes=ASX200_CODES,
     index_ticker="^AXJO",
