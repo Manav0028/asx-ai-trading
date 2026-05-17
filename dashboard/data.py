@@ -174,13 +174,25 @@ def get_portfolio(exchange: str) -> Dict:
     else:
         positions = _portfolio_local(exchange)
 
-    total_pnl = sum(p.get("unrealised_pnl") or 0 for p in positions)
+    # Compute per-position derived fields so the dashboard doesn't have to
+    for p in positions:
+        shares  = p.get("shares") or 0
+        cp      = p.get("current_price") or 0
+        invested = p.get("position_size_aud") or 0      # cost basis incl. brokerage
+        p["invested"]      = round(invested, 2)
+        p["current_value"] = round(cp * shares, 2)
+
+    total_pnl           = sum(p.get("unrealised_pnl")   or 0 for p in positions)
+    total_invested      = sum(p.get("invested")          or 0 for p in positions)
+    total_current_value = sum(p.get("current_value")     or 0 for p in positions)
     winners = sum(1 for p in positions if (p.get("unrealised_pnl") or 0) > 0)
     return {
-        "total_positions": len(positions),
+        "total_positions":    len(positions),
+        "total_invested":     round(total_invested, 2),
+        "total_current_value": round(total_current_value, 2),
         "total_unrealised_pnl": round(total_pnl, 2),
         "winners": winners,
-        "losers": len(positions) - winners,
+        "losers":  len(positions) - winners,
         "positions": positions,
     }
 

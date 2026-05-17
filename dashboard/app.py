@@ -180,17 +180,20 @@ if page == "📊 Overview":
     pnl_data  = load_cumulative_pnl(exchange, 90)
 
     # ── Metric cards ──────────────────────────────────────────────────────────
+    total_pnl           = portfolio.get("total_unrealised_pnl", 0)
+    total_invested      = portfolio.get("total_invested", 0)
+    total_current_value = portfolio.get("total_current_value", 0)
+    total_pnl_pct       = (total_pnl / total_invested * 100) if total_invested else 0
+
     c1, c2, c3, c4 = st.columns(4)
-    total_pnl = portfolio["total_unrealised_pnl"]
-    c1.metric(
+    c1.metric("Total Invested",  f"{currency}{total_invested:,.0f}")
+    c2.metric("Current Value",   f"{currency}{total_current_value:,.0f}",
+              delta=f"{currency}{(total_current_value - total_invested):+,.0f}")
+    c3.metric(
         "Unrealised P&L",
         f"{currency}{total_pnl:+,.0f}",
-        delta=f"{portfolio['winners']} winning / {portfolio['losers']} losing",
-    )
-    c2.metric("Open Positions", portfolio["total_positions"])
-    c3.metric(
-        "Win Rate",
-        f"{portfolio['winners'] / max(portfolio['total_positions'], 1) * 100:.0f}%",
+        delta=f"{total_pnl_pct:+.2f}%  ({portfolio['winners']}W / {portfolio['losers']}L)",
+        delta_color="normal" if total_pnl >= 0 else "inverse",
     )
     ok = regime.get("regime_ok")
     regime_label = "BULLISH ✅" if ok else ("CAUTIOUS ⚠️" if ok is False else "—")
@@ -212,18 +215,23 @@ if page == "📊 Overview":
     # ── Top 5 open positions summary ──────────────────────────────────────────
     positions = portfolio.get("positions", [])
     if positions:
-        st.subheader("Open Positions Snapshot")
+        st.subheader(f"Open Positions ({portfolio['total_positions']} total)")
         import pandas as pd
         df = pd.DataFrame(positions[:5])
-        for col in ["unrealised_pnl", "unrealised_pnl_pct", "entry_price", "current_price"]:
+        for col in ["unrealised_pnl", "unrealised_pnl_pct", "entry_price",
+                    "current_price", "invested", "current_value"]:
             if col not in df.columns:
                 df[col] = None
         st.dataframe(
-            df[["ticker", "entry_price", "current_price", "unrealised_pnl", "unrealised_pnl_pct", "days_held"]],
+            df[["ticker", "invested", "current_value",
+                "entry_price", "current_price",
+                "unrealised_pnl", "unrealised_pnl_pct", "days_held"]],
             column_config={
                 "ticker": "Ticker",
-                "entry_price": st.column_config.NumberColumn(f"Entry ({currency})", format="%.3f"),
-                "current_price": st.column_config.NumberColumn(f"Current ({currency})", format="%.3f"),
+                "invested": st.column_config.NumberColumn(f"Invested ({currency})", format="%.0f"),
+                "current_value": st.column_config.NumberColumn(f"Current Value ({currency})", format="%.0f"),
+                "entry_price": st.column_config.NumberColumn(f"Avg Entry ({currency})", format="%.3f"),
+                "current_price": st.column_config.NumberColumn(f"Last Price ({currency})", format="%.3f"),
                 "unrealised_pnl": st.column_config.NumberColumn(f"P&L ({currency})", format="%+.2f"),
                 "unrealised_pnl_pct": st.column_config.NumberColumn("P&L %", format="%+.1f%%"),
                 "days_held": st.column_config.NumberColumn("Days Held"),
@@ -348,15 +356,39 @@ elif page == "📋 Portfolio":
     portfolio = load_portfolio(exchange)
     positions = portfolio.get("positions", [])
 
-    # Summary cards
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Unrealised P&L", f"{currency}{portfolio['total_unrealised_pnl']:+,.0f}")
-    c2.metric("Open Positions", portfolio["total_positions"])
-    c3.metric(
-        "Win Rate",
-        f"{portfolio['winners'] / max(portfolio['total_positions'], 1) * 100:.0f}%",
-        delta=f"{portfolio['winners']}W / {portfolio['losers']}L",
-    )
+    total_invested      = portfolio.get("total_invested", 0)
+    total_current_value = portfolio.get("total_current_value", 0)
+    total_pnl           = portfolio.get("total_unrealised_pnl", 0)
+    total_pnl_pct       = (total_pnl / total_invested * 100) if total_invested else 0
+
+    # ── Top summary row: capital view ─────────────────────────────────────────
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Invested",     f"{currency}{total_invested:,.0f}")
+    c2.metric("Current Value",      f"{currency}{total_current_value:,.0f}",
+              delta=f"{currency}{(total_current_value - total_invested):+,.0f} vs cost")
+    c3.metric("Unrealised P&L",     f"{currency}{total_pnl:+,.0f}",
+              delta=f"{total_pnl_pct:+.2f}%",
+              delta_color="normal" if total_pnl >= 0 else "inverse")
+    c4.metric("Open Positions",     portfolio["total_positions"],
+              delta=f"{portfolio['winners']}W / {portfolio['losers']}L")
+
+    # ── Prominent P&L call-out ─────────────────────────────────────────────────
+    if positions:
+        pnl_colour = "off" if total_pnl == 0 else ("normal" if total_pnl > 0 else "inverse")
+        if total_pnl > 0:
+            st.success(
+                f"**Overall Profit: {currency}{total_pnl:+,.2f}** ({total_pnl_pct:+.2f}%)  "
+                f"— Portfolio value {currency}{total_current_value:,.0f} vs "
+                f"{currency}{total_invested:,.0f} invested"
+            )
+        elif total_pnl < 0:
+            st.error(
+                f"**Overall Loss: {currency}{total_pnl:+,.2f}** ({total_pnl_pct:+.2f}%)  "
+                f"— Portfolio value {currency}{total_current_value:,.0f} vs "
+                f"{currency}{total_invested:,.0f} invested"
+            )
+        else:
+            st.info(f"Portfolio break-even — {currency}{total_invested:,.0f} invested")
 
     if not positions:
         st.info(
@@ -380,6 +412,7 @@ elif page == "📋 Portfolio":
 
         cols = [
             "ticker", "entry_date", "days_held",
+            "invested", "current_value",
             "entry_price", "current_price",
             "unrealised_pnl", "unrealised_pnl_pct",
             "stop_gap_pct", "target_gap_pct",
@@ -393,8 +426,10 @@ elif page == "📋 Portfolio":
                 "ticker": "Ticker",
                 "entry_date": st.column_config.DateColumn("Entry Date", format="DD MMM YYYY"),
                 "days_held": st.column_config.NumberColumn("Days Held"),
-                "entry_price": st.column_config.NumberColumn(f"Entry ({currency})", format="%.3f"),
-                "current_price": st.column_config.NumberColumn(f"Current ({currency})", format="%.3f"),
+                "invested": st.column_config.NumberColumn(f"Invested ({currency})", format="%.0f"),
+                "current_value": st.column_config.NumberColumn(f"Current Value ({currency})", format="%.0f"),
+                "entry_price": st.column_config.NumberColumn(f"Avg Entry ({currency})", format="%.3f"),
+                "current_price": st.column_config.NumberColumn(f"Last Price ({currency})", format="%.3f"),
                 "unrealised_pnl": st.column_config.NumberColumn(
                     f"P&L ({currency})", format="%+.2f"
                 ),
