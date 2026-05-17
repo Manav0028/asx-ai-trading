@@ -20,6 +20,23 @@ from datetime import date, timedelta
 
 import streamlit as st
 
+
+# ── Formatting helpers ────────────────────────────────────────────────────────
+
+def _delta(val: float, currency: str = "") -> str:
+    """
+    Format a delta value so Streamlit correctly detects positive/negative.
+    Puts the sign BEFORE the currency symbol: -₹682 or +$1,234.
+    Streamlit reads the first character to decide green vs red arrow.
+    """
+    sign = "+" if val >= 0 else "-"
+    return f"{sign}{currency}{abs(val):,.0f}"
+
+
+def _delta_pct(val: float) -> str:
+    """Format a percentage delta: +1.34% or -1.34%."""
+    return f"{val:+.2f}%"
+
 # ── Page config (must be first Streamlit call) ────────────────────────────────
 st.set_page_config(
     page_title="AI Trading Dashboard",
@@ -185,15 +202,21 @@ if page == "📊 Overview":
     total_current_value = portfolio.get("total_current_value", 0)
     total_pnl_pct       = (total_pnl / total_invested * 100) if total_invested else 0
 
+    diff = total_current_value - total_invested
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Invested",  f"{currency}{total_invested:,.0f}")
-    c2.metric("Current Value",   f"{currency}{total_current_value:,.0f}",
-              delta=f"{currency}{(total_current_value - total_invested):+,.0f}")
+    c2.metric(
+        "Current Value",
+        f"{currency}{total_current_value:,.0f}",
+        delta=_delta(diff, currency),          # -₹682 or +$1,540
+        delta_color="normal",                  # negative string → red, positive → green
+    )
     c3.metric(
         "Unrealised P&L",
-        f"{currency}{total_pnl:+,.0f}",
-        delta=f"{total_pnl_pct:+.2f}%  ({portfolio['winners']}W / {portfolio['losers']}L)",
-        delta_color="normal" if total_pnl >= 0 else "inverse",
+        f"{currency}{abs(total_pnl):,.0f}" if total_pnl < 0 else f"{currency}{total_pnl:,.0f}",
+        delta=f"{_delta_pct(total_pnl_pct)}  ({portfolio['winners']}W / {portfolio['losers']}L)",
+        delta_color="normal",                  # sign from pct string drives colour
     )
     ok = regime.get("regime_ok")
     regime_label = "BULLISH ✅" if ok else ("CAUTIOUS ⚠️" if ok is False else "—")
@@ -362,15 +385,27 @@ elif page == "📋 Portfolio":
     total_pnl_pct       = (total_pnl / total_invested * 100) if total_invested else 0
 
     # ── Top summary row: capital view ─────────────────────────────────────────
+    diff = total_current_value - total_invested
+
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Invested",     f"{currency}{total_invested:,.0f}")
-    c2.metric("Current Value",      f"{currency}{total_current_value:,.0f}",
-              delta=f"{currency}{(total_current_value - total_invested):+,.0f} vs cost")
-    c3.metric("Unrealised P&L",     f"{currency}{total_pnl:+,.0f}",
-              delta=f"{total_pnl_pct:+.2f}%",
-              delta_color="normal" if total_pnl >= 0 else "inverse")
-    c4.metric("Open Positions",     portfolio["total_positions"],
-              delta=f"{portfolio['winners']}W / {portfolio['losers']}L")
+    c1.metric("Total Invested",  f"{currency}{total_invested:,.0f}")
+    c2.metric(
+        "Current Value",
+        f"{currency}{total_current_value:,.0f}",
+        delta=_delta(diff, currency),          # -₹682 or +$1,540
+        delta_color="normal",
+    )
+    c3.metric(
+        "Unrealised P&L",
+        f"{currency}{abs(total_pnl):,.0f}" if total_pnl < 0 else f"{currency}{total_pnl:,.0f}",
+        delta=_delta_pct(total_pnl_pct),
+        delta_color="normal",
+    )
+    c4.metric(
+        "Open Positions", portfolio["total_positions"],
+        delta=f"{portfolio['winners']}W / {portfolio['losers']}L",
+        delta_color="off",
+    )
 
     # ── Prominent P&L call-out ─────────────────────────────────────────────────
     if positions:
