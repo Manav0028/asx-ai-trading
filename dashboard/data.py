@@ -5,14 +5,18 @@ Automatically switches between:
   • Supabase  — when SUPABASE_URL env var is set (Streamlit Cloud deployment)
   • Local PG  — when SUPABASE_URL is absent (local development on Mac)
 
+Uses the Supabase REST API directly via requests — no supabase-py dependency.
+This avoids the pyiceberg/pydantic version conflicts in the conda environment.
+
 All public functions return plain Python dicts/lists so Streamlit's
 @st.cache_data can hash them without issues.
 
 Exchange filtering:
-  Supabase path → filter by .eq("exchange", exchange)
+  Supabase path → filter by exchange= query param
   Local PG path → filter by ticker suffix (.AX / .NS)
 """
 
+import json
 import os
 from datetime import date, timedelta
 from typing import Dict, List, Optional
@@ -24,14 +28,32 @@ def _use_supabase() -> bool:
     return bool(os.getenv("SUPABASE_URL", ""))
 
 
-def _supabase_client():
-    """Module-level singleton Supabase client."""
-    if not hasattr(_supabase_client, "_instance"):
-        from supabase import create_client
-        _supabase_client._instance = create_client(
-            os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY")
-        )
-    return _supabase_client._instance
+def _sb_config():
+    """Return (url, key) for Supabase REST calls."""
+    return os.getenv("SUPABASE_URL", "").rstrip("/"), os.getenv("SUPABASE_KEY", "")
+
+
+def _sb_headers(key: str) -> dict:
+    return {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+
+
+def _sb_get(table: str, params: dict) -> list:
+    """GET rows from a Supabase table using PostgREST query params."""
+    import requests
+    url, key = _sb_config()
+    resp = requests.get(
+        f"{url}/rest/v1/{table}",
+        headers=_sb_headers(key),
+        params=params,
+        timeout=15,
+    )
+    if resp.status_code == 200:
+        return resp.json() or []
+    return []
 
 
 def _ticker_suffix(exchange: str) -> str:
@@ -107,20 +129,17 @@ def get_signals(exchange: str, signal_date: date = None, n: int = 10) -> List[Di
 
 
 def _signals_supabase(exchange: str, signal_date: date, n: int) -> List[Dict]:
-    client = _supabase_client()
     for attempt in range(3):
         d = signal_date - timedelta(days=attempt)
-        resp = (
-            client.table("signals")
-            .select("*")
-            .eq("exchange", exchange)
-            .eq("date", str(d))
-            .order("composite_score", desc=True)
-            .limit(n)
-            .execute()
-        )
-        if resp.data:
-            return resp.data
+        rows = _sb_get("signals", {
+            "exchange": f"eq.{exchange}",
+            "date": f"eq.{d}",
+            "order": "composite_score.desc",
+            "limit": n,
+            "select": "*",
+        })
+        if rows:
+            return rows
     return []
 
 
@@ -167,16 +186,12 @@ def get_portfolio(exchange: str) -> Dict:
 
 
 def _portfolio_supabase(exchange: str) -> List[Dict]:
-    client = _supabase_client()
-    resp = (
-        client.table("watchlist")
-        .select("*")
-        .eq("exchange", exchange)
-        .eq("is_active", True)
-        .order("unrealised_pnl_pct", desc=True)
-        .execute()
-    )
-    return resp.data or []
+    return _sb_get("watchlist", {
+        "exchange": f"eq.{exchange}",
+        "is_active": "eq.true",
+        "order": "unrealised_pnl_pct.desc",
+        "select": "*",
+    })
 
 
 def _portfolio_local(exchange: str) -> List[Dict]:
@@ -204,17 +219,12 @@ def get_trades(exchange: str, days: int = 90) -> List[Dict]:
 
 
 def _trades_supabase(exchange: str, cutoff: date) -> List[Dict]:
-    client = _supabase_client()
-    resp = (
-        client.table("trades")
-        .select("*")
-        .eq("exchange", exchange)
-        .gte("exit_date", str(cutoff))
-        .not_.is_("exit_date", "null")
-        .order("exit_date", desc=True)
-        .execute()
-    )
-    return resp.data or []
+    return _sb_get("trades", {
+        "exchange": f"eq.{exchange}",
+        "exit_date": f"gte.{cutoff}",
+        "order": "exit_date.desc",
+        "select": "*",
+    })
 
 
 def _trades_local(exchange: str, cutoff: date) -> List[Dict]:
@@ -249,16 +259,10 @@ def get_regime(exchange: str) -> Dict:
 
 
 def _regime_supabase(exchange: str) -> Dict:
-    client = _supabase_client()
     try:
-        resp = (
-            client.table("regime")
-            .select("*")
-            .eq("exchange", exchange)
-            .execute()
-        )
-        if resp.data:
-            row = resp.data[0]
+        rows = _sb_get("regime", {"exchange": f"eq.{exchange}", "select": "*"})
+        if rows:
+            row = rows[0]
             return {
                 "regime_ok": row.get("regime_ok"),
                 "index": row.get("index_val"),
@@ -328,16 +332,12 @@ def get_score_history(ticker: str, days: int = 30) -> List[Dict]:
 
 
 def _score_history_supabase(ticker: str, cutoff: date) -> List[Dict]:
-    client = _supabase_client()
-    resp = (
-        client.table("signals")
-        .select("date,composite_score,sentiment_score,fundamental_score,technical_score,insider_score")
-        .eq("ticker", ticker)
-        .gte("date", str(cutoff))
-        .order("date")
-        .execute()
-    )
-    return resp.data or []
+    return _sb_get("signals", {
+        "ticker": f"eq.{ticker}",
+        "date": f"gte.{cutoff}",
+        "order": "date.asc",
+        "select": "date,composite_score,sentiment_score,fundamental_score,technical_score,insider_score",
+    })
 
 
 def _score_history_local(ticker: str, cutoff: date) -> List[Dict]:
@@ -377,19 +377,16 @@ def get_backtest_results(exchange: str) -> Dict:
 
 
 def _backtest_supabase(exchange: str) -> Dict:
-    client = _supabase_client()
     try:
-        resp = (
-            client.table("backtest_cache")
-            .select("results_json,computed_at")
-            .eq("exchange", exchange)
-            .order("computed_at", desc=True)
-            .limit(1)
-            .execute()
-        )
-        if resp.data:
-            import json
-            return json.loads(resp.data[0]["results_json"])
+        rows = _sb_get("backtest_cache", {
+            "exchange": f"eq.{exchange}",
+            "order": "computed_at.desc",
+            "limit": 1,
+            "select": "results_json,computed_at",
+        })
+        if rows:
+            raw = rows[0]["results_json"]
+            return json.loads(raw) if isinstance(raw, str) else raw
     except Exception:
         pass
     return {}
