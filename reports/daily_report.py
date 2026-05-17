@@ -87,21 +87,29 @@ def _format_signal_block(s: Dict, rank: int, currency: str) -> str:
 
 
 def _format_watchlist_line(p: Dict, currency: str) -> str:
-    pnl     = p.get("unrealised_pnl") or 0
-    pct     = p.get("unrealised_pnl_pct") or 0
-    days    = p.get("days_held") or 0
-    current = p.get("current_price") or 0
-    stop    = p.get("stop_loss_price") or 0
-    target  = p.get("target_price") or 0
-    ticker  = p["ticker"]
+    pnl        = p.get("unrealised_pnl") or 0
+    pct        = p.get("unrealised_pnl_pct") or 0
+    days       = p.get("days_held") or 0
+    current    = p.get("current_price") or 0
+    stop       = p.get("stop_loss_price") or 0
+    target     = p.get("target_price") or 0
+    entry      = p.get("entry_price") or 0
+    shares     = p.get("shares") or 0
+    entry_date = p.get("entry_date")
+    ticker     = p["ticker"]
 
     emoji      = _pnl_emoji(pnl)
     stop_gap   = f"{(current - stop) / current * 100:.1f}% above stop" if stop and current else "—"
     target_gap = f"{(target - current) / current * 100:.1f}% to target" if target and current else "—"
+    date_str   = entry_date.strftime("%d %b %Y") if entry_date else "—"
+    chart_url  = f"https://finance.yahoo.com/quote/{ticker}"
 
     return (
-        f"  {emoji} *{ticker}* `{pct:+.1f}%` (`{currency}{pnl:+,.0f}`) | "
-        f"{days}d | {stop_gap} | {target_gap}"
+        f"  {emoji} *{ticker}* `{pct:+.1f}%`  P&L: `{currency}{pnl:+,.0f}`\n"
+        f"     Bought `{currency}{entry:.2f}` on {date_str} ({days}d held)\n"
+        f"     Now: `{currency}{current:.2f}` × {shares} shares\n"
+        f"     Stop `{currency}{stop:.2f}` ({stop_gap}) | Target `{currency}{target:.2f}` ({target_gap})\n"
+        f"     [📊 Chart]({chart_url})"
     )
 
 

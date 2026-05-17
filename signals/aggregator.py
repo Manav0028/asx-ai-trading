@@ -154,18 +154,36 @@ def run_full_scan(tickers: List[str]) -> List[Dict]:
     return results
 
 
+def _active_ticker_suffix() -> Optional[str]:
+    """Return the ticker suffix for the active exchange (e.g. '.AX' or '.NS').
+    Ensures signals from the ASX scheduler never appear in NSE reports and vice-versa."""
+    try:
+        from config import get_active_exchange
+        tickers = get_active_exchange().tickers
+        if tickers:
+            t = tickers[0]
+            dot = t.rfind(".")
+            return t[dot:] if dot >= 0 else None
+    except Exception:
+        pass
+    return None
+
+
 def get_top_signals(n: int = 10, min_score: float = None) -> List[Dict]:
     today = date.today()
     min_score = min_score or SIGNAL_THRESHOLD
+    suffix = _active_ticker_suffix()
+
     with get_session() as session:
+        # Over-fetch to allow post-filter by exchange suffix when DB has rows from both exchanges
         rows = (
             session.query(Signal)
             .filter(Signal.date == today, Signal.composite_score >= min_score)
             .order_by(Signal.composite_score.desc())
-            .limit(n)
+            .limit(n * 4 if suffix else n)
             .all()
         )
-        return [
+        results = [
             {
                 "ticker": r.ticker,
                 "composite_score": r.composite_score,
@@ -180,4 +198,6 @@ def get_top_signals(n: int = 10, min_score: float = None) -> List[Dict]:
                 "regime_ok": r.regime_ok,
             }
             for r in rows
+            if suffix is None or r.ticker.endswith(suffix)
         ]
+        return results[:n]

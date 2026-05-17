@@ -87,7 +87,23 @@ def remove_from_watchlist(ticker: str, reason: str = "manual") -> None:
             logger.info("Removed %s from watchlist (reason: %s)", ticker, reason)
 
 
+def _active_ticker_suffix() -> Optional[str]:
+    """Return the ticker suffix for the active exchange (e.g. '.AX' or '.NS').
+    Used to segregate positions by exchange without an exchange column in the DB."""
+    try:
+        from config import get_active_exchange
+        tickers = get_active_exchange().tickers
+        if tickers:
+            t = tickers[0]
+            dot = t.rfind(".")
+            return t[dot:] if dot >= 0 else None
+    except Exception:
+        pass
+    return None
+
+
 def get_active_watchlist() -> List[Dict]:
+    suffix = _active_ticker_suffix()
     with get_session() as session:
         items = (
             session.query(WatchlistItem)
@@ -104,12 +120,14 @@ def get_active_watchlist() -> List[Dict]:
                 "target_price": i.target_price,
                 "stop_loss_price": i.stop_loss_price,
                 "shares": i.shares,
+                "position_size_aud": i.position_size_aud,
                 "unrealised_pnl": i.unrealised_pnl,
                 "unrealised_pnl_pct": i.unrealised_pnl_pct,
                 "days_held": i.days_held,
                 "signal_score": i.signal_score,
             }
             for i in items
+            if suffix is None or i.ticker.endswith(suffix)
         ]
 
 
