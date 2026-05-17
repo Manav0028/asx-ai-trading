@@ -1,6 +1,6 @@
 # Streamlit Cloud reads this file to install dependencies.
 # Keep in sync with the root requirements.txt Phase 2 section.
-streamlit>=1.12.0
+streamlit>=1.32.0
 plotly>=5.0.0
 supabase>=2.0.0
 streamlit-autorefresh>=0.0.1
