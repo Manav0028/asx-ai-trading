@@ -17,6 +17,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from datetime import date, timedelta
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 
@@ -36,6 +37,20 @@ def _delta(val: float, currency: str = "") -> str:
 def _delta_pct(val: float) -> str:
     """Format a percentage delta: +1.34% or -1.34%."""
     return f"{val:+.2f}%"
+
+
+def _today(exchange: str) -> date:
+    """
+    Return today's date in the exchange's local timezone.
+    Streamlit Cloud runs in UTC — without this, ASX shows yesterday
+    because 8 AM Sydney = previous day in UTC.
+    """
+    try:
+        from datetime import datetime
+        tz = "Australia/Sydney" if exchange == "asx" else "Asia/Kolkata"
+        return datetime.now(ZoneInfo(tz)).date()
+    except Exception:
+        return date.today()
 
 # ── Page config (must be first Streamlit call) ────────────────────────────────
 st.set_page_config(
@@ -273,7 +288,7 @@ elif page == "🏆 Signals":
 
     col_date, col_n = st.columns([2, 1])
     with col_date:
-        signal_date = st.date_input("Signal Date", value=date.today())
+        signal_date = st.date_input("Signal Date", value=_today(exchange))
     with col_n:
         n_signals = st.slider("Show top N", min_value=5, max_value=20, value=10)
 
