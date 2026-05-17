@@ -83,6 +83,10 @@ def job_signal_scan():
         "Signal scan complete: %d tickers scored, %d above threshold (%.0f)",
         len(results), len(above_threshold), SIGNAL_THRESHOLD,
     )
+    # ── Phase 2: Supabase cloud sync ─────────────────────────────────────────
+    from storage.supabase_sync import sync_signals_to_supabase, sync_regime_to_supabase
+    sync_signals_to_supabase()
+    sync_regime_to_supabase()
 
 
 def job_daily_report():
@@ -146,6 +150,9 @@ def job_place_orders():
                             sig["ticker"], sig.get("entry_price", 0),
                             ratio, sig["composite_score"]
                         )
+    # ── Phase 2: Supabase cloud sync ─────────────────────────────────────────
+    from storage.supabase_sync import sync_watchlist_to_supabase
+    sync_watchlist_to_supabase()
 
 
 def job_market_close():
@@ -155,6 +162,10 @@ def job_market_close():
     stale = check_stale_positions()
     if stale:
         logger.info("Exited %d stale positions", len(stale))
+    # ── Phase 2: Supabase cloud sync ─────────────────────────────────────────
+    from storage.supabase_sync import sync_watchlist_to_supabase, sync_trades_to_supabase
+    sync_watchlist_to_supabase()   # positions may have changed (stop/target exits)
+    sync_trades_to_supabase()
 
 
 def job_news_refresh():
@@ -175,6 +186,9 @@ def job_weekly_sunday():
 
     results = run_walk_forward(_tickers()[:50], lookback_months=BACKTESTER_LOOKBACK_MONTHS)
     logger.info("Backtest complete for %d tickers", len(results))
+    # ── Phase 2: Cache backtest results to Supabase ───────────────────────────
+    from storage.supabase_sync import sync_backtest_to_supabase
+    sync_backtest_to_supabase(results)
 
     summaries = generate_weekly_summaries()
     logger.info("Summaries generated for %d tickers", len(summaries))
