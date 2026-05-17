@@ -225,7 +225,7 @@ if page == "📊 Overview":
         "Market Regime",
         regime_label,
         delta=f"{pct_above:+.1f}% vs EMA200" if pct_above is not None else None,
-        delta_color="normal" if ok else "inverse",
+        delta_color="normal",   # pct_above sign drives colour: negative = red, positive = green
     )
 
     st.divider()
