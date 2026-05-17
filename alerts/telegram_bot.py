@@ -50,6 +50,13 @@ def _index_name() -> str:
 
 # ── Core sender ────────────────────────────────────────────────────────────────
 
+def _redact_token(text: str) -> str:
+    """Replace bot token in any string with a safe placeholder for logging."""
+    if TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_TOKEN in text:
+        return text.replace(TELEGRAM_BOT_TOKEN, "***REDACTED***")
+    return text
+
+
 def _send(text: str, parse_mode: str = "Markdown") -> bool:
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         logger.debug("Telegram not configured")
@@ -63,7 +70,8 @@ def _send(text: str, parse_mode: str = "Markdown") -> bool:
         resp.raise_for_status()
         return True
     except Exception as e:
-        logger.warning("Telegram send failed: %s", e)
+        # Redact token from any URL that appears in error messages before logging
+        logger.warning("Telegram send failed: %s", _redact_token(str(e)))
         return False
 
 
