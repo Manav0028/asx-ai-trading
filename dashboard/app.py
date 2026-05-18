@@ -95,7 +95,7 @@ with st.sidebar:
 
     page = st.selectbox(
         "Page",
-        options=["📊 Overview", "🏆 Signals", "📋 Portfolio", "📈 Trade History", "🔬 Backtest"],
+        options=["📊 Overview", "🏆 Signals", "📋 Portfolio", "💼 Positions", "📈 Trade History", "🔬 Backtest"],
     )
 
     st.divider()
@@ -509,6 +509,208 @@ elif page == "📋 Portfolio":
         fig.update_layout(height=300, margin=dict(t=40, b=20), showlegend=False)
         fig.update_coloraxes(showscale=False)
         st.plotly_chart(fig, use_container_width=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: Positions
+# ══════════════════════════════════════════════════════════════════════════════
+
+elif page == "💼 Positions":
+    import pandas as pd
+    import plotly.express as px
+
+    st.header(f"💼 Positions — {exchange_label}")
+
+    portfolio = load_portfolio(exchange)
+    positions = portfolio.get("positions", [])
+
+    if not positions:
+        st.info("No open positions yet.")
+    else:
+        df = pd.DataFrame(positions)
+
+        # ── Derived columns ────────────────────────────────────────────────
+        df["stop_gap_pct"]   = ((df["current_price"] - df["stop_loss_price"]) / df["current_price"] * 100).round(2)
+        df["target_gap_pct"] = ((df["target_price"]  - df["current_price"])   / df["current_price"] * 100).round(2)
+        df["pnl_pct"]        = df["unrealised_pnl_pct"].round(2)
+        df["days_held"]      = df["days_held"].fillna(0).astype(int)
+
+        def _status(row):
+            pnl   = row.get("unrealised_pnl_pct") or 0
+            sg    = row.get("stop_gap_pct") or 100
+            tg    = row.get("target_gap_pct") or 100
+            if sg <= 2:   return "🚨 Near Stop"
+            if tg <= 3:   return "🎯 Near Target"
+            if pnl >= 10: return "🚀 Strong Gain"
+            if pnl > 0:   return "🟢 Profitable"
+            if pnl > -5:  return "🟡 Small Loss"
+            return "🔴 At Loss"
+
+        df["status"] = df.apply(_status, axis=1)
+        df["chart"]  = df["ticker"].apply(lambda t: f"https://finance.yahoo.com/quote/{t}")
+
+        # ── Summary metrics ────────────────────────────────────────────────
+        total_invested      = portfolio.get("total_invested", 0)
+        total_current_value = portfolio.get("total_current_value", 0)
+        total_pnl           = portfolio.get("total_unrealised_pnl", 0)
+        total_pnl_pct       = (total_pnl / total_invested * 100) if total_invested else 0
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Positions",      len(df))
+        c2.metric("Total Invested", f"{currency}{total_invested:,.0f}")
+        c3.metric("Current Value",  f"{currency}{total_current_value:,.0f}",
+                  delta=_delta(total_current_value - total_invested, currency), delta_color="normal")
+        c4.metric("Unrealised P&L", f"{currency}{abs(total_pnl):,.0f}",
+                  delta=_delta_pct(total_pnl_pct), delta_color="normal")
+
+        st.divider()
+
+        # ══════════════════════════════════════════════════════════════════
+        # FILTERS
+        # ══════════════════════════════════════════════════════════════════
+        st.subheader("🔍 Filters")
+        fc1, fc2, fc3, fc4 = st.columns(4)
+
+        # Status filter
+        all_statuses = sorted(df["status"].unique().tolist())
+        selected_statuses = fc1.multiselect(
+            "Status",
+            options=all_statuses,
+            default=all_statuses,
+        )
+
+        # P&L direction
+        pnl_filter = fc2.radio(
+            "P&L Direction",
+            options=["All", "Profitable only", "Losing only"],
+            horizontal=False,
+        )
+
+        # Days held range
+        max_days = int(df["days_held"].max()) if len(df) else 90
+        days_range = fc3.slider(
+            "Days Held",
+            min_value=0,
+            max_value=max(max_days, 1),
+            value=(0, max(max_days, 1)),
+        )
+
+        # Min signal score
+        min_score = fc4.slider(
+            "Min Signal Score",
+            min_value=0,
+            max_value=100,
+            value=0,
+            step=5,
+        )
+
+        # Sort order
+        sort_options = {
+            "P&L % (best first)":   ("pnl_pct", False),
+            "P&L % (worst first)":  ("pnl_pct", True),
+            "Days Held (longest)":  ("days_held", False),
+            "Signal Score (best)":  ("signal_score", False),
+            "Ticker (A–Z)":         ("ticker", True),
+        }
+        sort_col1, sort_col2 = st.columns([2, 4])
+        sort_choice = sort_col1.selectbox("Sort by", options=list(sort_options.keys()))
+        sort_field, sort_asc = sort_options[sort_choice]
+
+        st.divider()
+
+        # ── Apply filters ──────────────────────────────────────────────────
+        filtered = df.copy()
+
+        if selected_statuses:
+            filtered = filtered[filtered["status"].isin(selected_statuses)]
+
+        if pnl_filter == "Profitable only":
+            filtered = filtered[filtered["pnl_pct"] > 0]
+        elif pnl_filter == "Losing only":
+            filtered = filtered[filtered["pnl_pct"] <= 0]
+
+        filtered = filtered[
+            (filtered["days_held"] >= days_range[0]) &
+            (filtered["days_held"] <= days_range[1])
+        ]
+
+        if min_score > 0:
+            filtered = filtered[filtered["signal_score"] >= min_score]
+
+        filtered = filtered.sort_values(sort_field, ascending=sort_asc)
+
+        # ── Results count ──────────────────────────────────────────────────
+        st.caption(f"Showing **{len(filtered)}** of **{len(df)}** positions")
+
+        if filtered.empty:
+            st.warning("No positions match the current filters.")
+        else:
+            # ── Main positions table ───────────────────────────────────────
+            display_cols = [
+                "status", "ticker",
+                "entry_date", "days_held",
+                "invested", "current_value",
+                "entry_price", "current_price",
+                "unrealised_pnl", "pnl_pct",
+                "stop_gap_pct", "target_gap_pct",
+                "signal_score", "chart",
+            ]
+            display_cols = [c for c in display_cols if c in filtered.columns]
+
+            st.dataframe(
+                filtered[display_cols],
+                column_config={
+                    "status":          "Status",
+                    "ticker":          "Ticker",
+                    "entry_date":      st.column_config.DateColumn("Entry Date", format="DD MMM YYYY"),
+                    "days_held":       st.column_config.NumberColumn("Days", format="%d"),
+                    "invested":        st.column_config.NumberColumn(f"Invested ({currency})", format="%.0f"),
+                    "current_value":   st.column_config.NumberColumn(f"Value ({currency})", format="%.0f"),
+                    "entry_price":     st.column_config.NumberColumn(f"Entry ({currency})", format="%.3f"),
+                    "current_price":   st.column_config.NumberColumn(f"Price ({currency})", format="%.3f"),
+                    "unrealised_pnl":  st.column_config.NumberColumn(f"P&L ({currency})", format="%+.2f"),
+                    "pnl_pct":         st.column_config.NumberColumn("P&L %", format="%+.2f%%"),
+                    "stop_gap_pct":    st.column_config.NumberColumn("Above Stop %", format="%.1f%%"),
+                    "target_gap_pct":  st.column_config.NumberColumn("To Target %", format="%.1f%%"),
+                    "signal_score":    st.column_config.ProgressColumn(
+                                           "Score", min_value=0, max_value=100, format="%.0f"),
+                    "chart":           st.column_config.LinkColumn("Chart", display_text="📊"),
+                },
+                use_container_width=True,
+                hide_index=True,
+                height=min(80 + len(filtered) * 35, 600),
+            )
+
+            # ── Status breakdown ───────────────────────────────────────────
+            col_chart1, col_chart2 = st.columns(2)
+
+            with col_chart1:
+                status_counts = filtered["status"].value_counts().reset_index()
+                status_counts.columns = ["status", "count"]
+                fig_status = px.pie(
+                    status_counts, values="count", names="status",
+                    title="Position Status Breakdown",
+                    hole=0.4,
+                    color_discrete_sequence=px.colors.qualitative.Set3,
+                )
+                fig_status.update_layout(height=300, margin=dict(t=40, b=10))
+                fig_status.update_traces(textposition="inside", textinfo="percent+label")
+                st.plotly_chart(fig_status, use_container_width=True)
+
+            with col_chart2:
+                fig_pnl = px.bar(
+                    filtered.sort_values("pnl_pct"),
+                    x="ticker", y="pnl_pct",
+                    color="pnl_pct",
+                    color_continuous_scale=["#ef4444", "#f59e0b", "#22c55e"],
+                    color_continuous_midpoint=0,
+                    title="P&L % by Position",
+                    labels={"pnl_pct": "P&L %", "ticker": ""},
+                )
+                fig_pnl.add_hline(y=0, line_dash="dash", line_color="gray", line_width=1)
+                fig_pnl.update_layout(height=300, margin=dict(t=40, b=20), showlegend=False)
+                fig_pnl.update_coloraxes(showscale=False)
+                st.plotly_chart(fig_pnl, use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
