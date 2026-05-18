@@ -476,7 +476,11 @@ def get_todays_scores(tickers: List[str], exchange: str) -> Dict[str, float]:
     """
     if not tickers:
         return {}
-    today_str = str(_today(exchange))
+    try:
+        tz = "Australia/Sydney" if exchange == "asx" else "Asia/Kolkata"
+        today_str = str(datetime.now(ZoneInfo(tz)).date())
+    except Exception:
+        today_str = str(date.today())
 
     if _use_supabase():
         # Fetch all tickers in one request using 'in' filter
