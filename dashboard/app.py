@@ -60,12 +60,16 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Auto-refresh every 5 minutes ──────────────────────────────────────────────
+# ── Auto-refresh: 30 s when market open, 5 min when closed ───────────────────
+# Exchange isn't known yet at module level, so we check both; if either is
+# open we use the faster interval. The sidebar exchange selector refines this.
 try:
     from streamlit_autorefresh import st_autorefresh
-    st_autorefresh(interval=300_000, key="auto_refresh")
+    _either_open = is_market_open("asx") or is_market_open("nse")
+    _interval_ms = 30_000 if _either_open else 300_000
+    st_autorefresh(interval=_interval_ms, key="auto_refresh")
 except ImportError:
-    pass  # graceful — dashboard still works without auto-refresh
+    pass
 
 # ── Import data layer ─────────────────────────────────────────────────────────
 from dashboard.data import (
@@ -76,6 +80,8 @@ from dashboard.data import (
     get_cumulative_pnl,
     get_score_history,
     get_backtest_results,
+    is_market_open,
+    market_status,
 )
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -100,6 +106,22 @@ with st.sidebar:
 
     st.divider()
 
+    # ── Market status badge ────────────────────────────────────────────────
+    mkt = market_status(exchange)
+    _market_open = mkt["open"]
+    if _market_open:
+        st.success(f"{mkt['label']}")
+    else:
+        st.error(f"{mkt['label']}")
+    st.caption(f"🕐 {mkt['local_time']}")
+
+    if _market_open:
+        st.caption("⚡ Live prices · refreshing every 30 s")
+    else:
+        st.caption("📦 Cached prices · refreshing every 5 min")
+
+    st.divider()
+
     if st.button("🔄 Refresh Now"):
         st.cache_data.clear()
         st.rerun()
@@ -107,7 +129,6 @@ with st.sidebar:
     from dashboard.data import _use_supabase
     source = "☁️ Supabase" if _use_supabase() else "🖥️ Local DB"
     st.caption(f"Data: {source}")
-    st.caption(f"Updated: {date.today().strftime('%d %b %Y')}")
 
 
 # ── Cached data loads ─────────────────────────────────────────────────────────
@@ -116,9 +137,9 @@ with st.sidebar:
 def load_regime(exch):
     return get_regime(exch)
 
-@st.cache_data(ttl=300)
-def load_portfolio(exch):
-    return get_portfolio(exch)
+@st.cache_data(ttl=30)   # short TTL — live prices update every 30 s during market hours
+def load_portfolio(exch, live=False):
+    return get_portfolio(exch, live=live)
 
 @st.cache_data(ttl=300)
 def load_signals(exch, sig_date, n):
@@ -208,8 +229,11 @@ if page == "📊 Overview":
     st.header(f"📊 Overview — {exchange_label}")
 
     regime    = load_regime(exchange)
-    portfolio = load_portfolio(exchange)
+    portfolio = load_portfolio(exchange, live=_market_open)
     pnl_data  = load_cumulative_pnl(exchange, 90)
+
+    if portfolio.get("prices_live"):
+        st.caption("⚡ Prices updating live from market data")
 
     # ── Metric cards ──────────────────────────────────────────────────────────
     total_pnl           = portfolio.get("total_unrealised_pnl", 0)
@@ -389,9 +413,14 @@ elif page == "🏆 Signals":
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif page == "📋 Portfolio":
-    st.header(f"📋 Open Positions — {exchange_label}")
+    col_h, col_badge = st.columns([4, 1])
+    col_h.header(f"📋 Open Positions — {exchange_label}")
+    if _market_open:
+        col_badge.success("⚡ Live")
+    else:
+        col_badge.info("📦 Cached")
 
-    portfolio = load_portfolio(exchange)
+    portfolio = load_portfolio(exchange, live=_market_open)
     positions = portfolio.get("positions", [])
 
     total_invested      = portfolio.get("total_invested", 0)
@@ -519,9 +548,14 @@ elif page == "💼 Positions":
     import pandas as pd
     import plotly.express as px
 
-    st.header(f"💼 Positions — {exchange_label}")
+    col_h, col_badge = st.columns([4, 1])
+    col_h.header(f"💼 Positions — {exchange_label}")
+    if _market_open:
+        col_badge.success("⚡ Live · 30s")
+    else:
+        col_badge.info("📦 Cached · 5 min")
 
-    portfolio = load_portfolio(exchange)
+    portfolio = load_portfolio(exchange, live=_market_open)
     positions = portfolio.get("positions", [])
 
     if not positions:

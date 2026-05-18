@@ -18,8 +18,79 @@ Exchange filtering:
 
 import json
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
+
+
+# ── Market hours ──────────────────────────────────────────────────────────────
+
+_EXCHANGE_TZ = {
+    "asx": ("Australia/Sydney", 10,  0, 16,  0),   # open 10:00, close 16:00
+    "nse": ("Asia/Kolkata",      9, 15, 15, 30),   # open  9:15, close 15:30
+}
+
+
+def is_market_open(exchange: str) -> bool:
+    """Return True if the exchange is currently within trading hours (weekdays only)."""
+    try:
+        tz_name, oh, om, ch, cm = _EXCHANGE_TZ.get(exchange, _EXCHANGE_TZ["asx"])
+        now = datetime.now(ZoneInfo(tz_name))
+        if now.weekday() >= 5:          # Saturday / Sunday
+            return False
+        open_t  = now.replace(hour=oh, minute=om,  second=0, microsecond=0)
+        close_t = now.replace(hour=ch, minute=cm, second=0, microsecond=0)
+        return open_t <= now <= close_t
+    except Exception:
+        return False
+
+
+def market_status(exchange: str) -> dict:
+    """Return {open: bool, label: str, local_time: str} for the exchange."""
+    try:
+        tz_name, oh, om, ch, cm = _EXCHANGE_TZ.get(exchange, _EXCHANGE_TZ["asx"])
+        now   = datetime.now(ZoneInfo(tz_name))
+        open_ = is_market_open(exchange)
+        return {
+            "open":       open_,
+            "label":      "🟢 Market Open" if open_ else "🔴 Market Closed",
+            "local_time": now.strftime("%H:%M %Z %a"),
+        }
+    except Exception:
+        return {"open": False, "label": "—", "local_time": ""}
+
+
+def get_live_prices(tickers: List[str]) -> Dict[str, float]:
+    """
+    Fetch the latest trade price for each ticker from yfinance.
+    Returns {ticker: price}. Silently skips failed tickers.
+    Called only when the market is open.
+    """
+    if not tickers:
+        return {}
+    try:
+        import yfinance as yf
+        prices: Dict[str, float] = {}
+        # download with 1-minute bars for today; take the last close
+        raw = yf.download(
+            tickers, period="1d", interval="1m",
+            progress=False, auto_adjust=True,
+        )
+        if raw.empty:
+            return prices
+        close = raw["Close"] if "Close" in raw.columns else raw.get("close", raw)
+        if len(tickers) == 1:
+            val = close.dropna().iloc[-1]
+            prices[tickers[0]] = float(val)
+        else:
+            for t in tickers:
+                try:
+                    prices[t] = float(close[t].dropna().iloc[-1])
+                except Exception:
+                    pass
+        return prices
+    except Exception:
+        return {}
 
 
 # ── Backend helpers ───────────────────────────────────────────────────────────
@@ -164,36 +235,56 @@ def _signals_local(exchange: str, signal_date: date, n: int) -> List[Dict]:
 
 # ── Portfolio (open positions) ─────────────────────────────────────────────────
 
-def get_portfolio(exchange: str) -> Dict:
+def get_portfolio(exchange: str, live: bool = False) -> Dict:
     """
-    Returns watchlist summary for the given exchange:
-    {total_positions, total_unrealised_pnl, winners, losers, positions: List[Dict]}
+    Returns watchlist summary for the given exchange.
+    When live=True AND the market is open, overlays real-time prices
+    from yfinance on top of the Supabase/PG base data.
     """
     if _use_supabase():
         positions = _portfolio_supabase(exchange)
     else:
         positions = _portfolio_local(exchange)
 
-    # Compute per-position derived fields so the dashboard doesn't have to
+    # ── Optional: overlay live prices ────────────────────────────────────
+    live_prices: Dict[str, float] = {}
+    if live and positions and is_market_open(exchange):
+        tickers = [p["ticker"] for p in positions]
+        live_prices = get_live_prices(tickers)
+
+    # ── Per-position derived fields ───────────────────────────────────────
     for p in positions:
-        shares  = p.get("shares") or 0
-        cp      = p.get("current_price") or 0
-        invested = p.get("position_size_aud") or 0      # cost basis incl. brokerage
+        ticker   = p.get("ticker", "")
+        shares   = p.get("shares") or 0
+        entry    = p.get("entry_price") or 0
+        invested = p.get("position_size_aud") or 0
+
+        # Override current_price with live quote when available
+        if ticker in live_prices:
+            cp = live_prices[ticker]
+            p["current_price"]     = round(cp, 4)
+            p["unrealised_pnl"]    = round((cp - entry) * shares, 2)
+            p["unrealised_pnl_pct"] = round((cp - entry) / entry * 100, 2) if entry else 0
+        else:
+            cp = p.get("current_price") or 0
+
         p["invested"]      = round(invested, 2)
         p["current_value"] = round(cp * shares, 2)
+        p["is_live"]       = ticker in live_prices   # flag for UI indicator
 
     total_pnl           = sum(p.get("unrealised_pnl")   or 0 for p in positions)
     total_invested      = sum(p.get("invested")          or 0 for p in positions)
     total_current_value = sum(p.get("current_value")     or 0 for p in positions)
     winners = sum(1 for p in positions if (p.get("unrealised_pnl") or 0) > 0)
     return {
-        "total_positions":    len(positions),
-        "total_invested":     round(total_invested, 2),
-        "total_current_value": round(total_current_value, 2),
+        "total_positions":      len(positions),
+        "total_invested":       round(total_invested, 2),
+        "total_current_value":  round(total_current_value, 2),
         "total_unrealised_pnl": round(total_pnl, 2),
-        "winners": winners,
-        "losers":  len(positions) - winners,
-        "positions": positions,
+        "winners":    winners,
+        "losers":     len(positions) - winners,
+        "positions":  positions,
+        "prices_live": bool(live_prices),   # True = at least one live price fetched
     }
 
 
