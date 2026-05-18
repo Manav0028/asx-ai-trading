@@ -85,8 +85,22 @@ except ImportError:
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.title("📈 AI Trading")
-    st.caption("Paper trading · ASX & NSE")
+    # ── Trading mode badge ─────────────────────────────────────────────────
+    import os
+    _phase = int(os.getenv("TRADING_PHASE", 1))
+    if _phase >= 3:
+        st.title("💰 AI Trading")
+        st.error("🔴 LIVE TRADING", icon="⚠️")
+    elif _phase == 2:
+        st.title("📈 AI Trading")
+        st.info("🔗 IBKR Paper Trading")
+    else:
+        st.title("📈 AI Trading")
+        st.caption("📋 Internal Paper · ASX & NSE")
+
+    _capital = float(os.getenv("PORTFOLIO_CAPITAL", 100000))
+    _risk_per_trade = _capital * 0.015
+    st.caption(f"Capital: **${_capital:,.0f}** · Risk/trade: **${_risk_per_trade:,.0f}**")
 
     exchange = st.radio(
         "Exchange",
@@ -234,6 +248,23 @@ if page == "📊 Overview":
     if portfolio.get("prices_live"):
         st.caption("⚡ Prices updating live from market data")
 
+    # ── Capital deployment bar ─────────────────────────────────────────────
+    import os
+    _cap = float(os.getenv("PORTFOLIO_CAPITAL", 100000))
+    _deployed = total_invested
+    _deploy_pct = min(_deployed / _cap * 100, 100) if _cap else 0
+    _avail = max(_cap - _deployed, 0)
+    _risk_per_trade = _cap * 0.015
+
+    cap_c1, cap_c2, cap_c3 = st.columns(3)
+    cap_c1.metric("Capital Deployed", f"{currency}{_deployed:,.0f}",
+                  delta=f"{_deploy_pct:.0f}% of {currency}{_cap:,.0f}")
+    cap_c2.metric("Available Cash",   f"{currency}{_avail:,.0f}")
+    cap_c3.metric("Risk per Trade",   f"{currency}{_risk_per_trade:,.0f}",
+                  delta="1.5% ATR dollar-risk", delta_color="off")
+    st.progress(min(_deploy_pct / 100, 1.0), text=f"Portfolio {_deploy_pct:.0f}% deployed")
+    st.divider()
+
     # ── Metric cards ──────────────────────────────────────────────────────────
     total_pnl           = portfolio.get("total_unrealised_pnl", 0)
     total_invested      = portfolio.get("total_invested", 0)
@@ -272,6 +303,31 @@ if page == "📊 Overview":
 
     # ── Cumulative P&L chart ──────────────────────────────────────────────────
     _pnl_chart(pnl_data, currency, title="90-Day Cumulative Net P&L")
+
+    # ── IBKR paper account widget (phase 2+) ─────────────────────────────────
+    if _phase >= 2:
+        with st.expander("🔗 IBKR Paper Account", expanded=False):
+            try:
+                from execution.ibkr_paper_trader import get_ibkr_account_summary
+                ibkr = get_ibkr_account_summary()
+                if ibkr:
+                    acc = ibkr.get("account", {})
+                    ic1, ic2, ic3 = st.columns(3)
+                    ic1.metric("Net Liquidation",  acc.get("NetLiquidation",  "—"))
+                    ic2.metric("Available Funds",  acc.get("AvailableFunds",  "—"))
+                    ic3.metric("Unrealised P&L",   acc.get("UnrealizedPnL",  "—"))
+                    if ibkr.get("positions"):
+                        import pandas as pd
+                        st.dataframe(
+                            pd.DataFrame(ibkr["positions"]),
+                            use_container_width=True, hide_index=True,
+                        )
+                    else:
+                        st.caption("No open positions in IBKR paper account yet.")
+                else:
+                    st.warning("TWS not responding — check that TWS is running with API enabled.")
+            except Exception as e:
+                st.warning(f"IBKR connect error: {e}")
 
     # ── Top 5 open positions summary ──────────────────────────────────────────
     positions = portfolio.get("positions", [])
@@ -568,6 +624,14 @@ elif page == "💼 Positions":
         df["pnl_pct"]        = df["unrealised_pnl_pct"].round(2)
         df["days_held"]      = df["days_held"].fillna(0).astype(int)
 
+        # Capital concentration + dollar risk at stop
+        import os
+        _cap = float(os.getenv("PORTFOLIO_CAPITAL", 100000))
+        df["capital_pct"] = (df["invested"] / _cap * 100).round(1)
+        df["risk_at_stop"] = (
+            (df["current_price"] - df["stop_loss_price"]) * df.get("shares", 0)
+        ).round(0).abs()
+
         def _status(row):
             pnl   = row.get("unrealised_pnl_pct") or 0
             sg    = row.get("stop_gap_pct") or 100
@@ -698,9 +762,10 @@ elif page == "💼 Positions":
             display_cols = [
                 "status", "ticker",
                 "entry_date", "days_held",
-                "invested", "current_value",
+                "capital_pct", "invested", "current_value",
                 "entry_price", "current_price",
                 "unrealised_pnl", "pnl_pct",
+                "risk_at_stop",
                 "stop_gap_pct", "target_gap_pct",
                 "signal_score", "score_today", "chart",
             ]
@@ -721,6 +786,8 @@ elif page == "💼 Positions":
                     "pnl_pct":         st.column_config.NumberColumn("P&L %", format="%+.2f%%"),
                     "stop_gap_pct":    st.column_config.NumberColumn("Above Stop %", format="%.1f%%"),
                     "target_gap_pct":  st.column_config.NumberColumn("To Target %", format="%.1f%%"),
+                    "capital_pct":     st.column_config.NumberColumn("Capital %", format="%.1f%%"),
+                    "risk_at_stop":    st.column_config.NumberColumn(f"Risk $ at Stop ({currency})", format="%.0f"),
                     "signal_score":    st.column_config.ProgressColumn(
                                            "Entry Score", min_value=0, max_value=100, format="%.0f"),
                     "score_today":     "Score Today (↑↓→)",
