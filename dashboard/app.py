@@ -632,6 +632,11 @@ elif page == "💼 Positions":
             (df["current_price"] - df["stop_loss_price"]) * df.get("shares", 0)
         ).round(0).abs()
 
+        # ── Trading mode badge ─────────────────────────────────────────────
+        def _mode_badge(m):
+            return {"ibkr_paper": "🔗 IBKR Paper", "live": "💰 Live", "paper": "📋 Internal"}.get(m, m or "📋 Internal")
+        df["mode_label"] = df.get("trading_mode", "paper").apply(_mode_badge) if "trading_mode" in df.columns else "📋 Internal"
+
         def _status(row):
             pnl   = row.get("unrealised_pnl_pct") or 0
             sg    = row.get("stop_gap_pct") or 100
@@ -682,18 +687,22 @@ elif page == "💼 Positions":
         # FILTERS
         # ══════════════════════════════════════════════════════════════════
         st.subheader("🔍 Filters")
-        fc1, fc2, fc3, fc4 = st.columns(4)
+        fc1, fc2, fc3, fc4, fc5 = st.columns(5)
+
+        # Trading mode filter
+        all_modes = sorted(df["mode_label"].unique().tolist()) if "mode_label" in df.columns else ["📋 Internal"]
+        selected_modes = fc1.multiselect("Trading Mode", options=all_modes, default=all_modes)
 
         # Status filter
         all_statuses = sorted(df["status"].unique().tolist())
-        selected_statuses = fc1.multiselect(
+        selected_statuses = fc2.multiselect(
             "Status",
             options=all_statuses,
             default=all_statuses,
         )
 
         # P&L direction
-        pnl_filter = fc2.radio(
+        pnl_filter = fc3.radio(
             "P&L Direction",
             options=["All", "Profitable only", "Losing only"],
             horizontal=False,
@@ -701,7 +710,7 @@ elif page == "💼 Positions":
 
         # Days held range
         max_days = int(df["days_held"].max()) if len(df) else 90
-        days_range = fc3.slider(
+        days_range = fc4.slider(
             "Days Held",
             min_value=0,
             max_value=max(max_days, 1),
@@ -709,7 +718,7 @@ elif page == "💼 Positions":
         )
 
         # Min signal score
-        min_score = fc4.slider(
+        min_score = fc5.slider(
             "Min Signal Score",
             min_value=0,
             max_value=100,
@@ -733,6 +742,9 @@ elif page == "💼 Positions":
 
         # ── Apply filters ──────────────────────────────────────────────────
         filtered = df.copy()
+
+        if selected_modes and "mode_label" in filtered.columns:
+            filtered = filtered[filtered["mode_label"].isin(selected_modes)]
 
         if selected_statuses:
             filtered = filtered[filtered["status"].isin(selected_statuses)]
@@ -760,7 +772,7 @@ elif page == "💼 Positions":
         else:
             # ── Main positions table ───────────────────────────────────────
             display_cols = [
-                "status", "ticker",
+                "mode_label", "status", "ticker",
                 "entry_date", "days_held",
                 "capital_pct", "invested", "current_value",
                 "entry_price", "current_price",
@@ -786,6 +798,7 @@ elif page == "💼 Positions":
                     "pnl_pct":         st.column_config.NumberColumn("P&L %", format="%+.2f%%"),
                     "stop_gap_pct":    st.column_config.NumberColumn("Above Stop %", format="%.1f%%"),
                     "target_gap_pct":  st.column_config.NumberColumn("To Target %", format="%.1f%%"),
+                    "mode_label":      "Mode",
                     "capital_pct":     st.column_config.NumberColumn("Capital %", format="%.1f%%"),
                     "risk_at_stop":    st.column_config.NumberColumn(f"Risk $ at Stop ({currency})", format="%.0f"),
                     "signal_score":    st.column_config.ProgressColumn(

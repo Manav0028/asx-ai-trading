@@ -290,10 +290,10 @@ def get_portfolio(exchange: str, live: bool = False) -> Dict:
 
 def _portfolio_supabase(exchange: str) -> List[Dict]:
     return _sb_get("watchlist", {
-        "exchange": f"eq.{exchange}",
-        "is_active": "eq.true",
-        "order": "unrealised_pnl_pct.desc",
-        "select": "*",
+        "exchange":     f"eq.{exchange}",
+        "is_active":    "eq.true",
+        "order":        "unrealised_pnl_pct.desc",
+        "select":       "*",          # includes trading_mode column
     })
 
 

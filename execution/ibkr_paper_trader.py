@@ -64,7 +64,7 @@ def _record_buy(ticker: str, fill_price: float, shares: int,
     stop   = signal.get("stop_loss_price") or round(fill_price * 0.93, 3)
     score  = signal.get("composite_score", 0)
 
-    # Add to watchlist (for dashboard + exit monitoring)
+    # Add to watchlist (tagged ibkr_paper so it doesn't mix with internal paper)
     add_to_watchlist(
         ticker=ticker,
         entry_price=fill_price,
@@ -73,6 +73,7 @@ def _record_buy(ticker: str, fill_price: float, shares: int,
         shares=shares,
         position_size_aud=cost,
         signal_score=score,
+        trading_mode="ibkr_paper",
     )
 
     # Record as open trade
@@ -104,7 +105,11 @@ def _record_sell(ticker: str, fill_price: float, reason: str) -> Optional[Dict]:
     with get_session() as session:
         item = (
             session.query(WatchlistItem)
-            .filter(WatchlistItem.ticker == ticker, WatchlistItem.is_active == True)
+            .filter(
+                WatchlistItem.ticker == ticker,
+                WatchlistItem.trading_mode == "ibkr_paper",
+                WatchlistItem.is_active == True,
+            )
             .first()
         )
         if not item:
@@ -164,8 +169,8 @@ def ibkr_execute_buy(signal: Dict) -> Optional[Dict]:
         logger.info("Computed 0 shares for %s — skipping", ticker)
         return None
 
-    # Check not already in watchlist
-    active = {p["ticker"] for p in get_active_watchlist()}
+    # Check not already in ibkr_paper watchlist
+    active = {p["ticker"] for p in get_active_watchlist(trading_mode="ibkr_paper")}
     if ticker in active:
         logger.info("%s already held — skipping duplicate buy", ticker)
         return None
@@ -208,7 +213,7 @@ def ibkr_execute_sell(ticker: str, reason: str = "manual") -> Optional[Dict]:
     if not IBKR_PAPER_ENABLED:
         return None
 
-    positions = get_active_watchlist()
+    positions = get_active_watchlist(trading_mode="ibkr_paper")
     pos = next((p for p in positions if p["ticker"] == ticker), None)
     if not pos:
         logger.warning("IBKR paper sell: %s not in active watchlist", ticker)

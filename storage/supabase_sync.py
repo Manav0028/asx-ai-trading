@@ -216,6 +216,7 @@ def sync_watchlist_to_supabase() -> bool:
                 {
                     "ticker": i.ticker,
                     "exchange": exchange_id,
+                    "trading_mode": i.trading_mode or "paper",
                     "entry_date": str(i.entry_date) if i.entry_date else None,
                     "entry_price": i.entry_price,
                     "current_price": i.current_price,
@@ -239,7 +240,14 @@ def sync_watchlist_to_supabase() -> bool:
             logger.info("Watchlist empty for %s — cleared Supabase rows", exchange_id.upper())
             return True
 
+        # Try with trading_mode first; fall back without it if column not yet migrated
         ok = _upsert(url, key, "watchlist", payload)
+        if not ok:
+            payload_no_mode = [{k: v for k, v in row.items() if k != "trading_mode"} for row in payload]
+            ok = _upsert(url, key, "watchlist", payload_no_mode)
+            if ok:
+                logger.warning("Synced watchlist WITHOUT trading_mode — run ALTER TABLE migration in Supabase SQL Editor")
+
         if ok:
             logger.info("Synced %d positions to Supabase (%s)", len(payload), exchange_id.upper())
         return ok

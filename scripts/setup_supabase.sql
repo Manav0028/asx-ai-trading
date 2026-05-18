@@ -26,10 +26,11 @@ CREATE TABLE IF NOT EXISTS signals (
 CREATE INDEX IF NOT EXISTS ix_signals_exchange_date
     ON signals (exchange, date, composite_score DESC);
 
--- 2. Watchlist — active open positions per exchange
+-- 2. Watchlist — active open positions per exchange + trading mode
 CREATE TABLE IF NOT EXISTS watchlist (
     ticker              TEXT        NOT NULL PRIMARY KEY,
     exchange            TEXT        NOT NULL,
+    trading_mode        TEXT        NOT NULL DEFAULT 'paper',  -- 'paper'|'ibkr_paper'|'live'
     entry_date          DATE,
     entry_price         FLOAT,
     current_price       FLOAT,
@@ -44,6 +45,8 @@ CREATE TABLE IF NOT EXISTS watchlist (
     is_active           BOOLEAN     DEFAULT TRUE,
     synced_at           TIMESTAMPTZ DEFAULT NOW()
 );
+-- Migration for existing tables (safe to re-run)
+ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS trading_mode TEXT NOT NULL DEFAULT 'paper';
 
 CREATE INDEX IF NOT EXISTS ix_watchlist_exchange
     ON watchlist (exchange, is_active);

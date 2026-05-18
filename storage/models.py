@@ -124,4 +124,5 @@ class WatchlistItem(Base):
     days_held = Column(Integer, default=0)
     signal_score = Column(Float)
     is_active = Column(Boolean, default=True)
+    trading_mode = Column(String(20), default="paper")  # 'paper' | 'ibkr_paper' | 'live'
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
