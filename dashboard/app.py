@@ -60,18 +60,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Auto-refresh: 30 s when market open, 5 min when closed ───────────────────
-# Exchange isn't known yet at module level, so we check both; if either is
-# open we use the faster interval. The sidebar exchange selector refines this.
-try:
-    from streamlit_autorefresh import st_autorefresh
-    _either_open = is_market_open("asx") or is_market_open("nse")
-    _interval_ms = 30_000 if _either_open else 300_000
-    st_autorefresh(interval=_interval_ms, key="auto_refresh")
-except ImportError:
-    pass
-
-# ── Import data layer ─────────────────────────────────────────────────────────
+# ── Import data layer (must come before any data calls) ──────────────────────
 from dashboard.data import (
     get_signals,
     get_portfolio,
@@ -83,6 +72,15 @@ from dashboard.data import (
     is_market_open,
     market_status,
 )
+
+# ── Auto-refresh: 30 s when market open, 5 min when closed ───────────────────
+try:
+    from streamlit_autorefresh import st_autorefresh
+    _either_open = is_market_open("asx") or is_market_open("nse")
+    _interval_ms = 30_000 if _either_open else 300_000
+    st_autorefresh(interval=_interval_ms, key="auto_refresh")
+except ImportError:
+    pass
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
