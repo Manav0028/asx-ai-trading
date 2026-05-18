@@ -9,11 +9,19 @@ import logging
 from datetime import date
 from typing import Dict, List, Tuple
 
-from config.settings import STOP_LOSS_PCT
+from config.settings import STOP_LOSS_PCT, IBKR_PAPER_ENABLED
 from signals.watchlist import get_active_watchlist, update_watchlist_prices
-from execution.paper_trader import execute_sell
 from storage.cache import get_value, set_value
 from alerts.telegram_bot import send_stop_loss_alert, send_target_alert, send_stale_exit_alert
+
+
+def _execute_sell(ticker: str, reason: str):
+    """Route sell to IBKR paper trader (phase 2+) or internal paper trader (phase 1)."""
+    if IBKR_PAPER_ENABLED:
+        from execution.ibkr_paper_trader import ibkr_execute_sell
+        return ibkr_execute_sell(ticker, reason=reason)
+    from execution.paper_trader import execute_sell
+    return execute_sell(ticker, reason=reason)
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +100,7 @@ def evaluate_exits() -> Tuple[List[Dict], List[Dict]]:
                 "STOP-LOSS: %s current=$%.3f stop=$%.3f (%.1f%%)",
                 ticker, current, effective_stop, loss_pct,
             )
-            result = execute_sell(ticker, reason="stop_loss")
+            result = _execute_sell(ticker, reason="stop_loss")
             if result:
                 _clear_peak(ticker)
                 send_stop_loss_alert(
@@ -109,7 +117,7 @@ def evaluate_exits() -> Tuple[List[Dict], List[Dict]]:
                 "TARGET HIT: %s current=$%.3f target=$%.3f (+%.1f%%)",
                 ticker, current, target, gain_pct_display,
             )
-            result = execute_sell(ticker, reason="target")
+            result = _execute_sell(ticker, reason="target")
             if result:
                 _clear_peak(ticker)
                 send_target_alert(
@@ -156,7 +164,7 @@ def intraday_evaluate_exits(live_prices: Dict[str, float]) -> Tuple[List[Dict], 
                 "INTRADAY STOP: %s live=$%.3f stop=$%.3f",
                 ticker, current, effective_stop,
             )
-            result = execute_sell(ticker, reason="intraday_stop")
+            result = _execute_sell(ticker, reason="intraday_stop")
             if result:
                 _clear_peak(ticker)
                 send_intraday_stop_alert(
@@ -172,7 +180,7 @@ def intraday_evaluate_exits(live_prices: Dict[str, float]) -> Tuple[List[Dict], 
                 "INTRADAY TARGET: %s live=$%.3f target=$%.3f",
                 ticker, current, target,
             )
-            result = execute_sell(ticker, reason="intraday_target")
+            result = _execute_sell(ticker, reason="intraday_target")
             if result:
                 _clear_peak(ticker)
                 send_intraday_target_alert(
@@ -203,7 +211,7 @@ def check_stale_positions() -> List[Dict]:
                 "Stale exit: %s held %d days, move only %.1f%%",
                 ticker, pos["days_held"], move_pct,
             )
-            result = execute_sell(ticker, reason="stale")
+            result = _execute_sell(ticker, reason="stale")
             if result:
                 send_stale_exit_alert(
                     ticker, result["fill_price"], result["pnl"], pos["days_held"]

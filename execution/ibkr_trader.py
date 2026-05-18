@@ -16,21 +16,25 @@ import logging
 from typing import Dict, Optional
 
 from config import get_active_exchange
-from config.settings import IBKR_CLIENT_ID, IBKR_HOST, IBKR_PORT, LIVE_TRADING_ENABLED
+from config.settings import IBKR_CLIENT_ID, IBKR_HOST, IBKR_PORT, IBKR_PAPER_ENABLED, LIVE_TRADING_ENABLED
 
 logger = logging.getLogger(__name__)
 
 
 def _get_ib():
-    if not LIVE_TRADING_ENABLED:
-        raise RuntimeError("Live trading is disabled (TRADING_PHASE < 3)")
+    """Connect to TWS/IB Gateway. Works for both paper (port 7497) and live (port 7496)."""
+    if not IBKR_PAPER_ENABLED:
+        raise RuntimeError("IBKR not enabled (set TRADING_PHASE >= 2 in .env)")
     try:
-        from ib_insync import IB
+        from ib_insync import IB, util
+        util.startLoop()          # required outside Jupyter
         ib = IB()
-        ib.connect(IBKR_HOST, IBKR_PORT, clientId=IBKR_CLIENT_ID)
+        ib.connect(IBKR_HOST, IBKR_PORT, clientId=IBKR_CLIENT_ID, timeout=10)
+        mode = "PAPER" if not LIVE_TRADING_ENABLED else "LIVE"
+        logger.info("Connected to IBKR %s at %s:%s", mode, IBKR_HOST, IBKR_PORT)
         return ib
     except ImportError:
-        raise ImportError("ib_insync not installed. Run: pip install ib_insync")
+        raise ImportError("ib_insync not installed — run: pip install ib_insync")
 
 
 def _build_contract(ticker: str):
@@ -61,7 +65,7 @@ def _build_contract(ticker: str):
 
 def place_market_buy(ticker: str, shares: int) -> Optional[Dict]:
     """Place a live market buy order via IBKR."""
-    if not LIVE_TRADING_ENABLED:
+    if not IBKR_PAPER_ENABLED:
         logger.warning("Live trading not enabled — use paper_trader instead")
         return None
 
@@ -89,7 +93,7 @@ def place_market_buy(ticker: str, shares: int) -> Optional[Dict]:
 
 def place_stop_loss_order(ticker: str, shares: int, stop_price: float) -> Optional[Dict]:
     """Place a conditional stop-loss sell order via IBKR."""
-    if not LIVE_TRADING_ENABLED:
+    if not IBKR_PAPER_ENABLED:
         return None
 
     ib = _get_ib()
@@ -115,7 +119,7 @@ def place_stop_loss_order(ticker: str, shares: int, stop_price: float) -> Option
 
 def place_market_sell(ticker: str, shares: int) -> Optional[Dict]:
     """Place a live market sell order via IBKR."""
-    if not LIVE_TRADING_ENABLED:
+    if not IBKR_PAPER_ENABLED:
         return None
 
     ib = _get_ib()
@@ -142,7 +146,7 @@ def place_market_sell(ticker: str, shares: int) -> Optional[Dict]:
 
 def get_account_summary() -> Optional[Dict]:
     """Fetch IBKR account balance and open positions."""
-    if not LIVE_TRADING_ENABLED:
+    if not IBKR_PAPER_ENABLED:
         return None
     ib = _get_ib()
     try:

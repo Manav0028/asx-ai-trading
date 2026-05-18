@@ -70,5 +70,9 @@ TOP_N_CLAUDE_BATCH = 20
 BACKTESTER_LOOKBACK_MONTHS = 6
 
 # ── Phase flag ────────────────────────────────────────────────────────────────
-TRADING_PHASE = int(os.getenv("TRADING_PHASE", 1))  # 1=paper, 3=live
-LIVE_TRADING_ENABLED = TRADING_PHASE >= 3
+# 1 = internal paper trader (simulated fills, no broker connection)
+# 2 = IBKR paper trading   (real market prices via TWS paper account, port 7497)
+# 3 = IBKR live trading    (real money via TWS live account, port 7496)
+TRADING_PHASE = int(os.getenv("TRADING_PHASE", 1))
+IBKR_PAPER_ENABLED  = TRADING_PHASE >= 2   # phases 2 and 3 both use IBKR
+LIVE_TRADING_ENABLED = TRADING_PHASE >= 3  # phase 3 only

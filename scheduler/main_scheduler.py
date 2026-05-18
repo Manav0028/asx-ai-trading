@@ -98,14 +98,14 @@ def job_daily_report():
 
 
 def job_place_orders():
-    logger.info("Placing paper/live orders")
+    logger.info("Placing orders")
     from signals.aggregator import get_top_signals
-    from execution.paper_trader import process_new_signals
-    from config.settings import LIVE_TRADING_ENABLED
+    from config.settings import LIVE_TRADING_ENABLED, IBKR_PAPER_ENABLED
 
     signals = get_top_signals(n=20)
 
     if LIVE_TRADING_ENABLED:
+        # ── Phase 3: IBKR live trading ────────────────────────────────────
         from execution.ibkr_trader import place_market_buy, place_stop_loss_order
         from signals.kelly_sizer import compute_shares
         for sig in signals:
@@ -114,9 +114,35 @@ def job_place_orders():
                 fill = place_market_buy(sig["ticker"], shares)
                 if fill and sig.get("stop_loss_price"):
                     place_stop_loss_order(sig["ticker"], shares, sig["stop_loss_price"])
+
+    elif IBKR_PAPER_ENABLED:
+        # ── Phase 2: IBKR paper trading ───────────────────────────────────
+        from execution.ibkr_paper_trader import ibkr_process_new_signals
+        fills = ibkr_process_new_signals(signals)
+        logger.info("IBKR paper orders placed: %d", len(fills))
+
     else:
+        # ── Phase 1: Internal paper trader ────────────────────────────────
+        from execution.paper_trader import process_new_signals
         fills = process_new_signals(signals)
-        logger.info("Paper orders placed: %d", len(fills))
+        logger.info("Internal paper orders placed: %d", len(fills))
+
+    # ── Telegram signal alerts for all non-live fills ─────────────────────
+    if not LIVE_TRADING_ENABLED and 'fills' in dir():
+        from alerts.telegram_bot import send_signal_alert
+        from ai_engine.technical_engine import get_technical_meta
+        from ai_engine.fundamental_scorer import get_fundamental_meta
+        from ai_engine.sentiment import get_sentiment_meta
+        for fill in fills:
+            ticker = fill["ticker"]
+            sig = next((s for s in signals if s["ticker"] == ticker), None)
+            if sig:
+                send_signal_alert(
+                    sig,
+                    tech_meta=get_technical_meta(ticker),
+                    fund_meta=get_fundamental_meta(ticker),
+                    sent_meta=get_sentiment_meta(ticker),
+                )
 
         from alerts.telegram_bot import send_signal_alert
         from ai_engine.technical_engine import get_technical_meta
