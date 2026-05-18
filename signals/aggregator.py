@@ -92,21 +92,35 @@ def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
     # Scores are pure quality — regime affects position sizing, not score
     actionable = quality_ok and liquid_ok and composite >= SIGNAL_THRESHOLD
 
-    # Dynamic prices from technical engine
+    # ── Prices + dynamic risk parameters ─────────────────────────────────────
     from ai_engine.technical_engine import get_technical_meta
-    tech_meta = get_technical_meta(ticker)
-    entry_price = get_latest_price(ticker)
-    target_price = tech_meta.get("target") or (round(entry_price * 1.10, 3) if entry_price else None)
-    stop_loss_price = tech_meta.get("stop") or (round(entry_price * 0.93, 3) if entry_price else None)
+    from signals.risk_params import get_all_risk_params
 
-    from signals.kelly_sizer import compute_kelly_size
-    kelly_f, position_aud = (
-        compute_kelly_size(composite) if actionable else (0.0, 0.0)
-    )
-    # In RISK-OFF, deploy half the normal position size — same signal, less capital risk
-    if not regime_ok and position_aud > 0:
-        position_aud = round(position_aud * 0.50, 2)
-        kelly_f = round(kelly_f * 0.50, 4)
+    tech_meta   = get_technical_meta(ticker)
+    entry_price = get_latest_price(ticker)
+    atr         = tech_meta.get("atr")    # 14-period ATR from price history
+    adx         = tech_meta.get("adx")    # 14-period ADX (trend strength)
+
+    if actionable and entry_price:
+        risk = get_all_risk_params(
+            ticker           = ticker,
+            entry_price      = entry_price,
+            atr              = atr,
+            adx              = adx,
+            composite_score  = composite,
+            fundamental_score = fundamental,
+            regime_ok        = regime_ok,
+        )
+        target_price    = risk["target_price"]
+        stop_loss_price = risk["stop_loss_price"]
+        position_aud    = risk["position_size_aud"]
+        kelly_f         = round(position_aud / max(entry_price * 1, 1), 4)  # shares approx
+    else:
+        # Non-actionable signal — store scores but no position
+        target_price    = tech_meta.get("target") or (round(entry_price * 1.10, 3) if entry_price else None)
+        stop_loss_price = tech_meta.get("stop")   or (round(entry_price * 0.93, 3) if entry_price else None)
+        position_aud    = 0.0
+        kelly_f         = 0.0
 
     signal_dict = {
         "ticker": ticker,

@@ -25,10 +25,44 @@ def _execute_sell(ticker: str, reason: str):
 
 logger = logging.getLogger(__name__)
 
+# Static fallback constants (used when ATR/ADX data is unavailable)
 TRAIL_ACTIVATE_PCT = 0.05   # Start trailing after 5% gain
 TRAIL_DISTANCE_PCT = 0.05   # Trail 5% below the peak price
 STALE_DAYS         = 45     # Exit if stuck this many days
 STALE_MIN_MOVE_PCT = 2.0    # Only exit if move was <2% either way
+
+
+def _get_trail_params(ticker: str, entry_price: float) -> tuple:
+    """
+    Return (activate_pct, distance_pct) for trailing stop.
+    Pulls ATR from the technical engine for per-ticker calibration.
+    Falls back to static defaults if ATR unavailable.
+    """
+    try:
+        from ai_engine.technical_engine import get_technical_meta
+        from signals.risk_params import compute_trail_params
+        meta = get_technical_meta(ticker)
+        atr  = meta.get("atr")
+        if atr and entry_price:
+            params = compute_trail_params(entry_price, atr)
+            return params["trail_activate_pct"], params["trail_distance_pct"]
+    except Exception:
+        pass
+    return TRAIL_ACTIVATE_PCT, TRAIL_DISTANCE_PCT
+
+
+def _get_stale_days(ticker: str) -> int:
+    """
+    Return ADX-adjusted stale-exit threshold for a ticker.
+    Trending stocks get more patience; choppy stocks exit sooner.
+    """
+    try:
+        from ai_engine.technical_engine import get_technical_meta
+        from signals.risk_params import compute_stale_days
+        meta = get_technical_meta(ticker)
+        return compute_stale_days(meta.get("adx"))
+    except Exception:
+        return STALE_DAYS
 
 
 def _get_peak(ticker: str, current: float) -> float:
@@ -69,11 +103,12 @@ def evaluate_exits() -> Tuple[List[Dict], List[Dict]]:
         if current is None or entry is None:
             continue
 
-        # ── Trailing stop ─────────────────────────────────────────────────────
+        # ── Trailing stop (ATR-calibrated per ticker) ─────────────────────────
+        trail_act, trail_dist = _get_trail_params(ticker, entry)
         gain_pct = (current - entry) / entry
-        if gain_pct >= TRAIL_ACTIVATE_PCT:
+        if gain_pct >= trail_act:
             peak = _get_peak(ticker, current)
-            trail_stop = peak * (1 - TRAIL_DISTANCE_PCT)
+            trail_stop = peak * (1 - trail_dist)
             # Update the watchlist stop-loss to the trailing level
             from storage.database import get_session
             from storage.models import WatchlistItem
@@ -198,11 +233,12 @@ def intraday_evaluate_exits(live_prices: Dict[str, float]) -> Tuple[List[Dict], 
 
 
 def check_stale_positions() -> List[Dict]:
-    """Exit positions that have gone nowhere after STALE_DAYS days."""
+    """Exit positions that have gone nowhere after the ADX-adjusted stale threshold."""
     positions = get_active_watchlist()
     exited = []
     for pos in positions:
-        if pos["days_held"] < STALE_DAYS:
+        stale_threshold = _get_stale_days(pos["ticker"])
+        if pos["days_held"] < stale_threshold:
             continue
         move_pct = abs(pos.get("unrealised_pnl_pct") or 0)
         if move_pct < STALE_MIN_MOVE_PCT:
