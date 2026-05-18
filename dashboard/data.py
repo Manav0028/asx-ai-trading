@@ -468,6 +468,42 @@ def _score_history_local(ticker: str, cutoff: date) -> List[Dict]:
 
 # ── Backtest results ──────────────────────────────────────────────────────────
 
+def get_todays_scores(tickers: List[str], exchange: str) -> Dict[str, float]:
+    """
+    Bulk-fetch today's composite score for a list of tickers.
+    Used by the Positions page to show signal strength at time of check.
+    Returns {ticker: composite_score}.
+    """
+    if not tickers:
+        return {}
+    today_str = str(_today(exchange))
+
+    if _use_supabase():
+        # Fetch all tickers in one request using 'in' filter
+        ticker_csv = ",".join(tickers)
+        rows = _sb_get("signals", {
+            "ticker": f"in.({ticker_csv})",
+            "date": f"eq.{today_str}",
+            "select": "ticker,composite_score",
+        })
+        return {r["ticker"]: r["composite_score"] for r in rows if r.get("composite_score")}
+    else:
+        try:
+            from storage.database import get_session
+            from storage.models import Signal
+            from datetime import datetime
+            today_date = datetime.strptime(today_str, "%Y-%m-%d").date()
+            with get_session() as session:
+                rows = (
+                    session.query(Signal.ticker, Signal.composite_score)
+                    .filter(Signal.date == today_date, Signal.ticker.in_(tickers))
+                    .all()
+                )
+                return {r.ticker: r.composite_score for r in rows if r.composite_score}
+        except Exception:
+            return {}
+
+
 def get_backtest_results(exchange: str) -> Dict:
     """
     Most recent backtest results for the exchange.

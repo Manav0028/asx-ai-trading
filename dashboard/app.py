@@ -69,6 +69,7 @@ from dashboard.data import (
     get_cumulative_pnl,
     get_score_history,
     get_backtest_results,
+    get_todays_scores,
     is_market_open,
     market_status,
 )
@@ -581,6 +582,22 @@ elif page == "💼 Positions":
         df["status"] = df.apply(_status, axis=1)
         df["chart"]  = df["ticker"].apply(lambda t: f"https://finance.yahoo.com/quote/{t}")
 
+        # ── Today's signal score vs entry score ────────────────────────────
+        tickers_list = df["ticker"].tolist()
+        todays_scores = get_todays_scores(tickers_list, exchange)
+
+        def _score_trend(row):
+            ticker      = row["ticker"]
+            entry_score = row.get("signal_score") or 0
+            today_score = todays_scores.get(ticker)
+            if today_score is None:
+                return "—"
+            diff = today_score - entry_score
+            arrow = "↑" if diff > 2 else ("↓" if diff < -2 else "→")
+            return f"{today_score:.0f} {arrow}"
+
+        df["score_today"] = df.apply(_score_trend, axis=1)
+
         # ── Summary metrics ────────────────────────────────────────────────
         total_invested      = portfolio.get("total_invested", 0)
         total_current_value = portfolio.get("total_current_value", 0)
@@ -685,7 +702,7 @@ elif page == "💼 Positions":
                 "entry_price", "current_price",
                 "unrealised_pnl", "pnl_pct",
                 "stop_gap_pct", "target_gap_pct",
-                "signal_score", "chart",
+                "signal_score", "score_today", "chart",
             ]
             display_cols = [c for c in display_cols if c in filtered.columns]
 
@@ -705,7 +722,8 @@ elif page == "💼 Positions":
                     "stop_gap_pct":    st.column_config.NumberColumn("Above Stop %", format="%.1f%%"),
                     "target_gap_pct":  st.column_config.NumberColumn("To Target %", format="%.1f%%"),
                     "signal_score":    st.column_config.ProgressColumn(
-                                           "Score", min_value=0, max_value=100, format="%.0f"),
+                                           "Entry Score", min_value=0, max_value=100, format="%.0f"),
+                    "score_today":     "Score Today (↑↓→)",
                     "chart":           st.column_config.LinkColumn("Chart", display_text="📊"),
                 },
                 use_container_width=True,

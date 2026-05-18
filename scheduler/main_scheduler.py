@@ -87,6 +87,8 @@ def job_signal_scan():
     from storage.supabase_sync import sync_signals_to_supabase, sync_regime_to_supabase
     sync_signals_to_supabase()
     sync_regime_to_supabase()
+    # ── Phase 3: Signal decay check on held positions ─────────────────────
+    job_signal_decay_check()
 
 
 def job_daily_report():
@@ -168,10 +170,174 @@ def job_market_close():
     sync_trades_to_supabase()
 
 
+def job_intraday_check():
+    """
+    Every 30 min during market hours — fetch live prices and check
+    stop-loss / target exits without waiting for end-of-day close.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    exchange = get_active_exchange()
+    tz       = exchange.timezone
+    now      = datetime.now(ZoneInfo(tz))
+    oh, om   = exchange.market_open
+    ch, cm   = exchange.market_close
+
+    # Guard: only run during market hours
+    open_t  = now.replace(hour=oh,  minute=om, second=0, microsecond=0)
+    close_t = now.replace(hour=ch,  minute=cm, second=0, microsecond=0)
+    if not (open_t <= now <= close_t):
+        logger.debug("Intraday check skipped — market closed (%s)", now.strftime("%H:%M"))
+        return
+
+    from signals.watchlist import get_active_watchlist
+    positions = get_active_watchlist()
+    if not positions:
+        return
+
+    # Fetch live prices from yfinance (1-minute bars, latest close)
+    tickers = [p["ticker"] for p in positions]
+    try:
+        import yfinance as yf
+        raw = yf.download(tickers, period="1d", interval="1m",
+                          progress=False, auto_adjust=True)
+        if raw.empty:
+            logger.warning("Intraday: yfinance returned no data")
+            return
+
+        close = raw["Close"] if "Close" in raw.columns else raw
+        live_prices = {}
+        if len(tickers) == 1:
+            live_prices[tickers[0]] = float(close.dropna().iloc[-1])
+        else:
+            for t in tickers:
+                try:
+                    live_prices[t] = float(close[t].dropna().iloc[-1])
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.warning("Intraday price fetch failed: %s", e)
+        return
+
+    from execution.stop_loss import intraday_evaluate_exits
+    stops, targets = intraday_evaluate_exits(live_prices)
+    logger.info(
+        "Intraday check done — %d stop(s), %d target(s), prices checked: %d",
+        len(stops), len(targets), len(live_prices),
+    )
+
+
+def job_signal_decay_check():
+    """
+    After daily signal scan — re-score held positions and warn via Telegram
+    if any position's composite score has dropped below 45 (decay threshold).
+    Does NOT auto-exit; sends an alert for manual review.
+    """
+    from datetime import date
+    from signals.watchlist import get_active_watchlist
+    from storage.database import get_session
+    from storage.models import Signal
+
+    DECAY_THRESHOLD = 45.0   # warn if today's score falls below this
+
+    positions = get_active_watchlist()
+    if not positions:
+        return
+
+    today    = date.today()
+    tickers  = [p["ticker"] for p in positions]
+    pos_map  = {p["ticker"]: p for p in positions}
+
+    with get_session() as session:
+        rows = (
+            session.query(Signal)
+            .filter(Signal.date == today, Signal.ticker.in_(tickers))
+            .all()
+        )
+        scores_today = {r.ticker: r.composite_score for r in rows}
+
+    from alerts.telegram_bot import send_signal_decay_alert
+    warned = 0
+    for ticker, score in scores_today.items():
+        if score < DECAY_THRESHOLD:
+            pos          = pos_map[ticker]
+            entry_score  = pos.get("signal_score") or 65.0
+            pnl_pct      = pos.get("unrealised_pnl_pct") or 0
+            days_held    = pos.get("days_held") or 0
+            logger.warning(
+                "Signal decay: %s score %.1f → %.1f (held %dd, P&L %.1f%%)",
+                ticker, entry_score, score, days_held, pnl_pct,
+            )
+            send_signal_decay_alert(ticker, score, entry_score, pnl_pct, days_held)
+            warned += 1
+
+    if warned:
+        logger.info("Signal decay check: %d position(s) flagged", warned)
+    else:
+        logger.info("Signal decay check: all held positions scoring OK")
+
+
 def job_news_refresh():
     logger.info("Refreshing Google News RSS")
     from data_ingestion.news_fetcher import fetch_news
     fetch_news()
+    _check_held_position_news()
+
+
+def _check_held_position_news():
+    """
+    After each news refresh — scan recent news for held tickers and send
+    a Telegram warning if very negative sentiment is detected (score < 20).
+    Called inside job_news_refresh(), not a standalone scheduled job.
+    """
+    from datetime import datetime, timedelta
+    from signals.watchlist import get_active_watchlist
+    from storage.database import get_session
+    from storage.models import NewsItem
+
+    NEGATIVE_THRESHOLD = 20.0   # 0–100 scale; below this is very negative
+    LOOKBACK_HOURS     = 2
+
+    positions = get_active_watchlist()
+    if not positions:
+        return
+
+    cutoff  = datetime.utcnow() - timedelta(hours=LOOKBACK_HOURS)
+    pos_map = {p["ticker"]: p for p in positions}
+
+    from alerts.telegram_bot import send_negative_news_alert
+    alerted = set()
+
+    with get_session() as session:
+        for ticker in pos_map:
+            recent_neg = (
+                session.query(NewsItem)
+                .filter(
+                    NewsItem.ticker == ticker,
+                    NewsItem.fetched_at >= cutoff,
+                    NewsItem.sentiment_score != None,
+                )
+                .order_by(NewsItem.sentiment_score)   # worst first
+                .limit(5)
+                .all()
+            )
+            if not recent_neg:
+                continue
+
+            # sentiment_score in NewsItem is -1.0 → +1.0; normalise to 0-100
+            worst = recent_neg[0]
+            score_0_100 = (worst.sentiment_score + 1) / 2 * 100
+
+            if score_0_100 < NEGATIVE_THRESHOLD and ticker not in alerted:
+                headlines = [n.headline for n in recent_neg]
+                pnl_pct   = pos_map[ticker].get("unrealised_pnl_pct") or 0
+                logger.warning(
+                    "Negative news on held position %s (sentiment %.0f/100)",
+                    ticker, score_0_100,
+                )
+                send_negative_news_alert(ticker, headlines, score_0_100, pnl_pct)
+                alerted.add(ticker)
 
 
 def job_weekly_sunday():
@@ -230,6 +396,7 @@ def build_scheduler() -> BlockingScheduler:
     scheduler.add_job(job_signal_scan,              CronTrigger(hour=ph + 1,  minute=20,      day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_daily_report,             CronTrigger(hour=ph + 1,  minute=30,      day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_place_orders,             CronTrigger(hour=orders_h, minute=orders_m, day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_intraday_check,           CronTrigger(minute="*/30", day_of_week="mon-fri",                timezone=tz))
     scheduler.add_job(job_market_close,             CronTrigger(hour=mc_h,    minute=mc_m,    day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_news_refresh,             CronTrigger(minute=0,     hour="*/2",                            timezone=tz))
     scheduler.add_job(job_weekly_sunday,            CronTrigger(day_of_week="sun", hour=8, minute=0,                 timezone=tz))

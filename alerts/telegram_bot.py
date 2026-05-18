@@ -308,6 +308,99 @@ def send_weekly_summary(backtest_results: dict, top_signals: list,
     return _send(msg)
 
 
+# ── Intraday Stop/Target (live price trigger) ─────────────────────────────────
+
+def send_intraday_stop_alert(ticker: str, live_price: float, stop_price: float,
+                              pnl: float, entry_price: float = None,
+                              days_held: int = None) -> bool:
+    badge    = _exchange_badge()
+    cur      = _currency()
+    loss_pct = abs(pnl / entry_price * 100) if entry_price else 0
+    held_str = f" after {days_held}d" if days_held else ""
+    msg = (
+        f"🔴 *INTRADAY STOP HIT*\n"
+        f"{_divider(badge)}\n"
+        f"\n"
+        f"*{ticker}* breached its stop level during market hours{held_str}.\n"
+        f"\n"
+        f"  Live price: `{cur}{live_price:.2f}`\n"
+        f"  Stop level: `{cur}{stop_price:.2f}`\n"
+        f"  Loss:       `{cur}{abs(pnl):,.2f}` ({loss_pct:.1f}%)\n"
+        f"\n"
+        f"✅ _Sold immediately — capital protected._"
+    )
+    return _send(msg)
+
+
+def send_intraday_target_alert(ticker: str, live_price: float, target_price: float,
+                                pnl: float, entry_price: float = None,
+                                days_held: int = None) -> bool:
+    badge    = _exchange_badge()
+    cur      = _currency()
+    gain_pct = (pnl / entry_price * 100) if entry_price else 0
+    held_str = f" in {days_held}d" if days_held else ""
+    msg = (
+        f"🎯 *INTRADAY TARGET HIT*\n"
+        f"{_divider(badge)}\n"
+        f"\n"
+        f"*{ticker}* hit its profit target during market hours{held_str}.\n"
+        f"\n"
+        f"  Live price:   `{cur}{live_price:.2f}`\n"
+        f"  Target level: `{cur}{target_price:.2f}`\n"
+        f"  Profit:       `{cur}{pnl:,.2f}` (+{gain_pct:.1f}%) ✅\n"
+        f"\n"
+        f"💼 _Profit locked in during session._"
+    )
+    return _send(msg)
+
+
+# ── Signal Decay Warning ───────────────────────────────────────────────────────
+
+def send_signal_decay_alert(ticker: str, current_score: float,
+                             entry_score: float, pnl_pct: float,
+                             days_held: int) -> bool:
+    badge = _exchange_badge()
+    cur   = _currency()
+    msg = (
+        f"⚠️ *SIGNAL DETERIORATING*\n"
+        f"{_divider(badge)}\n"
+        f"\n"
+        f"*{ticker}* was bought with conviction score `{entry_score:.0f}/100`.\n"
+        f"Today's re-score has dropped to `{current_score:.0f}/100` — below the hold threshold.\n"
+        f"\n"
+        f"  Held:      {days_held} days\n"
+        f"  P&L:       `{pnl_pct:+.1f}%`\n"
+        f"  Old score: `{entry_score:.0f}/100`\n"
+        f"  New score: `{current_score:.0f}/100` ↓\n"
+        f"\n"
+        f"_Review this position — fundamentals or sentiment may have weakened._"
+    )
+    return _send(msg)
+
+
+# ── Negative News Warning (held position) ─────────────────────────────────────
+
+def send_negative_news_alert(ticker: str, headlines: list,
+                              sentiment_score: float, pnl_pct: float) -> bool:
+    badge = _exchange_badge()
+    headline_lines = "\n".join(
+        f"  • {_safe(h, 80)}" for h in headlines[:3]
+    )
+    msg = (
+        f"📰 *NEGATIVE NEWS — HELD POSITION*\n"
+        f"{_divider(badge)}\n"
+        f"\n"
+        f"*{ticker}* (current P&L: `{pnl_pct:+.1f}%`) has negative news:\n"
+        f"\n"
+        f"{headline_lines}\n"
+        f"\n"
+        f"  Sentiment score: `{sentiment_score:.0f}/100` (very negative)\n"
+        f"\n"
+        f"_No automatic action taken — review manually._"
+    )
+    return _send(msg)
+
+
 # ── Test ──────────────────────────────────────────────────────────────────────
 
 def send_test_message() -> bool:

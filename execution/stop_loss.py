@@ -121,6 +121,74 @@ def evaluate_exits() -> Tuple[List[Dict], List[Dict]]:
     return stops_triggered, targets_hit
 
 
+def intraday_evaluate_exits(live_prices: Dict[str, float]) -> Tuple[List[Dict], List[Dict]]:
+    """
+    Check stop-loss and target exits using live intraday prices.
+    Called every 30 minutes during market hours by job_intraday_check().
+
+    Differences from evaluate_exits():
+    - Uses caller-supplied live prices instead of DB prices
+    - Skips trailing stop updates (EOD-only concern)
+    - Uses dedicated intraday Telegram alerts
+    - No watchlist price refresh (prices come in from yfinance directly)
+    """
+    from alerts.telegram_bot import send_intraday_stop_alert, send_intraday_target_alert
+
+    positions = get_active_watchlist()
+    stops_triggered: List[Dict] = []
+    targets_hit:     List[Dict] = []
+
+    for pos in positions:
+        ticker    = pos["ticker"]
+        current   = live_prices.get(ticker)
+        entry     = pos.get("entry_price")
+        stop      = pos.get("stop_loss_price")
+        target    = pos.get("target_price")
+        days_held = pos.get("days_held", 0)
+
+        if current is None or entry is None:
+            continue
+
+        # ── Hard stop-loss ────────────────────────────────────────────────────
+        effective_stop = stop or (entry * (1 - STOP_LOSS_PCT))
+        if current <= effective_stop:
+            logger.warning(
+                "INTRADAY STOP: %s live=$%.3f stop=$%.3f",
+                ticker, current, effective_stop,
+            )
+            result = execute_sell(ticker, reason="intraday_stop")
+            if result:
+                _clear_peak(ticker)
+                send_intraday_stop_alert(
+                    ticker, current, effective_stop, result["pnl"],
+                    entry_price=entry, days_held=days_held,
+                )
+                stops_triggered.append({**result, "stop_price": effective_stop})
+            continue
+
+        # ── Target hit ────────────────────────────────────────────────────────
+        if target and current >= target:
+            logger.info(
+                "INTRADAY TARGET: %s live=$%.3f target=$%.3f",
+                ticker, current, target,
+            )
+            result = execute_sell(ticker, reason="intraday_target")
+            if result:
+                _clear_peak(ticker)
+                send_intraday_target_alert(
+                    ticker, current, target, result["pnl"],
+                    entry_price=entry, days_held=days_held,
+                )
+                targets_hit.append({**result, "target_price": target})
+
+    if stops_triggered or targets_hit:
+        logger.info(
+            "Intraday check: %d stop(s) + %d target(s) triggered",
+            len(stops_triggered), len(targets_hit),
+        )
+    return stops_triggered, targets_hit
+
+
 def check_stale_positions() -> List[Dict]:
     """Exit positions that have gone nowhere after STALE_DAYS days."""
     positions = get_active_watchlist()
