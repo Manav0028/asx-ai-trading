@@ -26,10 +26,17 @@ def _get_ib():
     if not IBKR_PAPER_ENABLED:
         raise RuntimeError("IBKR not enabled (set TRADING_PHASE >= 2 in .env)")
     try:
-        from ib_insync import IB, util
-        util.startLoop()          # required outside Jupyter
+        import asyncio
+        # APScheduler runs jobs in a ThreadPoolExecutor which has no event loop.
+        # Create one for this thread so ib_insync can function properly.
+        try:
+            asyncio.get_event_loop()
+        except RuntimeError:
+            asyncio.set_event_loop(asyncio.new_event_loop())
+
+        from ib_insync import IB
         ib = IB()
-        ib.connect(IBKR_HOST, IBKR_PORT, clientId=IBKR_CLIENT_ID, timeout=10)
+        ib.connect(IBKR_HOST, IBKR_PORT, clientId=IBKR_CLIENT_ID, timeout=15)
         mode = "PAPER" if not LIVE_TRADING_ENABLED else "LIVE"
         logger.info("Connected to IBKR %s at %s:%s", mode, IBKR_HOST, IBKR_PORT)
         return ib
