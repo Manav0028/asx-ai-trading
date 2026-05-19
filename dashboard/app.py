@@ -250,6 +250,10 @@ if page == "📊 Overview":
 
     # ── Capital deployment bar ─────────────────────────────────────────────
     import os
+    total_invested      = portfolio.get("total_invested", 0)
+    total_current_value = portfolio.get("total_current_value", 0)
+    total_pnl           = portfolio.get("total_unrealised_pnl", 0)
+    total_pnl_pct       = (total_pnl / total_invested * 100) if total_invested else 0
     _cap = float(os.getenv("PORTFOLIO_CAPITAL", 100000))
     _deployed = total_invested
     _deploy_pct = min(_deployed / _cap * 100, 100) if _cap else 0
@@ -265,11 +269,7 @@ if page == "📊 Overview":
     st.progress(min(_deploy_pct / 100, 1.0), text=f"Portfolio {_deploy_pct:.0f}% deployed")
     st.divider()
 
-    # ── Metric cards ──────────────────────────────────────────────────────────
-    total_pnl           = portfolio.get("total_unrealised_pnl", 0)
-    total_invested      = portfolio.get("total_invested", 0)
-    total_current_value = portfolio.get("total_current_value", 0)
-    total_pnl_pct       = (total_pnl / total_invested * 100) if total_invested else 0
+    # ── Metric cards (variables already computed in capital bar above) ────────
 
     diff = total_current_value - total_invested
 
