@@ -123,22 +123,31 @@ def execute_buy(signal: Dict) -> Optional[Dict]:
     return {"ticker": ticker, "shares": shares, "fill_price": fill_price, "cost": actual_cost}
 
 
-def execute_sell(ticker: str, reason: str = "manual") -> Optional[Dict]:
-    """Close a paper position."""
+def execute_sell(ticker: str, reason: str = "manual",
+                 trading_mode: str = None) -> Optional[Dict]:
+    """
+    Close a paper position.
+    trading_mode: if provided, look up the position in that specific mode;
+                  if None, search all active modes so legacy 'paper' positions
+                  are found even when TRADING_PHASE has moved to 2+.
+    """
     raw_price = get_latest_price(ticker)
     if not raw_price:
         logger.warning("No price to sell %s", ticker)
         return None
 
     fill_price = _simulate_fill(raw_price, "sell")
-    watchlist = get_active_watchlist()
-    position = next((p for p in watchlist if p["ticker"] == ticker), None)
+    # Search all modes so legacy 'paper' positions are found under phase 2+
+    watchlist = get_active_watchlist(all_modes=True)
+    position = next((p for p in watchlist if p["ticker"] == ticker
+                     and (trading_mode is None or p.get("trading_mode") == trading_mode)), None)
     if not position:
-        logger.warning("No active position for %s", ticker)
+        logger.warning("No active position for %s (mode=%s)", ticker, trading_mode or "any")
         return None
 
+    pos_trading_mode = position.get("trading_mode", "paper")
     pnl = (fill_price - position["entry_price"]) * position["shares"] - PAPER_BROKERAGE * 2
-    remove_from_watchlist(ticker, reason=reason)
+    remove_from_watchlist(ticker, reason=reason, trading_mode=pos_trading_mode)
 
     _record_trade(
         ticker=ticker,

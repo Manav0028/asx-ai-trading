@@ -23,3 +23,6 @@ ai_engine/insider_model.pkl
 .claude/
 *.log
 *.pid
+
+# Server deployment (secrets — template is committed, actual .env.server is not)
+.env.server

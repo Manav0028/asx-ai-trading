@@ -15,9 +15,17 @@ from storage.cache import get_value, set_value
 from alerts.telegram_bot import send_stop_loss_alert, send_target_alert, send_stale_exit_alert
 
 
-def _execute_sell(ticker: str, reason: str):
-    """Route sell to IBKR paper trader (phase 2+) or internal paper trader (phase 1)."""
-    if IBKR_PAPER_ENABLED:
+def _execute_sell(ticker: str, reason: str, trading_mode: str = None):
+    """
+    Route sell to the correct executor based on the position's own trading_mode.
+    - 'ibkr_paper' / 'live' → IBKR (requires IBKR_PAPER_ENABLED)
+    - 'paper' / anything else → internal paper trader
+
+    trading_mode should come from the watchlist position dict so we don't
+    misroute legacy 'paper' positions when TRADING_PHASE has moved to 2+.
+    """
+    mode = trading_mode or "paper"
+    if mode in ("ibkr_paper", "live") and IBKR_PAPER_ENABLED:
         from execution.ibkr_paper_trader import ibkr_execute_sell
         return ibkr_execute_sell(ticker, reason=reason)
     from execution.paper_trader import execute_sell
@@ -84,21 +92,24 @@ def evaluate_exits() -> Tuple[List[Dict], List[Dict]]:
     """
     Evaluate all active positions for exit conditions.
     Returns (stops_triggered, targets_hit).
+    Uses all_modes=True so legacy 'paper' positions are evaluated alongside
+    'ibkr_paper' positions when TRADING_PHASE=2.
     """
     update_watchlist_prices()
-    positions = get_active_watchlist()
+    positions = get_active_watchlist(all_modes=True)
 
     stops_triggered = []
     targets_hit = []
 
     for pos in positions:
-        ticker     = pos["ticker"]
-        current    = pos.get("current_price")
-        entry      = pos.get("entry_price")
-        stop       = pos.get("stop_loss_price")
-        target     = pos.get("target_price")
-        days_held  = pos.get("days_held", 0)
-        shares     = pos.get("shares", 0)
+        ticker       = pos["ticker"]
+        current      = pos.get("current_price")
+        entry        = pos.get("entry_price")
+        stop         = pos.get("stop_loss_price")
+        target       = pos.get("target_price")
+        days_held    = pos.get("days_held", 0)
+        shares       = pos.get("shares", 0)
+        pos_mode     = pos.get("trading_mode", "paper")   # route sell correctly
 
         if current is None or entry is None:
             continue
@@ -135,7 +146,7 @@ def evaluate_exits() -> Tuple[List[Dict], List[Dict]]:
                 "STOP-LOSS: %s current=$%.3f stop=$%.3f (%.1f%%)",
                 ticker, current, effective_stop, loss_pct,
             )
-            result = _execute_sell(ticker, reason="stop_loss")
+            result = _execute_sell(ticker, reason="stop_loss", trading_mode=pos_mode)
             if result:
                 _clear_peak(ticker)
                 send_stop_loss_alert(
@@ -152,7 +163,7 @@ def evaluate_exits() -> Tuple[List[Dict], List[Dict]]:
                 "TARGET HIT: %s current=$%.3f target=$%.3f (+%.1f%%)",
                 ticker, current, target, gain_pct_display,
             )
-            result = _execute_sell(ticker, reason="target")
+            result = _execute_sell(ticker, reason="target", trading_mode=pos_mode)
             if result:
                 _clear_peak(ticker)
                 send_target_alert(
@@ -177,7 +188,7 @@ def intraday_evaluate_exits(live_prices: Dict[str, float]) -> Tuple[List[Dict], 
     """
     from alerts.telegram_bot import send_intraday_stop_alert, send_intraday_target_alert
 
-    positions = get_active_watchlist()
+    positions = get_active_watchlist(all_modes=True)
     stops_triggered: List[Dict] = []
     targets_hit:     List[Dict] = []
 
@@ -188,6 +199,7 @@ def intraday_evaluate_exits(live_prices: Dict[str, float]) -> Tuple[List[Dict], 
         stop      = pos.get("stop_loss_price")
         target    = pos.get("target_price")
         days_held = pos.get("days_held", 0)
+        pos_mode  = pos.get("trading_mode", "paper")   # route sell correctly
 
         if current is None or entry is None:
             continue
@@ -199,7 +211,7 @@ def intraday_evaluate_exits(live_prices: Dict[str, float]) -> Tuple[List[Dict], 
                 "INTRADAY STOP: %s live=$%.3f stop=$%.3f",
                 ticker, current, effective_stop,
             )
-            result = _execute_sell(ticker, reason="intraday_stop")
+            result = _execute_sell(ticker, reason="intraday_stop", trading_mode=pos_mode)
             if result:
                 _clear_peak(ticker)
                 send_intraday_stop_alert(
@@ -215,7 +227,7 @@ def intraday_evaluate_exits(live_prices: Dict[str, float]) -> Tuple[List[Dict], 
                 "INTRADAY TARGET: %s live=$%.3f target=$%.3f",
                 ticker, current, target,
             )
-            result = _execute_sell(ticker, reason="intraday_target")
+            result = _execute_sell(ticker, reason="intraday_target", trading_mode=pos_mode)
             if result:
                 _clear_peak(ticker)
                 send_intraday_target_alert(
@@ -234,7 +246,7 @@ def intraday_evaluate_exits(live_prices: Dict[str, float]) -> Tuple[List[Dict], 
 
 def check_stale_positions() -> List[Dict]:
     """Exit positions that have gone nowhere after the ADX-adjusted stale threshold."""
-    positions = get_active_watchlist()
+    positions = get_active_watchlist(all_modes=True)
     exited = []
     for pos in positions:
         stale_threshold = _get_stale_days(pos["ticker"])
@@ -242,12 +254,13 @@ def check_stale_positions() -> List[Dict]:
             continue
         move_pct = abs(pos.get("unrealised_pnl_pct") or 0)
         if move_pct < STALE_MIN_MOVE_PCT:
-            ticker = pos["ticker"]
+            ticker   = pos["ticker"]
+            pos_mode = pos.get("trading_mode", "paper")
             logger.info(
                 "Stale exit: %s held %d days, move only %.1f%%",
                 ticker, pos["days_held"], move_pct,
             )
-            result = _execute_sell(ticker, reason="stale")
+            result = _execute_sell(ticker, reason="stale", trading_mode=pos_mode)
             if result:
                 send_stale_exit_alert(
                     ticker, result["fill_price"], result["pnl"], pos["days_held"]

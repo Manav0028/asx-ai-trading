@@ -36,6 +36,22 @@ logger = logging.getLogger(__name__)
 _FILL_TIMEOUT = 10    # seconds to wait for an IBKR fill
 
 
+# ── Fallback: internal paper trader when TWS is down ─────────────────────────
+
+def _fallback_paper_buy(signal: Dict) -> Optional[Dict]:
+    """Route buy through internal paper trader when IBKR is unreachable."""
+    from execution.paper_trader import execute_buy
+    logger.info("FALLBACK BUY: routing %s through internal paper trader", signal["ticker"])
+    return execute_buy(signal)
+
+
+def _fallback_paper_sell(ticker: str, reason: str) -> Optional[Dict]:
+    """Route sell through internal paper trader when IBKR is unreachable."""
+    from execution.paper_trader import execute_sell
+    logger.info("FALLBACK SELL: routing %s through internal paper trader", ticker)
+    return execute_sell(ticker, reason=reason)
+
+
 def _wait_for_fill(ib, trade) -> Optional[float]:
     """
     Wait up to _FILL_TIMEOUT seconds for an IBKR trade to fill.
@@ -150,6 +166,7 @@ def _record_sell(ticker: str, fill_price: float, reason: str) -> Optional[Dict]:
 def ibkr_execute_buy(signal: Dict) -> Optional[Dict]:
     """
     Place a paper buy order via IBKR for a single signal.
+    Falls back to internal paper trader if TWS is unreachable.
     Returns fill dict or None if not filled.
     """
     if not IBKR_PAPER_ENABLED:
@@ -197,9 +214,15 @@ def ibkr_execute_buy(signal: Dict) -> Optional[Dict]:
 
         return _record_buy(ticker, fill_price, shares, signal)
 
+    except ConnectionError:
+        # TWS is down — fall back to internal paper trader
+        logger.warning("TWS unreachable — falling back to internal paper trader for BUY %s", ticker)
+        return _fallback_paper_buy(signal)
     except Exception as e:
         logger.error("IBKR paper buy failed for %s: %s", ticker, e)
-        return None
+        # Also fall back so the signal isn't lost
+        logger.info("Falling back to internal paper trader for %s", ticker)
+        return _fallback_paper_buy(signal)
     finally:
         if ib and ib.isConnected():
             ib.disconnect()
@@ -208,6 +231,7 @@ def ibkr_execute_buy(signal: Dict) -> Optional[Dict]:
 def ibkr_execute_sell(ticker: str, reason: str = "manual") -> Optional[Dict]:
     """
     Place a paper sell order via IBKR for a held position.
+    Falls back to internal paper trader if TWS is unreachable.
     Returns sell dict or None if failed.
     """
     if not IBKR_PAPER_ENABLED:
@@ -246,9 +270,14 @@ def ibkr_execute_sell(ticker: str, reason: str = "manual") -> Optional[Dict]:
 
         return _record_sell(ticker, fill_price, reason)
 
+    except ConnectionError:
+        # TWS is down — fall back to internal paper trader for the sell
+        logger.warning("TWS unreachable — falling back to internal paper trader for SELL %s", ticker)
+        return _fallback_paper_sell(ticker, reason)
     except Exception as e:
         logger.error("IBKR paper sell failed for %s: %s", ticker, e)
-        return None
+        logger.info("Falling back to internal paper trader for SELL %s", ticker)
+        return _fallback_paper_sell(ticker, reason)
     finally:
         if ib and ib.isConnected():
             ib.disconnect()
@@ -296,6 +325,29 @@ def get_ibkr_account_summary() -> Optional[Dict]:
     except Exception as e:
         logger.error("Failed to fetch IBKR account summary: %s", e)
         return None
+    finally:
+        if ib and ib.isConnected():
+            ib.disconnect()
+
+
+def check_ibkr_health() -> Dict:
+    """
+    Quick health check for TWS connectivity.
+    Returns {"connected": bool, "error": str|None, "account": str|None}.
+    Used by the scheduler to verify TWS before market open.
+    """
+    if not IBKR_PAPER_ENABLED:
+        return {"connected": False, "error": "IBKR not enabled (TRADING_PHASE < 2)"}
+
+    from execution.ibkr_trader import _get_ib
+    ib = None
+    try:
+        ib = _get_ib()
+        # Quick account query to verify the connection is actually working
+        acct = ib.managedAccounts()
+        return {"connected": True, "error": None, "account": acct[0] if acct else None}
+    except Exception as e:
+        return {"connected": False, "error": str(e)}
     finally:
         if ib and ib.isConnected():
             ib.disconnect()

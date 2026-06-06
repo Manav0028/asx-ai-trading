@@ -164,6 +164,8 @@ def _watchlist_row_to_dict(i) -> Dict:
         "unrealised_pnl_pct": i.unrealised_pnl_pct,
         "days_held": i.days_held,
         "signal_score": i.signal_score,
+        # trading_mode added in Phase 2 — default to 'paper' for older rows
+        "trading_mode": getattr(i, "trading_mode", None) or "paper",
     }
 
 
@@ -533,3 +535,104 @@ def _backtest_supabase(exchange: str) -> Dict:
     except Exception:
         pass
     return {}
+
+
+# ── Price history & sparkline helpers ─────────────────────────────────────────
+
+def _flatten_yf(raw):
+    """
+    yfinance ≥0.2 returns a MultiIndex column like ('Close','BHP.AX').
+    Flatten to simple column names ('Close','High',...) for single-ticker frames,
+    or keep the ticker-level accessible for multi-ticker frames.
+    Returns (df_flat, is_multi) where df_flat has simple string columns.
+    """
+    import pandas as pd
+    if isinstance(raw.columns, pd.MultiIndex):
+        # Single ticker: columns are ('Close','BHP.AX') — drop ticker level
+        if len(raw.columns.get_level_values(1).unique()) == 1:
+            raw = raw.droplevel(1, axis=1)
+            return raw, False
+        # Multi-ticker: keep multi-index, caller accesses via raw["Close"][ticker]
+        return raw, True
+    return raw, False
+
+
+def get_price_history(ticker: str, days: int = 60) -> List[Dict]:
+    """
+    Fetch OHLCV candles for candlestick charts.
+    Returns [{date, open, high, low, close, volume}] sorted ascending.
+    """
+    try:
+        import yfinance as yf
+        raw = yf.download(ticker, period=f"{days}d", interval="1d",
+                          progress=False, auto_adjust=True)
+        if raw.empty:
+            return []
+        raw, _ = _flatten_yf(raw)
+        result = []
+        for dt, row in raw.iterrows():
+            try:
+                result.append({
+                    "date":   str(dt.date()),
+                    "open":   float(row["Open"]),
+                    "high":   float(row["High"]),
+                    "low":    float(row["Low"]),
+                    "close":  float(row["Close"]),
+                    "volume": float(row.get("Volume", 0)),
+                })
+            except Exception:
+                pass
+        return result
+    except Exception:
+        return []
+
+
+def get_multi_close(tickers: List[str], days: int = 20) -> Dict[str, List[Dict]]:
+    """
+    Batch fetch daily close prices for multiple tickers (sparklines).
+    Returns {ticker: [{date, close}]} sorted ascending.
+    """
+    if not tickers:
+        return {}
+    try:
+        import yfinance as yf
+        raw = yf.download(tickers, period=f"{days}d", interval="1d",
+                          progress=False, auto_adjust=True)
+        if raw.empty:
+            return {}
+        raw, is_multi = _flatten_yf(raw)
+        result: Dict[str, List[Dict]] = {}
+        if not is_multi:
+            # Single ticker case (already flattened)
+            t = tickers[0]
+            col = raw["Close"].dropna()
+            result[t] = [{"date": str(d.date()), "close": float(v)}
+                         for d, v in col.items()]
+        else:
+            closes = raw["Close"]
+            for t in tickers:
+                try:
+                    col = closes[t].dropna()
+                    result[t] = [{"date": str(d.date()), "close": float(v)}
+                                 for d, v in col.items()]
+                except Exception:
+                    pass
+        return result
+    except Exception:
+        return {}
+
+
+def ticker_tv_url(ticker: str) -> str:
+    """TradingView chart URL for a ticker."""
+    if ticker.endswith(".AX"):
+        sym = f"ASX:{ticker[:-3]}"
+    elif ticker.endswith(".NS"):
+        sym = f"NSE:{ticker[:-3]}"
+    else:
+        sym = ticker
+    return f"https://www.tradingview.com/chart/?symbol={sym}"
+
+
+def ticker_yahoo_url(ticker: str) -> str:
+    """Yahoo Finance quote URL."""
+    return f"https://finance.yahoo.com/quote/{ticker}"
