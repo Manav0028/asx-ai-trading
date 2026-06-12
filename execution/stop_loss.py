@@ -110,8 +110,38 @@ def evaluate_exits() -> Tuple[List[Dict], List[Dict]]:
         days_held    = pos.get("days_held", 0)
         shares       = pos.get("shares", 0)
         pos_mode     = pos.get("trading_mode", "paper")   # route sell correctly
+        short        = (pos.get("direction") or "long") == "short"
 
         if current is None or entry is None:
+            continue
+
+        if short:
+            # Shorts: stop sits ABOVE entry, target BELOW. No trailing (yet).
+            effective_stop = stop or (entry * (1 + STOP_LOSS_PCT))
+            if current >= effective_stop:
+                logger.warning(
+                    "SHORT STOP: %s current=$%.3f stop=$%.3f",
+                    ticker, current, effective_stop,
+                )
+                result = _execute_sell(ticker, reason="stop_loss", trading_mode=pos_mode)
+                if result:
+                    send_stop_loss_alert(
+                        ticker, result["fill_price"], result["pnl"],
+                        entry_price=entry, days_held=days_held,
+                    )
+                    stops_triggered.append({**result, "stop_price": effective_stop})
+            elif target and current <= target:
+                logger.info(
+                    "SHORT TARGET: %s current=$%.3f target=$%.3f",
+                    ticker, current, target,
+                )
+                result = _execute_sell(ticker, reason="target", trading_mode=pos_mode)
+                if result:
+                    send_target_alert(
+                        ticker, result["fill_price"], result["pnl"],
+                        entry_price=entry, days_held=days_held,
+                    )
+                    targets_hit.append({**result, "target_price": target})
             continue
 
         # ── Trailing stop (ATR-calibrated per ticker) ─────────────────────────
@@ -200,8 +230,29 @@ def intraday_evaluate_exits(live_prices: Dict[str, float]) -> Tuple[List[Dict], 
         target    = pos.get("target_price")
         days_held = pos.get("days_held", 0)
         pos_mode  = pos.get("trading_mode", "paper")   # route sell correctly
+        short     = (pos.get("direction") or "long") == "short"
 
         if current is None or entry is None:
+            continue
+
+        if short:
+            effective_stop = stop or (entry * (1 + STOP_LOSS_PCT))
+            if current >= effective_stop:
+                result = _execute_sell(ticker, reason="intraday_stop", trading_mode=pos_mode)
+                if result:
+                    send_intraday_stop_alert(
+                        ticker, current, effective_stop, result["pnl"],
+                        entry_price=entry, days_held=days_held,
+                    )
+                    stops_triggered.append({**result, "stop_price": effective_stop})
+            elif target and current <= target:
+                result = _execute_sell(ticker, reason="intraday_target", trading_mode=pos_mode)
+                if result:
+                    send_intraday_target_alert(
+                        ticker, current, target, result["pnl"],
+                        entry_price=entry, days_held=days_held,
+                    )
+                    targets_hit.append({**result, "target_price": target})
             continue
 
         # ── Hard stop-loss ────────────────────────────────────────────────────

@@ -161,9 +161,11 @@ def fetch_form604(codes: List[str] = None) -> int:
 def get_recent_director_trades(ticker: str, days: int = 90) -> List[DirectorTrade]:
     cutoff = date.today() - timedelta(days=days)
     with get_session() as session:
-        return (
+        trades = (
             session.query(DirectorTrade)
             .filter(DirectorTrade.ticker == ticker, DirectorTrade.trade_date >= cutoff)
             .order_by(DirectorTrade.trade_date.desc())
             .all()
         )
+        session.expunge_all()
+        return trades

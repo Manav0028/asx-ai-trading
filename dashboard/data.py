@@ -146,6 +146,8 @@ def _signal_row_to_dict(r) -> Dict:
         "entry_price": r.entry_price,
         "target_price": r.target_price,
         "stop_loss_price": r.stop_loss_price,
+        "strategy_name": getattr(r, "strategy_name", None),
+        "direction": getattr(r, "direction", None) or "long",
     }
 
 
@@ -237,6 +239,45 @@ def _signals_local(exchange: str, signal_date: date, n: int) -> List[Dict]:
 
 # ── Portfolio (open positions) ─────────────────────────────────────────────────
 
+def _get_prev_closes(tickers: List[str]) -> Dict[str, float]:
+    """Get the previous trading day's close price for each ticker from the Price table."""
+    result: Dict[str, float] = {}
+    if not tickers:
+        return result
+    try:
+        if _use_supabase():
+            for t in tickers:
+                rows = _sb_get("prices", {
+                    "ticker": f"eq.{t}",
+                    "order": "date.desc",
+                    "limit": 2,
+                    "select": "close",
+                })
+                if len(rows) >= 2:
+                    result[t] = float(rows[1]["close"])
+                elif rows:
+                    result[t] = float(rows[0]["close"])
+        else:
+            from storage.database import get_session
+            from storage.models import Price
+            with get_session() as session:
+                for t in tickers:
+                    rows = (
+                        session.query(Price.close)
+                        .filter(Price.ticker == t)
+                        .order_by(Price.date.desc())
+                        .limit(2)
+                        .all()
+                    )
+                    if len(rows) >= 2:
+                        result[t] = float(rows[1].close)
+                    elif rows:
+                        result[t] = float(rows[0].close)
+    except Exception:
+        pass
+    return result
+
+
 def get_portfolio(exchange: str, live: bool = False) -> Dict:
     """
     Returns watchlist summary for the given exchange.
@@ -253,6 +294,11 @@ def get_portfolio(exchange: str, live: bool = False) -> Dict:
     if live and positions and is_market_open(exchange):
         tickers = [p["ticker"] for p in positions]
         live_prices = get_live_prices(tickers)
+
+    # ── Fetch previous close for day's P&L ────────────────────────────────
+    prev_closes: Dict[str, float] = {}
+    if positions:
+        prev_closes = _get_prev_closes([p.get("ticker", "") for p in positions])
 
     # ── Per-position derived fields ───────────────────────────────────────
     for p in positions:
@@ -272,21 +318,27 @@ def get_portfolio(exchange: str, live: bool = False) -> Dict:
 
         p["invested"]      = round(invested, 2)
         p["current_value"] = round(cp * shares, 2)
-        p["is_live"]       = ticker in live_prices   # flag for UI indicator
+        p["is_live"]       = ticker in live_prices
+
+        prev_close = prev_closes.get(ticker, entry)
+        p["day_pnl"] = round((cp - prev_close) * shares, 2)
+        p["day_pnl_pct"] = round((cp - prev_close) / prev_close * 100, 2) if prev_close else 0
 
     total_pnl           = sum(p.get("unrealised_pnl")   or 0 for p in positions)
     total_invested      = sum(p.get("invested")          or 0 for p in positions)
     total_current_value = sum(p.get("current_value")     or 0 for p in positions)
+    total_day_pnl       = sum(p.get("day_pnl")           or 0 for p in positions)
     winners = sum(1 for p in positions if (p.get("unrealised_pnl") or 0) > 0)
     return {
         "total_positions":      len(positions),
         "total_invested":       round(total_invested, 2),
         "total_current_value":  round(total_current_value, 2),
         "total_unrealised_pnl": round(total_pnl, 2),
+        "total_day_pnl":        round(total_day_pnl, 2),
         "winners":    winners,
         "losers":     len(positions) - winners,
         "positions":  positions,
-        "prices_live": bool(live_prices),   # True = at least one live price fetched
+        "prices_live": bool(live_prices),
     }
 
 
@@ -620,6 +672,146 @@ def get_multi_close(tickers: List[str], days: int = 20) -> Dict[str, List[Dict]]
         return result
     except Exception:
         return {}
+
+
+def get_strategy_assignments(exchange: str) -> List[Dict]:
+    """Per-stock strategy assignments — written by the weekly selection job."""
+    if _use_supabase():
+        return _strategy_assignments_supabase(exchange)
+    return _strategy_assignments_local(exchange)
+
+
+def _strategy_assignments_supabase(exchange: str) -> List[Dict]:
+    rows = _sb_get("strategy_assignments", {
+        "exchange": f"eq.{exchange}",
+        "order": "validated.desc,rank_score.desc",
+        "select": "*",
+    })
+    for r in rows:
+        r["direction"] = r.get("direction") or "long"
+    return rows
+
+
+def _strategy_assignments_local(exchange: str) -> List[Dict]:
+    try:
+        from storage.database import get_session
+        from storage.models import StrategyAssignment
+        suffix = _ticker_suffix(exchange)
+        with get_session() as session:
+            rows = (
+                session.query(StrategyAssignment)
+                .filter(StrategyAssignment.ticker.endswith(suffix))
+                .order_by(StrategyAssignment.validated.desc(),
+                          StrategyAssignment.rank_score.desc())
+                .all()
+            )
+            return [
+                {
+                    "ticker": r.ticker,
+                    "strategy_name": r.strategy_name,
+                    "direction": getattr(r, "direction", None) or "long",
+                    "validated": bool(r.validated),
+                    "bt_trades": r.bt_trades,
+                    "bt_win_rate": r.bt_win_rate,
+                    "bt_profit_factor": r.bt_profit_factor,
+                    "fw_trades": r.fw_trades,
+                    "fw_win_rate": r.fw_win_rate,
+                    "fw_profit_factor": r.fw_profit_factor,
+                    "fw_total_return_pct": r.fw_total_return_pct,
+                    "rank_score": r.rank_score,
+                }
+                for r in rows
+            ]
+    except Exception:
+        return []
+
+
+def get_strategy_radar(exchange: str) -> List[Dict]:
+    """Live Strategy Radar: every assignment joined with today's signal so the
+    dashboard can show which validated strategies are firing right now."""
+    if _use_supabase():
+        return _strategy_radar_supabase(exchange)
+    return _strategy_radar_local(exchange)
+
+
+def _strategy_radar_supabase(exchange: str) -> List[Dict]:
+    try:
+        assignments = _sb_get("strategy_assignments", {
+            "exchange": f"eq.{exchange}",
+            "select": "*",
+        })
+        today_str = str(date.today())
+        sig_rows = _sb_get("signals", {
+            "exchange": f"eq.{exchange}",
+            "date": f"eq.{today_str}",
+            "select": "*",
+        })
+        sig_by_ticker = {s["ticker"]: s for s in sig_rows}
+        out = []
+        for a in assignments:
+            s = sig_by_ticker.get(a["ticker"])
+            firing = bool(s and (s.get("position_size_aud") or 0) > 0)
+            out.append({
+                "ticker": a["ticker"],
+                "strategy_name": a.get("strategy_name"),
+                "direction": a.get("direction") or "long",
+                "validated": bool(a.get("validated")),
+                "firing": firing,
+                "composite_score": s.get("composite_score") if s else None,
+                "entry_price": s.get("entry_price") if s else None,
+                "target_price": s.get("target_price") if s else None,
+                "stop_loss_price": s.get("stop_loss_price") if s else None,
+                "fw_profit_factor": a.get("fw_profit_factor"),
+                "fw_win_rate": a.get("fw_win_rate"),
+                "rank_score": a.get("rank_score"),
+            })
+        out.sort(key=lambda r: (not r["firing"], not r["validated"], -(r["rank_score"] or 0)))
+        return out
+    except Exception:
+        return []
+
+
+def _strategy_radar_local(exchange: str) -> List[Dict]:
+    try:
+        from datetime import date as _date
+        from storage.database import get_session
+        from storage.models import Signal, StrategyAssignment
+        suffix = _ticker_suffix(exchange)
+        with get_session() as session:
+            assignments = (
+                session.query(StrategyAssignment)
+                .filter(StrategyAssignment.ticker.endswith(suffix))
+                .all()
+            )
+            sig_rows = (
+                session.query(Signal)
+                .filter(Signal.date == _date.today(), Signal.ticker.endswith(suffix))
+                .all()
+            )
+            sig_by_ticker = {s.ticker: s for s in sig_rows}
+            out = []
+            for a in assignments:
+                s = sig_by_ticker.get(a.ticker)
+                firing = bool(s and (s.position_size_aud or 0) > 0)
+                out.append({
+                    "ticker": a.ticker,
+                    "strategy_name": a.strategy_name,
+                    "direction": getattr(a, "direction", None) or "long",
+                    "validated": bool(a.validated),
+                    "firing": firing,
+                    "composite_score": s.composite_score if s else None,
+                    "entry_price": s.entry_price if s else None,
+                    "target_price": s.target_price if s else None,
+                    "stop_loss_price": s.stop_loss_price if s else None,
+                    "fw_profit_factor": a.fw_profit_factor,
+                    "fw_win_rate": a.fw_win_rate,
+                    "rank_score": a.rank_score,
+                })
+            # firing first, then validated by rank
+            out.sort(key=lambda r: (not r["firing"], not r["validated"], -(r["rank_score"] or 0)))
+            return out
+    except Exception:
+        return []
 
 
 def ticker_tv_url(ticker: str) -> str:

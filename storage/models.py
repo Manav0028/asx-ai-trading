@@ -81,6 +81,8 @@ class Signal(Base):
     entry_price = Column(Float)
     target_price = Column(Float)
     stop_loss_price = Column(Float)
+    strategy_name = Column(String(40))   # per-stock strategy that gated this signal
+    direction = Column(String(8), default="long")  # 'long' | 'short'
     generated_at = Column(DateTime, default=datetime.utcnow)
     __table_args__ = (
         UniqueConstraint("ticker", "date", name="uq_signal_ticker_date"),
@@ -108,6 +110,27 @@ class Trade(Base):
     __table_args__ = (Index("ix_trade_ticker_date", "ticker", "entry_date"),)
 
 
+class StrategyAssignment(Base):
+    """Per-stock strategy chosen by walk-forward backtest + forward-test validation."""
+    __tablename__ = "strategy_assignments"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticker = Column(String(20), nullable=False, unique=True)
+    strategy_name = Column(String(40), nullable=False)
+    direction = Column(String(8), default="long")  # 'long' | 'short'
+    validated = Column(Boolean, default=False)   # passed both backtest AND forward gates
+    bt_trades = Column(Integer)
+    bt_win_rate = Column(Float)
+    bt_profit_factor = Column(Float)
+    bt_avg_return_pct = Column(Float)
+    bt_max_drawdown_pct = Column(Float)
+    fw_trades = Column(Integer)
+    fw_win_rate = Column(Float)
+    fw_profit_factor = Column(Float)
+    fw_total_return_pct = Column(Float)
+    rank_score = Column(Float)
+    assigned_at = Column(DateTime, default=datetime.utcnow)
+
+
 class WatchlistItem(Base):
     __tablename__ = "watchlist"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -125,4 +148,5 @@ class WatchlistItem(Base):
     signal_score = Column(Float)
     is_active = Column(Boolean, default=True)
     trading_mode = Column(String(20), default="paper")  # 'paper' | 'ibkr_paper' | 'live'
+    direction = Column(String(8), default="long")     # 'long' | 'short'
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

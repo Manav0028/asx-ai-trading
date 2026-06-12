@@ -79,7 +79,8 @@ def compute_position_size(
 
     max_position = PORTFOLIO_CAPITAL * MAX_POSITION_PCT
 
-    stop_distance = entry_price - stop_price if (entry_price and stop_price) else 0
+    # abs() so short positions (stop above entry) size on the same dollar risk
+    stop_distance = abs(entry_price - stop_price) if (entry_price and stop_price) else 0
 
     if stop_distance <= 0 or not entry_price:
         # Fallback: half-Kelly with regime reduction
@@ -125,9 +126,16 @@ def compute_stop_target(
     entry_price: float,
     atr:         Optional[float],
     regime_ok:   bool = True,
+    stop_mult:   Optional[float] = None,
+    target_mult: Optional[float] = None,
+    direction:   str = "long",
 ) -> Dict:
     """
     Return ATR-based stop_loss_price and target_price.
+
+    stop_mult / target_mult override the default ATR multipliers — used by
+    the strategy engine so each strategy keeps its own risk geometry
+    (mean reversion exits tighter than trend following, etc.).
 
     In RISK-OFF regime the target multiplier is tightened (take profits
     sooner — market environment is unfavourable for holding).
@@ -136,18 +144,19 @@ def compute_stop_target(
     """
     from config.settings import STOP_LOSS_PCT
 
+    short = direction == "short"
     if atr and entry_price and atr > 0:
         # --- stop ---
-        raw_stop_pct = (ATR_STOP_MULT * atr) / entry_price
+        raw_stop_pct = ((stop_mult or ATR_STOP_MULT) * atr) / entry_price
         stop_pct     = max(MIN_STOP_PCT, min(MAX_STOP_PCT, raw_stop_pct))
-        stop_price   = round(entry_price * (1 - stop_pct), 4)
+        stop_price   = round(entry_price * (1 + stop_pct if short else 1 - stop_pct), 4)
 
         # --- target (tighter in risk-off) ---
-        target_mult     = ATR_TARGET_MULT * (0.80 if not regime_ok else 1.0)
+        target_mult     = (target_mult or ATR_TARGET_MULT) * (0.80 if not regime_ok else 1.0)
         raw_target_pct  = (target_mult * atr) / entry_price
         min_target_pct  = stop_pct * MIN_RR_RATIO
         target_pct      = max(raw_target_pct, min_target_pct)
-        target_price    = round(entry_price * (1 + target_pct), 4)
+        target_price    = round(entry_price * (1 - target_pct if short else 1 + target_pct), 4)
 
         reward_risk = target_pct / stop_pct if stop_pct else 0
 
@@ -243,13 +252,16 @@ def get_all_risk_params(
     composite_score:    float,
     fundamental_score:  float,
     regime_ok:          bool,
+    stop_mult:          Optional[float] = None,
+    target_mult:        Optional[float] = None,
+    direction:          str = "long",
 ) -> Dict:
     """
     Single call that returns all dynamic risk parameters for a signal.
 
     Used by signals/aggregator.py when computing a new signal.
     """
-    st = compute_stop_target(entry_price, atr, regime_ok)
+    st = compute_stop_target(entry_price, atr, regime_ok, stop_mult, target_mult, direction)
     tr = compute_trail_params(entry_price, atr)
     pos = compute_position_size(
         entry_price,

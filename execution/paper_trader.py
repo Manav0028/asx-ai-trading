@@ -10,7 +10,6 @@ from typing import Dict, List, Optional
 from config.settings import (
     PAPER_BROKERAGE,
     PAPER_SLIPPAGE,
-    PORTFOLIO_CAPITAL,
     SIGNAL_THRESHOLD,
     STOP_LOSS_PCT,
 )
@@ -67,14 +66,29 @@ def _record_trade(
 
 def execute_buy(signal: Dict) -> Optional[Dict]:
     """
-    Open a paper long position for a signal with score ≥ SIGNAL_THRESHOLD.
-    Returns fill details or None if skipped.
+    Open a paper position (long or short) for an actionable signal.
+    Longs need composite ≥ threshold; shorts need the bearish composite
+    (100 − score) ≥ threshold. Returns fill details or None if skipped.
     """
     ticker = signal["ticker"]
     score = signal["composite_score"]
+    direction = signal.get("direction") or "long"
+    short = direction == "short"
 
-    if score < SIGNAL_THRESHOLD:
-        logger.debug("Skipping %s — score %.1f below threshold", ticker, score)
+    effective_score = (100 - score) if short else score
+    if effective_score < SIGNAL_THRESHOLD:
+        logger.debug("Skipping %s — %s score %.1f below threshold",
+                     ticker, direction, effective_score)
+        return None
+
+    # Strategy gate: non-actionable signals (no validated strategy, or the
+    # strategy didn't fire today) carry position_size_aud=0 — never buy them.
+    position_aud = signal.get("position_size_aud") or 0
+    if position_aud <= 0:
+        logger.info(
+            "Skipping %s — score %.1f but no validated strategy entry (strategy=%s)",
+            ticker, score, signal.get("strategy_name") or "unassigned",
+        )
         return None
 
     raw_price = signal.get("entry_price") or get_latest_price(ticker)
@@ -82,8 +96,8 @@ def execute_buy(signal: Dict) -> Optional[Dict]:
         logger.warning("No price for %s — cannot place order", ticker)
         return None
 
-    fill_price = _simulate_fill(raw_price, "buy")
-    position_aud = signal.get("position_size_aud") or PORTFOLIO_CAPITAL * 0.05
+    # Shorts sell to open — slippage works against you in both directions
+    fill_price = _simulate_fill(raw_price, "sell" if short else "buy")
     shares = compute_shares(position_aud, fill_price)
 
     if shares <= 0:
@@ -91,8 +105,12 @@ def execute_buy(signal: Dict) -> Optional[Dict]:
         return None
 
     actual_cost = shares * fill_price + PAPER_BROKERAGE
-    stop_loss = signal.get("stop_loss_price") or round(fill_price * (1 - STOP_LOSS_PCT), 3)
-    target = signal.get("target_price") or round(fill_price * 1.10, 3)
+    if short:
+        stop_loss = signal.get("stop_loss_price") or round(fill_price * (1 + STOP_LOSS_PCT), 3)
+        target = signal.get("target_price") or round(fill_price * 0.90, 3)
+    else:
+        stop_loss = signal.get("stop_loss_price") or round(fill_price * (1 - STOP_LOSS_PCT), 3)
+        target = signal.get("target_price") or round(fill_price * 1.10, 3)
 
     add_to_watchlist(
         ticker=ticker,
@@ -102,11 +120,12 @@ def execute_buy(signal: Dict) -> Optional[Dict]:
         shares=shares,
         position_size_aud=actual_cost,
         signal_score=score,
+        direction=direction,
     )
 
     _record_trade(
         ticker=ticker,
-        trade_type="buy",
+        trade_type="short" if short else "buy",
         entry_price=fill_price,
         exit_price=None,
         shares=shares,
@@ -117,10 +136,12 @@ def execute_buy(signal: Dict) -> Optional[Dict]:
     )
 
     logger.info(
-        "PAPER BUY: %s  %d shares @ $%.3f  stop=$%.3f  target=$%.3f  cost=$%.2f",
+        "PAPER %s: %s  %d shares @ $%.3f  stop=$%.3f  target=$%.3f  notional=$%.2f",
+        "SHORT" if short else "BUY",
         ticker, shares, fill_price, stop_loss, target, actual_cost,
     )
-    return {"ticker": ticker, "shares": shares, "fill_price": fill_price, "cost": actual_cost}
+    return {"ticker": ticker, "shares": shares, "fill_price": fill_price,
+            "cost": actual_cost, "direction": direction}
 
 
 def execute_sell(ticker: str, reason: str = "manual",
@@ -136,7 +157,6 @@ def execute_sell(ticker: str, reason: str = "manual",
         logger.warning("No price to sell %s", ticker)
         return None
 
-    fill_price = _simulate_fill(raw_price, "sell")
     # Search all modes so legacy 'paper' positions are found under phase 2+
     watchlist = get_active_watchlist(all_modes=True)
     position = next((p for p in watchlist if p["ticker"] == ticker
@@ -145,13 +165,20 @@ def execute_sell(ticker: str, reason: str = "manual",
         logger.warning("No active position for %s (mode=%s)", ticker, trading_mode or "any")
         return None
 
+    short = (position.get("direction") or "long") == "short"
+    # Covering a short means buying — slippage fills higher
+    fill_price = _simulate_fill(raw_price, "buy" if short else "sell")
+
     pos_trading_mode = position.get("trading_mode", "paper")
-    pnl = (fill_price - position["entry_price"]) * position["shares"] - PAPER_BROKERAGE * 2
+    if short:
+        pnl = (position["entry_price"] - fill_price) * position["shares"] - PAPER_BROKERAGE * 2
+    else:
+        pnl = (fill_price - position["entry_price"]) * position["shares"] - PAPER_BROKERAGE * 2
     remove_from_watchlist(ticker, reason=reason, trading_mode=pos_trading_mode)
 
     _record_trade(
         ticker=ticker,
-        trade_type="sell",
+        trade_type="cover" if short else "sell",
         entry_price=position["entry_price"],
         exit_price=fill_price,
         shares=position["shares"],

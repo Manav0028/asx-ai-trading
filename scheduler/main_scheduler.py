@@ -13,6 +13,7 @@ pre_market_hour+1:30  → Daily report → Telegram + email
 market_open+0:45      → Paper/live orders placed for score ≥ 75
 market_close+0:00     → Stop-loss/target evaluation + watchlist P&L
 Every 2h              → Google News RSS refresh
+Sunday 07:00          → Per-stock strategy selection (backtest + forward validation)
 Sunday 08:00          → Walk-forward backtest + Claude batch summaries
 """
 import logging
@@ -366,6 +367,25 @@ def _check_held_position_news():
                 alerted.add(ticker)
 
 
+def job_strategy_selection():
+    """
+    Weekly per-stock strategy selection. Backtests all 5 strategies on each
+    ticker's own history (70% in-sample / 30% out-of-sample forward test) and
+    assigns the best validated strategy. Order placement only acts on signals
+    whose assigned strategy passed both tests and fires on the day.
+    """
+    logger.info("Running per-stock strategy selection (backtest + forward validation)")
+    from strategies.selector import run_strategy_selection
+    summary = run_strategy_selection(_tickers())
+    logger.info(
+        "Strategy selection: %d assigned, %d validated, %d skipped",
+        summary["total"], summary["validated"], summary["skipped"],
+    )
+    # ── Phase 2: Sync assignments to Supabase for the cloud Radar tab ─────────
+    from storage.supabase_sync import sync_strategy_assignments_to_supabase
+    sync_strategy_assignments_to_supabase()
+
+
 def job_weekly_sunday():
     logger.info("Running walk-forward backtest + weekly summary")
     from ai_engine.backtester import run_walk_forward
@@ -425,6 +445,7 @@ def build_scheduler() -> BlockingScheduler:
     scheduler.add_job(job_intraday_check,           CronTrigger(minute="*/30", day_of_week="mon-fri",                timezone=tz))
     scheduler.add_job(job_market_close,             CronTrigger(hour=mc_h,    minute=mc_m,    day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_news_refresh,             CronTrigger(minute=0,     hour="*/2",                            timezone=tz))
+    scheduler.add_job(job_strategy_selection,       CronTrigger(day_of_week="sun", hour=7, minute=0,                 timezone=tz))
     scheduler.add_job(job_weekly_sunday,            CronTrigger(day_of_week="sun", hour=8, minute=0,                 timezone=tz))
 
     logger.info(

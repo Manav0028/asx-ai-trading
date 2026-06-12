@@ -61,6 +61,7 @@ def add_to_watchlist(
     position_size_aud: float,
     signal_score: float,
     trading_mode: str = None,          # defaults to current phase mode
+    direction: str = "long",           # 'long' | 'short'
 ) -> WatchlistItem:
     mode = trading_mode or _current_trading_mode()
 
@@ -93,6 +94,7 @@ def add_to_watchlist(
             days_held=0,
             signal_score=signal_score,
             trading_mode=mode,
+            direction=direction,
             is_active=True,
         )
         session.add(item)
@@ -110,10 +112,11 @@ def update_watchlist_prices() -> List[Dict]:
             if current is None:
                 continue
             item.current_price = current
-            pnl = (current - item.entry_price) * item.shares
+            sign = -1 if (getattr(item, "direction", None) or "long") == "short" else 1
+            pnl = sign * (current - item.entry_price) * item.shares
             item.unrealised_pnl = round(pnl, 2)
             item.unrealised_pnl_pct = round(
-                (current - item.entry_price) / item.entry_price * 100, 2
+                sign * (current - item.entry_price) / item.entry_price * 100, 2
             )
             item.days_held = (date.today() - item.entry_date).days
             updated.append({
@@ -183,6 +186,7 @@ def get_active_watchlist(trading_mode: str = None,
                 "days_held":        i.days_held,
                 "signal_score":     i.signal_score,
                 "trading_mode":     i.trading_mode,
+                "direction":        getattr(i, "direction", None) or "long",
             }
             for i in items
             if suffix is None or i.ticker.endswith(suffix)

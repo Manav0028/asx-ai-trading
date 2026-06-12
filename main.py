@@ -103,6 +103,8 @@ def main():
     parser.add_argument("--report",         action="store_true", help="Generate today's report")
     parser.add_argument("--scan",           action="store_true", help="Run signal scan")
     parser.add_argument("--backtest",       action="store_true", help="Run walk-forward backtest")
+    parser.add_argument("--select-strategies", action="store_true",
+                        help="Run per-stock strategy selection (backtest + forward-test validation)")
     parser.add_argument("--init-db",        action="store_true", help="Initialise DB tables")
     parser.add_argument("--backfill",       type=int, metavar="DAYS", help="Backfill N days of prices")
     parser.add_argument("--test-alerts",    action="store_true", help="Send test alert")
@@ -147,6 +149,16 @@ def main():
         from config.settings import BACKTESTER_LOOKBACK_MONTHS
         results = run_walk_forward(exchange.tickers[:50], lookback_months=BACKTESTER_LOOKBACK_MONTHS)
         print(f"Backtest complete: {len(results)} tickers")
+
+    elif args.select_strategies:
+        from strategies.selector import run_strategy_selection
+        summary = run_strategy_selection(exchange.tickers)
+        print(
+            f"\nStrategy selection complete: {summary['total']} assigned, "
+            f"{summary['validated']} validated, {summary['skipped']} skipped"
+        )
+        for name, count in sorted(summary["mix"].items(), key=lambda kv: -kv[1]):
+            print(f"  {name:20s} {count} stocks")
 
     elif args.test_alerts:
         test_alerts()

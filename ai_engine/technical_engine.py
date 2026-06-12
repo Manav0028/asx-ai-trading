@@ -1,6 +1,6 @@
 """
 Layer 03 · AI Engine — Technical Engine (Enhanced)
-Indicators: RSI, MACD, Bollinger Bands, EMA Cross, Volume Spike, ATR, ADX.
+Indicators: RSI, Stochastic RSI, MACD, Bollinger Bands, EMA Cross, Volume Spike, ATR, ADX.
 Returns 0-100 composite technical score + rich metadata for alerts.
 """
 import logging
@@ -135,18 +135,38 @@ def _adx(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int = 
     return float(dx), trend
 
 
+def _stoch_rsi(prices: np.ndarray, rsi_period: int = 14, stoch_period: int = 14) -> float:
+    if len(prices) < rsi_period + stoch_period:
+        return 50.0
+    deltas = np.diff(prices)
+    rsi_vals = []
+    for i in range(rsi_period, len(deltas) + 1):
+        window = deltas[i - rsi_period:i]
+        ag = np.mean(np.where(window > 0, window, 0.0))
+        al = np.mean(np.where(window < 0, -window, 0.0))
+        rsi_vals.append(100 - (100 / (1 + ag / (al + 1e-9))))
+    if len(rsi_vals) < stoch_period:
+        return 50.0
+    recent = rsi_vals[-stoch_period:]
+    low, high = min(recent), max(recent)
+    if high == low:
+        return 50.0
+    return round((rsi_vals[-1] - low) / (high - low) * 100, 2)
+
+
 def _get_ohlcv(ticker: str, days: int = 300) -> Optional[Dict[str, np.ndarray]]:
     """Pull OHLCV arrays from DB for a ticker."""
     with get_session() as session:
         rows = (
             session.query(Price.date, Price.open, Price.high, Price.low, Price.close, Price.volume)
             .filter(Price.ticker == ticker)
-            .order_by(Price.date.asc())
+            .order_by(Price.date.desc())   # newest first then reverse — asc+limit returns the OLDEST bars
             .limit(days)
             .all()
         )
     if len(rows) < 30:
         return None
+    rows = list(reversed(rows))            # oldest → newest for indicator math
     return {
         "opens":   np.array([r.open or r.close for r in rows], dtype=float),
         "highs":   np.array([r.high or r.close for r in rows], dtype=float),
@@ -248,6 +268,19 @@ def _compute_technical(ticker: str) -> dict:
     # ADX boosts or dampens: strong trend = more reliable signals
     adx_multiplier = 1.1 if adx_val >= 30 else (0.95 if adx_val < 20 else 1.0)
 
+    # ── Stochastic RSI ──────────────────────────────────────────────────────────
+    stoch_rsi = _stoch_rsi(closes)
+    if stoch_rsi < 20:
+        stoch_score, stoch_signal = 85.0, f"StochRSI {stoch_rsi:.0f} — oversold momentum"
+    elif stoch_rsi < 40:
+        stoch_score, stoch_signal = 65.0, f"StochRSI {stoch_rsi:.0f} — momentum building"
+    elif stoch_rsi < 60:
+        stoch_score, stoch_signal = 50.0, f"StochRSI {stoch_rsi:.0f} — neutral"
+    elif stoch_rsi < 80:
+        stoch_score, stoch_signal = 35.0, f"StochRSI {stoch_rsi:.0f} — momentum fading"
+    else:
+        stoch_score, stoch_signal = 15.0, f"StochRSI {stoch_rsi:.0f} — overbought momentum"
+
     # ── ATR (for dynamic stop/target) ─────────────────────────────────────────
     atr = _atr(highs, lows, closes)
     stop_price = round(latest - 2.0 * atr, 3)   # 2× ATR stop
@@ -255,27 +288,29 @@ def _compute_technical(ticker: str) -> dict:
 
     # ── Composite ─────────────────────────────────────────────────────────────
     raw = (
-        rsi_score * 0.28
-        + macd_score * 0.22
-        + bb_score * 0.22
-        + cross_score * 0.18
+        rsi_score * 0.22
+        + macd_score * 0.20
+        + bb_score * 0.18
+        + cross_score * 0.15
         + vol_score * 0.10
+        + stoch_score * 0.15
     ) * adx_multiplier
 
     composite = round(max(0.0, min(100.0, raw)), 2)
 
-    signals = [rsi_signal, macd_signal, bb_signal, cross_signal]
+    signals = [rsi_signal, macd_signal, bb_signal, cross_signal, stoch_signal]
     if vol_score >= 70:
         signals.append(vol_signal)
 
     logger.debug(
-        "%s tech: RSI=%.0f MACD=%.0f BB=%.0f Cross=%.0f Vol=%.0f ADX=%.0f → %.1f",
-        ticker, rsi_score, macd_score, bb_score, cross_score, vol_score, adx_val, composite,
+        "%s tech: RSI=%.0f MACD=%.0f BB=%.0f Cross=%.0f Vol=%.0f Stoch=%.0f ADX=%.0f → %.1f",
+        ticker, rsi_score, macd_score, bb_score, cross_score, vol_score, stoch_score, adx_val, composite,
     )
 
     return {
         "composite_score": composite,
         "rsi": rsi,
+        "stoch_rsi": stoch_rsi,
         "macd_bullish": hist > 0,
         "bb_position_pct": round(bb_pct * 100, 1),
         "adx": round(adx_val, 1),

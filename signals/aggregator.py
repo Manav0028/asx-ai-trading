@@ -89,8 +89,38 @@ def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
     )
     composite = round(max(0.0, min(100.0, composite)), 2)
 
-    # Scores are pure quality — regime affects position sizing, not score
-    actionable = quality_ok and liquid_ok and composite >= SIGNAL_THRESHOLD
+    # ── Per-stock strategy gate ───────────────────────────────────────────────
+    # Each ticker trades only its own backtest+forward-validated strategy.
+    # No assignment yet → legacy composite-only behaviour (selection job fills
+    # these in weekly). Assigned but unvalidated → never actionable (no proven
+    # edge on this stock). Validated → actionable only when the strategy's
+    # entry condition fires today.
+    from strategies.selector import get_strategy_signal
+    strat = None
+    try:
+        strat = get_strategy_signal(ticker)
+    except Exception as e:
+        logger.debug("Strategy lookup failed for %s: %s", ticker, e)
+
+    direction = (strat or {}).get("direction") or "long"
+    if strat is None:
+        strategy_ok, strategy_name, strategy_state = True, None, "unassigned"
+    elif not strat["validated"]:
+        strategy_ok, strategy_name, strategy_state = False, strat["strategy"], "unvalidated"
+    elif strat["fires"]:
+        strategy_ok, strategy_name, strategy_state = True, strat["strategy"], f"fires ({strat['reason']})"
+    else:
+        strategy_ok, strategy_name, strategy_state = False, strat["strategy"], "no entry today"
+
+    # Scores are pure quality — regime affects position sizing, not score.
+    # Shorts mirror the gate: a weak composite is exactly what a short wants,
+    # so they require the BEARISH composite (100 - composite) over threshold.
+    # The news-quality gate is long-biased (blocks negative news) so shorts
+    # rely on the strategy validation + liquidity gates instead.
+    if direction == "short":
+        actionable = liquid_ok and strategy_ok and (100 - composite) >= SIGNAL_THRESHOLD
+    else:
+        actionable = quality_ok and liquid_ok and strategy_ok and composite >= SIGNAL_THRESHOLD
 
     # ── Prices + dynamic risk parameters ─────────────────────────────────────
     from ai_engine.technical_engine import get_technical_meta
@@ -110,11 +140,26 @@ def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
             composite_score  = composite,
             fundamental_score = fundamental,
             regime_ok        = regime_ok,
+            # Strategy-specific risk geometry (e.g. mean reversion exits tighter)
+            stop_mult        = strat.get("stop_mult") if strat else None,
+            target_mult      = strat.get("target_mult") if strat else None,
+            direction        = direction,
         )
         target_price    = risk["target_price"]
         stop_loss_price = risk["stop_loss_price"]
         position_aud    = risk["position_size_aud"]
         kelly_f         = round(position_aud / max(entry_price * 1, 1), 4)  # shares approx
+    elif direction == "short" and entry_price:
+        # Non-actionable short — display geometry must still be inverted
+        from signals.risk_params import compute_stop_target
+        st_ = compute_stop_target(entry_price, atr, regime_ok,
+                                  strat.get("stop_mult") if strat else None,
+                                  strat.get("target_mult") if strat else None,
+                                  direction="short")
+        target_price    = st_["target_price"]
+        stop_loss_price = st_["stop_loss_price"]
+        position_aud    = 0.0
+        kelly_f         = 0.0
     else:
         # Non-actionable signal — store scores but no position
         target_price    = tech_meta.get("target") or (round(entry_price * 1.10, 3) if entry_price else None)
@@ -136,6 +181,8 @@ def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
         "entry_price": entry_price,
         "target_price": target_price,
         "stop_loss_price": stop_loss_price,
+        "strategy_name": strategy_name,
+        "direction": direction,
     }
 
     with get_session() as session:
@@ -146,11 +193,12 @@ def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
         session.execute(stmt)
 
     logger.info(
-        "%s → %.1f (S=%.0f F=%.0f T=%.0f I=%.0f) regime=%s quality=%s liquid=%s",
+        "%s → %.1f (S=%.0f F=%.0f T=%.0f I=%.0f) regime=%s quality=%s liquid=%s strategy=%s",
         ticker, composite, sentiment, fundamental, technical, insider,
         "OK" if regime_ok else "OFF",
         "OK" if quality_ok else quality_reason,
         "OK" if liquid_ok else f"low (${avg_turnover:,.0f}/day)",
+        f"{strategy_name or '-'}:{strategy_state}",
     )
     return signal_dict
 
@@ -188,12 +236,22 @@ def get_top_signals(n: int = 10, min_score: float = None) -> List[Dict]:
     min_score = min_score or SIGNAL_THRESHOLD
     suffix = _active_ticker_suffix()
 
+    from sqlalchemy import and_, or_
+
     with get_session() as session:
-        # Over-fetch to allow post-filter by exchange suffix when DB has rows from both exchanges
+        # Over-fetch to allow post-filter by exchange suffix when DB has rows from both exchanges.
+        # Shorts qualify on the BEARISH composite (low score = strong short), so
+        # include rows that are either strong longs or actionable shorts.
         rows = (
             session.query(Signal)
-            .filter(Signal.date == today, Signal.composite_score >= min_score)
-            .order_by(Signal.composite_score.desc())
+            .filter(
+                Signal.date == today,
+                or_(
+                    Signal.composite_score >= min_score,
+                    and_(Signal.direction == "short", Signal.position_size_aud > 0),
+                ),
+            )
+            .order_by(Signal.position_size_aud.desc(), Signal.composite_score.desc())
             .limit(n * 4 if suffix else n)
             .all()
         )
@@ -210,6 +268,8 @@ def get_top_signals(n: int = 10, min_score: float = None) -> List[Dict]:
                 "stop_loss_price": r.stop_loss_price,
                 "position_size_aud": r.position_size_aud,
                 "regime_ok": r.regime_ok,
+                "strategy_name": getattr(r, "strategy_name", None),
+                "direction": getattr(r, "direction", None) or "long",
             }
             for r in rows
             if suffix is None or r.ticker.endswith(suffix)

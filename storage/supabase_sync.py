@@ -134,6 +134,8 @@ def sync_signals_to_supabase(signal_date: date = None) -> bool:
                     "entry_price": r.entry_price,
                     "target_price": r.target_price,
                     "stop_loss_price": r.stop_loss_price,
+                    "strategy_name": getattr(r, "strategy_name", None),
+                    "direction": getattr(r, "direction", None) or "long",
                 }
                 for r in rows_orm
             ]
@@ -229,6 +231,8 @@ def sync_watchlist_to_supabase() -> bool:
                     "days_held": i.days_held,
                     "signal_score": i.signal_score,
                     "is_active": True,
+                    "strategy_name": getattr(i, "strategy_name", None),
+                    "direction": getattr(i, "direction", None) or "long",
                 }
                 for i in items
             ]
@@ -312,6 +316,59 @@ def sync_trades_to_supabase(days: int = 90) -> bool:
 
     except Exception as e:
         logger.warning("sync_trades_to_supabase failed: %s", e)
+        return False
+
+
+def sync_strategy_assignments_to_supabase() -> bool:
+    """Upsert per-stock strategy assignments for the active exchange to Supabase.
+    Powers the Radar tab on the Streamlit Cloud (Supabase-backed) dashboard."""
+    url, key = _get_config()
+    if not url:
+        return False
+
+    exchange_id = _get_exchange_id()
+    suffix = _ticker_suffix(exchange_id)
+
+    try:
+        from storage.database import get_session
+        from storage.models import StrategyAssignment
+
+        with get_session() as session:
+            rows_orm = (
+                session.query(StrategyAssignment)
+                .filter(StrategyAssignment.ticker.endswith(suffix))
+                .all()
+            )
+            payload = [
+                {
+                    "ticker": r.ticker,
+                    "exchange": exchange_id,
+                    "strategy_name": r.strategy_name,
+                    "direction": getattr(r, "direction", None) or "long",
+                    "validated": bool(r.validated),
+                    "bt_trades": r.bt_trades,
+                    "bt_win_rate": r.bt_win_rate,
+                    "bt_profit_factor": r.bt_profit_factor,
+                    "fw_trades": r.fw_trades,
+                    "fw_win_rate": r.fw_win_rate,
+                    "fw_profit_factor": r.fw_profit_factor,
+                    "fw_total_return_pct": r.fw_total_return_pct,
+                    "rank_score": r.rank_score,
+                }
+                for r in rows_orm
+            ]
+
+        if not payload:
+            logger.info("No strategy assignments to sync for %s", exchange_id.upper())
+            return True
+
+        ok = _upsert(url, key, "strategy_assignments", payload)
+        if ok:
+            logger.info("Synced %d strategy assignments to Supabase (%s)", len(payload), exchange_id.upper())
+        return ok
+
+    except Exception as e:
+        logger.warning("sync_strategy_assignments_to_supabase failed: %s", e)
         return False
 
 
