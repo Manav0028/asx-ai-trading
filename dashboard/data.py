@@ -767,6 +767,18 @@ def _strategy_radar_supabase(exchange: str) -> List[Dict]:
                 "fw_profit_factor": a.get("fw_profit_factor"),
                 "fw_win_rate": a.get("fw_win_rate"),
                 "rank_score": a.get("rank_score"),
+                "bt_trades": a.get("bt_trades"),
+                "bt_win_rate": a.get("bt_win_rate"),
+                "bt_profit_factor": a.get("bt_profit_factor"),
+                "bt_avg_return_pct": a.get("bt_avg_return_pct"),
+                "fw_trades": a.get("fw_trades"),
+                "fw_total_return_pct": a.get("fw_total_return_pct"),
+                "sentiment_score": s.get("sentiment_score") if s else None,
+                "fundamental_score": s.get("fundamental_score") if s else None,
+                "technical_score": s.get("technical_score") if s else None,
+                "insider_score": s.get("insider_score") if s else None,
+                "regime_ok": s.get("regime_ok") if s else None,
+                "strategy_fires": strategy_fires,
             })
         out.sort(key=lambda r: (not r["firing"], not r["near_miss"], not r["validated"], -(r["rank_score"] or 0)))
         return out
@@ -812,6 +824,18 @@ def _strategy_radar_local(exchange: str) -> List[Dict]:
                     "fw_profit_factor": a.fw_profit_factor,
                     "fw_win_rate": a.fw_win_rate,
                     "rank_score": a.rank_score,
+                    "bt_trades": a.bt_trades,
+                    "bt_win_rate": a.bt_win_rate,
+                    "bt_profit_factor": a.bt_profit_factor,
+                    "bt_avg_return_pct": a.bt_avg_return_pct,
+                    "fw_trades": a.fw_trades,
+                    "fw_total_return_pct": a.fw_total_return_pct,
+                    "sentiment_score": s.sentiment_score if s else None,
+                    "fundamental_score": s.fundamental_score if s else None,
+                    "technical_score": s.technical_score if s else None,
+                    "insider_score": s.insider_score if s else None,
+                    "regime_ok": s.regime_ok if s else None,
+                    "strategy_fires": strategy_fires,
                 })
             # firing first, then near-miss, then validated by rank
             out.sort(key=lambda r: (not r["firing"], not r["near_miss"], not r["validated"], -(r["rank_score"] or 0)))

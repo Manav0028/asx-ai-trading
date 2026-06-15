@@ -410,6 +410,19 @@ section[data-testid="stSidebar"] .stSelectbox label {
 .radar-stats b { color: var(--text, #f4f4f6); font-weight: 600; }
 .radar-empty { padding: 28px; text-align: center; color: var(--text-dim, #78787e);
                border: 1px dashed var(--border, #2a2a31); border-radius: 8px; font-size: 0.85rem; }
+.radar-explain {
+    background: var(--card, #1c1c22); border: 1px solid var(--border, #2a2a31);
+    border-radius: 8px; padding: 14px 16px; margin-top: 10px; font-size: 0.82rem;
+    color: var(--text-dim, #78787e); line-height: 1.55;
+}
+.radar-explain h4 {
+    margin: 0 0 6px 0; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text, #f4f4f6);
+}
+.radar-explain + .radar-explain { margin-top: 8px; }
+.radar-explain b { color: var(--text, #f4f4f6); }
+.gate-pass { color: var(--profit); font-weight: 600; }
+.gate-fail { color: var(--loss, #ff5a5a); font-weight: 600; }
 
 /* ── Regime badge ─────────────────────────────────────── */
 .regime-badge {
@@ -1141,6 +1154,114 @@ with tab_radar:
             f'    <span>Rank <b>{rank:.2f}</b></span>'
             f'  </div>'
             f'  {progress_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Plain-language "why this stock, why this signal" explainer ────
+        from config.settings import SIGNAL_THRESHOLD as _THRESH
+        try:
+            from strategies.selector import get_strategy_signal as _get_strat_sig
+            live_strat = _get_strat_sig(sel_ticker)
+        except Exception:
+            live_strat = None
+
+        bt_trades = sel.get("bt_trades")
+        bt_wr = sel.get("bt_win_rate")
+        bt_pf = sel.get("bt_profit_factor")
+        bt_ret = sel.get("bt_avg_return_pct")
+        fw_trades = sel.get("fw_trades")
+        fw_ret = sel.get("fw_total_return_pct")
+
+        pick_bits = []
+        if bt_trades:
+            pick_bits.append(f'<b>{bt_trades}</b> backtested trades over 2 years, '
+                              f'<b>{(bt_wr or 0) * 100:.0f}%</b> win rate, '
+                              f'profit factor <b>{bt_pf or 0:.2f}</b>'
+                              + (f', avg return <b>{bt_ret:.1f}%</b>/trade' if bt_ret is not None else ''))
+        if fw_trades:
+            pick_bits.append(f'confirmed out-of-sample on <b>{fw_trades}</b> more trades '
+                              f'(<b>{fw_wr:.0f}%</b> win rate, PF <b>{fw_pf:.2f}</b>'
+                              + (f', total return <b>{fw_ret:.1f}%</b>' if fw_ret is not None else '') + ')')
+        pick_summary = "; ".join(pick_bits) if pick_bits else "not enough trade history yet to validate this assignment."
+
+        st.markdown(
+            f'<div class="radar-explain">'
+            f'<h4>How {sel_ticker.rsplit(".", 1)[0]} was picked</h4>'
+            f'The selection job backtests every strategy in the library against this stock\'s own '
+            f'2-year price history and assigns the <b>{strat_label}</b> strategy ({direction}) because it '
+            f'was the best/only one to pass both gates: {pick_summary} '
+            f'Its overall rank score is <b>{rank:.2f}</b> (higher = stronger edge vs other validated stocks on {exchange.upper()}).'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # Composite score breakdown
+        comp = sel.get("composite_score")
+        sent = sel.get("sentiment_score")
+        fund = sel.get("fundamental_score")
+        tech = sel.get("technical_score")
+        ins = sel.get("insider_score")
+        regime_ok = sel.get("regime_ok")
+
+        if comp is not None:
+            score_line = (
+                f'Today\'s composite score is <b>{comp:.0f}/100</b> — built from '
+                f'sentiment <b>{(sent or 0):.0f}</b>, fundamentals <b>{(fund or 0):.0f}</b>, '
+                f'technicals <b>{(tech or 0):.0f}</b>, and insider activity <b>{(ins or 0):.0f}</b> '
+                f'(weighted average). Market regime is '
+                + (f'<span class="gate-pass">risk-ON</span>' if regime_ok else f'<span class="gate-fail">risk-OFF</span>')
+                + '.'
+            )
+        else:
+            score_line = "No signal has been computed for this stock yet today."
+
+        # Strategy fire status
+        if live_strat:
+            if live_strat.get("fires"):
+                fire_line = (f'The <b>{strat_label}</b> entry condition <span class="gate-pass">fired</span> '
+                              f'on today\'s bar: <i>{live_strat.get("reason")}</i>.')
+            else:
+                fire_line = (f'The <b>{strat_label}</b> entry condition did '
+                              f'<span class="gate-fail">not fire</span> today: <i>{live_strat.get("reason")}</i>. '
+                              f'No trade is considered until this condition triggers again.')
+        else:
+            fire_line = "Strategy fire status could not be computed right now."
+
+        # Score-gate status
+        if comp is not None:
+            if direction == "long":
+                gate_ok = comp >= _THRESH
+                gate_line = (f'Score gate needs <b>≥ {_THRESH:.0f}</b> for a long — '
+                              f'{comp:.0f} {"clears" if gate_ok else "is below"} it'
+                              f' (<span class="{"gate-pass" if gate_ok else "gate-fail"}">'
+                              f'{"PASS" if gate_ok else "FAIL"}</span>).')
+            else:
+                gate_ok = comp <= (100 - _THRESH)
+                gate_line = (f'Score gate needs <b>≤ {100 - _THRESH:.0f}</b> for a short — '
+                              f'{comp:.0f} {"clears" if gate_ok else "is above"} it'
+                              f' (<span class="{"gate-pass" if gate_ok else "gate-fail"}">'
+                              f'{"PASS" if gate_ok else "FAIL"}</span>).')
+        else:
+            gate_line = ""
+
+        # Overall verdict
+        if sel["firing"]:
+            verdict = ('<span class="gate-pass">Both gates passed</span> — this is a live, '
+                        'actionable signal and a position was opened/sized today.')
+        elif sel["near_miss"]:
+            verdict = ('The strategy fired but the <span class="gate-fail">score gate blocked it</span> — '
+                        'a "near miss". No position was taken.')
+        elif sel["validated"]:
+            verdict = ('This stock is validated and being watched, but its strategy did not fire today — '
+                        'no position was taken.')
+        else:
+            verdict = 'This stock has not been validated for any strategy — it is scored but not traded.'
+
+        st.markdown(
+            f'<div class="radar-explain">'
+            f'<h4>What happened today</h4>'
+            f'{score_line} {fire_line} {gate_line}<br><br>{verdict}'
             f'</div>',
             unsafe_allow_html=True,
         )
