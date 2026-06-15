@@ -1040,6 +1040,130 @@ with tab_radar:
             unsafe_allow_html=True,
         )
     else:
+        # ── Dynamic ticker inspector ──────────────────────────────────────
+        import streamlit.components.v1 as _components
+        from dashboard.data import get_live_prices as _get_live_prices
+
+        def _radar_label(r):
+            tname = r["ticker"].rsplit(".", 1)[0]
+            strat_label = (r["strategy_name"] or "—").replace("_", " ")
+            tag = "FIRING" if r["firing"] else ("validated" if r["validated"] else "unvalidated")
+            return f'{tname} · {strat_label} ({r["direction"]}) · {tag}'
+
+        radar_by_label = {_radar_label(r): r for r in radar}
+        default_idx = 0
+        labels = list(radar_by_label.keys())
+        if firing:
+            default_idx = labels.index(_radar_label(firing[0]))
+
+        st.markdown('<div class="kite-section" style="margin-top:6px">Inspect a Stock</div>',
+                    unsafe_allow_html=True)
+        selected_label = st.selectbox(
+            "Select a ticker to view its chart and trade plan",
+            options=labels,
+            index=default_idx,
+            key="radar_inspect_ticker",
+        )
+        sel = radar_by_label[selected_label]
+        sel_ticker = sel["ticker"]
+        sel_symbol = _tv_symbol(sel_ticker)
+
+        live_prices = _get_live_prices([sel_ticker])
+        current_price = live_prices.get(sel_ticker)
+
+        entry = sel.get("entry_price")
+        target = sel.get("target_price")
+        stop = sel.get("stop_loss_price")
+        direction = sel["direction"]
+
+        # Progress bar from stop -> entry -> target, marker at current price
+        progress_html = ""
+        if entry and target and stop and current_price:
+            lo = min(stop, target)
+            hi = max(stop, target)
+            span = hi - lo if hi != lo else 1
+            pct = max(0.0, min(100.0, (current_price - lo) / span * 100))
+            entry_pct = max(0.0, min(100.0, (entry - lo) / span * 100))
+            stop_label = f"Stop {currency}{stop:.2f}"
+            target_label = f"Target {currency}{target:.2f}"
+            left_label, right_label = (stop_label, target_label) if stop < target else (target_label, stop_label)
+            if current_price >= target if direction == "long" else current_price <= target:
+                bar_color = "var(--profit)"
+            elif current_price <= stop if direction == "long" else current_price >= stop:
+                bar_color = "var(--loss, #ff5a5a)"
+            else:
+                bar_color = "var(--accent)"
+            progress_html = (
+                '<div style="margin-top:10px">'
+                f'  <div style="display:flex;justify-content:space-between;font-size:0.75rem;'
+                f'color:var(--text-dim,#78787e);margin-bottom:4px">'
+                f'    <span>{left_label}</span><span>Entry {currency}{entry:.2f}</span><span>{right_label}</span>'
+                f'  </div>'
+                f'  <div style="position:relative;height:8px;border-radius:4px;background:#2c2c30">'
+                f'    <div style="position:absolute;left:{entry_pct:.1f}%;top:-3px;width:2px;height:14px;'
+                f'background:var(--text-dim,#78787e)"></div>'
+                f'    <div style="position:absolute;left:{pct:.1f}%;top:-4px;width:10px;height:16px;'
+                f'border-radius:3px;background:{bar_color};transform:translateX(-50%)"></div>'
+                f'  </div>'
+                f'  <div style="text-align:center;font-size:0.85rem;margin-top:6px;color:var(--text,#f4f4f6)">'
+                f'    Current <b>{currency}{current_price:.2f}</b>'
+                f'  </div>'
+                '</div>'
+            )
+
+        strat_label = (sel.get("strategy_name") or "—").replace("_", " ")
+        fw_pf = sel.get("fw_profit_factor") or 0
+        fw_wr = (sel.get("fw_win_rate") or 0) * 100
+        rank = sel.get("rank_score") or 0
+
+        st.markdown(
+            f'<div class="radar-card{" firing" if sel["firing"] else ""}" style="margin-top:8px">'
+            f'  <div class="radar-head">'
+            f'    <a class="radar-ticker" href="{_tv(sel_ticker)}" target="_blank">{sel_ticker.rsplit(".", 1)[0]}</a>'
+            f'    <span class="dir-chip {direction}">{direction}</span>'
+            f'    <span class="strat-chip">{strat_label}</span>'
+            + (f'    <span class="fire-chip"><span class="fire-dot"></span>FIRING</span>' if sel["firing"] else "")
+            + f'  </div>'
+            f'  <div class="radar-stats">'
+            f'    <span>Fwd PF <b>{fw_pf:.2f}</b></span>'
+            f'    <span>Fwd WR <b>{fw_wr:.0f}%</b></span>'
+            f'    <span>Rank <b>{rank:.2f}</b></span>'
+            f'  </div>'
+            f'  {progress_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        chart_html = f"""
+        <div id="radar-chart-container" style="height:420px; border-radius:10px; overflow:hidden; border:1px solid #2c2c30; margin-top:10px;">
+        <div class="tradingview-widget-container" style="height:100%;width:100%">
+          <div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+          {{
+            "autosize": true,
+            "symbol": "{sel_symbol}",
+            "interval": "D",
+            "timezone": "{'Australia/Sydney' if exchange == 'asx' else 'Asia/Kolkata'}",
+            "theme": "dark",
+            "style": "1",
+            "locale": "en",
+            "backgroundColor": "#121214",
+            "gridColor": "rgba(44, 44, 48, 0.6)",
+            "hide_top_toolbar": false,
+            "hide_legend": false,
+            "allow_symbol_change": false,
+            "save_image": false,
+            "calendar": false,
+            "hide_volume": false,
+            "support_host": "https://www.tradingview.com",
+            "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies"]
+          }}
+          </script>
+        </div>
+        </div>
+        """
+        _components.html(chart_html, height=430, scrolling=False)
+
         if firing:
             st.markdown('<div class="kite-section" style="margin-top:6px">Firing Today</div>',
                         unsafe_allow_html=True)
