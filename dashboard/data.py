@@ -324,11 +324,18 @@ def get_portfolio(exchange: str, live: bool = False) -> Dict:
         p["day_pnl"] = round((cp - prev_close) * shares, 2)
         p["day_pnl_pct"] = round((cp - prev_close) / prev_close * 100, 2) if prev_close else 0
 
-    total_pnl           = sum(p.get("unrealised_pnl")   or 0 for p in positions)
-    total_invested      = sum(p.get("invested")          or 0 for p in positions)
-    total_current_value = sum(p.get("current_value")     or 0 for p in positions)
-    total_day_pnl       = sum(p.get("day_pnl")           or 0 for p in positions)
+    total_unrealised_pnl = sum(p.get("unrealised_pnl")   or 0 for p in positions)
+    total_invested       = sum(p.get("invested")          or 0 for p in positions)
+    total_current_value  = sum(p.get("current_value")     or 0 for p in positions)
+    open_day_pnl         = sum(p.get("day_pnl")           or 0 for p in positions)
     winners = sum(1 for p in positions if (p.get("unrealised_pnl") or 0) > 0)
+
+    # Cumulative realised P&L from all closed trades, plus today's realised P&L,
+    # so "Total P&L" reflects every day's results, not just open positions.
+    realised_all_time, realised_today = _realised_pnl_totals(exchange)
+    total_pnl     = total_unrealised_pnl + realised_all_time
+    total_day_pnl = open_day_pnl + realised_today
+
     return {
         "total_positions":      len(positions),
         "total_invested":       round(total_invested, 2),
@@ -366,6 +373,31 @@ def _portfolio_local(exchange: str) -> List[Dict]:
 
 
 # ── Closed Trades ─────────────────────────────────────────────────────────────
+
+def _realised_pnl_totals(exchange: str) -> tuple:
+    """Returns (all_time_realised_pnl, today_realised_pnl) from closed trades."""
+    if _use_supabase():
+        rows = _sb_get("trades", {
+            "exchange": f"eq.{exchange}",
+            "select": "net_pnl,exit_date",
+        })
+    else:
+        from storage.database import get_session
+        from storage.models import Trade
+        suffix = _ticker_suffix(exchange)
+        with get_session() as session:
+            trade_rows = (
+                session.query(Trade)
+                .filter(Trade.exit_date != None, Trade.ticker.endswith(suffix))
+                .all()
+            )
+            rows = [{"net_pnl": r.net_pnl, "exit_date": str(r.exit_date)} for r in trade_rows]
+
+    today_str = str(date.today())
+    all_time = sum(r.get("net_pnl") or 0 for r in rows)
+    today = sum(r.get("net_pnl") or 0 for r in rows if str(r.get("exit_date")) == today_str)
+    return all_time, today
+
 
 def get_trades(exchange: str, days: int = 90) -> List[Dict]:
     """Closed trades for the exchange over the last N days, newest first."""
