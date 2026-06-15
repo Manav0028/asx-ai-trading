@@ -183,6 +183,7 @@ def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
         "stop_loss_price": stop_loss_price,
         "strategy_name": strategy_name,
         "direction": direction,
+        "strategy_fires": bool(strat and strat.get("fires")),
     }
 
     with get_session() as session:

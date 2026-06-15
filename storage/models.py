@@ -83,6 +83,7 @@ class Signal(Base):
     stop_loss_price = Column(Float)
     strategy_name = Column(String(40))   # per-stock strategy that gated this signal
     direction = Column(String(8), default="long")  # 'long' | 'short'
+    strategy_fires = Column(Boolean, default=False)  # entry condition triggered today
     generated_at = Column(DateTime, default=datetime.utcnow)
     __table_args__ = (
         UniqueConstraint("ticker", "date", name="uq_signal_ticker_date"),

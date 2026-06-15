@@ -136,6 +136,7 @@ def sync_signals_to_supabase(signal_date: date = None) -> bool:
                     "stop_loss_price": r.stop_loss_price,
                     "strategy_name": getattr(r, "strategy_name", None),
                     "direction": getattr(r, "direction", None) or "long",
+                    "strategy_fires": bool(getattr(r, "strategy_fires", False)),
                 }
                 for r in rows_orm
             ]

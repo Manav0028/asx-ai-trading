@@ -751,12 +751,15 @@ def _strategy_radar_supabase(exchange: str) -> List[Dict]:
         for a in assignments:
             s = sig_by_ticker.get(a["ticker"])
             firing = bool(s and (s.get("position_size_aud") or 0) > 0)
+            strategy_fires = bool(s and s.get("strategy_fires"))
+            near_miss = strategy_fires and not firing
             out.append({
                 "ticker": a["ticker"],
                 "strategy_name": a.get("strategy_name"),
                 "direction": a.get("direction") or "long",
                 "validated": bool(a.get("validated")),
                 "firing": firing,
+                "near_miss": near_miss,
                 "composite_score": s.get("composite_score") if s else None,
                 "entry_price": s.get("entry_price") if s else None,
                 "target_price": s.get("target_price") if s else None,
@@ -765,7 +768,7 @@ def _strategy_radar_supabase(exchange: str) -> List[Dict]:
                 "fw_win_rate": a.get("fw_win_rate"),
                 "rank_score": a.get("rank_score"),
             })
-        out.sort(key=lambda r: (not r["firing"], not r["validated"], -(r["rank_score"] or 0)))
+        out.sort(key=lambda r: (not r["firing"], not r["near_miss"], not r["validated"], -(r["rank_score"] or 0)))
         return out
     except Exception:
         return []
@@ -793,12 +796,15 @@ def _strategy_radar_local(exchange: str) -> List[Dict]:
             for a in assignments:
                 s = sig_by_ticker.get(a.ticker)
                 firing = bool(s and (s.position_size_aud or 0) > 0)
+                strategy_fires = bool(s and getattr(s, "strategy_fires", False))
+                near_miss = strategy_fires and not firing
                 out.append({
                     "ticker": a.ticker,
                     "strategy_name": a.strategy_name,
                     "direction": getattr(a, "direction", None) or "long",
                     "validated": bool(a.validated),
                     "firing": firing,
+                    "near_miss": near_miss,
                     "composite_score": s.composite_score if s else None,
                     "entry_price": s.entry_price if s else None,
                     "target_price": s.target_price if s else None,
@@ -807,8 +813,8 @@ def _strategy_radar_local(exchange: str) -> List[Dict]:
                     "fw_win_rate": a.fw_win_rate,
                     "rank_score": a.rank_score,
                 })
-            # firing first, then validated by rank
-            out.sort(key=lambda r: (not r["firing"], not r["validated"], -(r["rank_score"] or 0)))
+            # firing first, then near-miss, then validated by rank
+            out.sort(key=lambda r: (not r["firing"], not r["near_miss"], not r["validated"], -(r["rank_score"] or 0)))
             return out
     except Exception:
         return []

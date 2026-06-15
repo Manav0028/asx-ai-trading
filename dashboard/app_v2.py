@@ -373,6 +373,12 @@ section[data-testid="stSidebar"] .stSelectbox label {
     border-radius: 8px; padding: 14px 16px; margin-bottom: 10px;
 }
 .radar-card.firing { border-color: var(--profit); box-shadow: 0 0 0 1px var(--profit-dim); }
+.radar-card.near-miss { border-color: #d4a017; box-shadow: 0 0 0 1px rgba(212, 160, 23, 0.25); }
+.near-miss-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 4px;
+    background: rgba(212, 160, 23, 0.15); color: #d4a017;
+}
 .radar-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .radar-ticker { font-size: 1rem; font-weight: 600; color: var(--text, #f4f4f6); text-decoration: none; }
 .radar-ticker:hover { color: var(--accent); }
@@ -1012,6 +1018,7 @@ with tab_radar:
 
     radar = get_strategy_radar(exchange)
     firing = [r for r in radar if r["firing"]]
+    near_misses = [r for r in radar if r["near_miss"]]
     validated_r = [r for r in radar if r["validated"]]
     longs = sum(1 for r in validated_r if r["direction"] == "long")
     shorts = len(validated_r) - longs
@@ -1021,6 +1028,8 @@ with tab_radar:
         f' <span class="badge-count">{len(radar)} stocks scanned</span>'
         f' <span class="badge-count" style="background:var(--profit-dim);color:var(--profit)">'
         f'{len(firing)} firing now</span>'
+        f' <span class="badge-count" style="background:rgba(212,160,23,0.15);color:#d4a017">'
+        f'{len(near_misses)} near miss</span>'
         f' <span class="badge-count">{longs} long / {shorts} short validated</span>'
         f'</div>',
         unsafe_allow_html=True,
@@ -1028,8 +1037,10 @@ with tab_radar:
     st.markdown(
         '<div style="color:var(--text-dim,#78787e);font-size:13px;margin-bottom:14px">'
         'Each stock trades only the strategy its own 2-year history validated — in-sample backtest '
-        'AND out-of-sample forward test. A card lights up when that validated strategy\'s entry '
-        'condition fires on today\'s bar, long or short.</div>',
+        'AND out-of-sample forward test. A trade is placed only when <b>both</b> gates pass on '
+        'today\'s bar: the validated strategy\'s entry condition fires, AND the composite score '
+        'clears the 65-point threshold (long) or drops below 35 (short). "Near miss" means the '
+        'strategy fired but the score gate blocked it.</div>',
         unsafe_allow_html=True,
     )
 
@@ -1198,9 +1209,37 @@ with tab_radar:
                 unsafe_allow_html=True,
             )
 
+        if near_misses:
+            st.markdown('<div class="kite-section" style="margin-top:20px">Near Miss — Strategy Fired, Score Gate Blocked</div>',
+                        unsafe_allow_html=True)
+            for r in near_misses:
+                tname = r["ticker"].rsplit(".", 1)[0]
+                strat_label = (r["strategy_name"] or "").replace("_", " ")
+                score = f'{r["composite_score"]:.0f}' if r.get("composite_score") is not None else "—"
+                entry = f'{currency}{r["entry_price"]:.2f}' if r.get("entry_price") else "—"
+                target = f'{currency}{r["target_price"]:.2f}' if r.get("target_price") else "—"
+                stop = f'{currency}{r["stop_loss_price"]:.2f}' if r.get("stop_loss_price") else "—"
+                st.markdown(
+                    f'<div class="radar-card near-miss">'
+                    f'  <div class="radar-head">'
+                    f'    <a class="radar-ticker" href="{_tv(r["ticker"])}" target="_blank">{tname}</a>'
+                    f'    <span class="dir-chip {r["direction"]}">{r["direction"]}</span>'
+                    f'    <span class="strat-chip">{strat_label}</span>'
+                    f'    <span class="near-miss-chip">NEAR MISS</span>'
+                    f'  </div>'
+                    f'  <div class="radar-stats">'
+                    f'    <span>Score <b>{score}</b> (needs {"≥65" if r["direction"] == "long" else "≤35"})</span>'
+                    f'    <span>Entry <b>{entry}</b></span>'
+                    f'    <span>Target <b>{target}</b></span>'
+                    f'    <span>Stop <b>{stop}</b></span>'
+                    f'  </div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
         st.markdown('<div class="kite-section" style="margin-top:20px">Validated — Watching</div>',
                     unsafe_allow_html=True)
-        watching = [r for r in validated_r if not r["firing"]]
+        watching = [r for r in validated_r if not r["firing"] and not r["near_miss"]]
         if watching:
             cols = st.columns(2)
             for idx, r in enumerate(watching):
