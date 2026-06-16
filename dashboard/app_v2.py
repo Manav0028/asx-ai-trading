@@ -274,39 +274,120 @@ section[data-testid="stSidebar"] .stSelectbox label {
     padding: 1px 7px; border-radius: 4px;
 }
 
-/* ── Ticker detail panel (main area overlay) ──────────── */
-.detail-panel {
+/* ── Ticker inspector overlay ─────────────────────────── */
+.insp-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 0 20px; border-bottom: 1px solid var(--border); margin-bottom: 24px;
+}
+.insp-title {
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+}
+.insp-ticker {
+    font-size: 2rem; font-weight: var(--weight-bold); color: var(--text-primary);
+    font-family: var(--font-mono) !important; letter-spacing: var(--tracking-tight);
+}
+.insp-price {
+    font-size: var(--text-xl); font-weight: var(--weight-bold);
+    font-family: var(--font-mono) !important; font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+}
+.insp-code {
+    font-size: var(--text-sm); color: var(--text-tertiary);
+    font-family: var(--font-mono) !important;
+}
+
+/* ── OHLC strip ───────────────────────────────────────── */
+.insp-ohlc {
+    display: flex; gap: 0; margin-bottom: 24px;
     background: var(--bg-secondary); border: 1px solid var(--border);
-    border-radius: var(--radius-md); padding: 20px 24px; margin-bottom: 20px;
-    position: relative;
+    border-radius: var(--radius-md); overflow: hidden;
 }
-.detail-panel-close {
-    position: absolute; top: 12px; right: 14px;
-    font-size: 1rem; color: var(--text-tertiary); cursor: pointer;
-    background: var(--bg-tertiary); border: none; border-radius: 4px;
-    padding: 2px 8px; line-height: 1.4;
+.insp-ohlc-cell {
+    flex: 1; padding: 14px 16px; text-align: center;
+    border-right: 1px solid var(--border);
 }
-.detail-panel-ticker {
-    font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--text-primary);
-    font-family: var(--font-mono) !important; letter-spacing: -0.01em;
+.insp-ohlc-cell:last-child { border-right: none; }
+.insp-ohlc-label {
+    font-size: var(--text-2xs); color: var(--text-tertiary);
+    text-transform: uppercase; letter-spacing: var(--tracking-label);
+    margin-bottom: 5px; font-weight: var(--weight-semibold);
 }
-.detail-kv { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 10px 0; }
-.detail-kv-item { font-size: 0.78rem; color: var(--text-tertiary); }
-.detail-kv-item b { color: var(--text-primary); }
-.detail-ohlc-row {
-    display: flex; gap: 14px; padding: 8px 0; border-top: 1px solid var(--border-subtle);
-    border-bottom: 1px solid var(--border-subtle); margin: 10px 0;
+.insp-ohlc-val {
+    font-size: var(--text-base); font-weight: var(--weight-bold);
+    font-family: var(--font-mono) !important;
+    font-variant-numeric: tabular-nums; color: var(--text-primary);
 }
-.detail-ohlc-cell { text-align: center; }
-.detail-ohlc-label { font-size: 0.66rem; color: var(--text-tertiary); text-transform: uppercase; }
-.detail-ohlc-val { font-size: 0.88rem; font-weight: 600; color: var(--text-primary); }
-.detail-score-grid { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
-.detail-score-card {
-    flex: 1; min-width: 70px; background: var(--bg-tertiary);
-    border-radius: var(--radius-sm); padding: 8px 10px; text-align: center;
+
+/* ── Section blocks inside inspector ─────────────────── */
+.insp-section {
+    font-size: var(--text-xs); font-weight: var(--weight-semibold);
+    color: var(--text-secondary); text-transform: uppercase;
+    letter-spacing: var(--tracking-label);
+    margin: 0 0 12px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
 }
-.detail-score-label { font-size: 0.65rem; color: var(--text-tertiary); text-transform: uppercase; margin-bottom: 3px; }
-.detail-score-val { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); }
+.insp-card {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 16px 20px; height: 100%;
+}
+
+/* ── Stat rows inside inspector ───────────────────────── */
+.insp-stat-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 6px 0; border-bottom: 1px solid var(--border-subtle);
+    font-size: var(--text-sm);
+}
+.insp-stat-row:last-child { border-bottom: none; }
+.insp-stat-label { color: var(--text-tertiary); }
+.insp-stat-val {
+    color: var(--text-primary); font-weight: var(--weight-semibold);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Score pills row ──────────────────────────────────── */
+.insp-scores {
+    display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px;
+}
+.insp-score-pill {
+    flex: 1; min-width: 64px; text-align: center;
+    background: var(--bg-tertiary); border-radius: var(--radius-sm);
+    padding: 10px 8px;
+}
+.insp-score-pill .pill-label {
+    font-size: var(--text-2xs); color: var(--text-tertiary);
+    text-transform: uppercase; letter-spacing: var(--tracking-label);
+    margin-bottom: 4px; font-weight: var(--weight-semibold);
+}
+.insp-score-pill .pill-val {
+    font-size: var(--text-lg); font-weight: var(--weight-bold);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── History mini-table inside inspector ──────────────── */
+.insp-hist-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--text-sm); }
+.insp-hist-table th {
+    font-size: var(--text-2xs); color: var(--text-tertiary); text-transform: uppercase;
+    letter-spacing: var(--tracking-label); font-weight: var(--weight-semibold);
+    padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: right;
+}
+.insp-hist-table th:first-child { text-align: left; }
+.insp-hist-table td {
+    padding: 8px 10px; border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-secondary); text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.insp-hist-table td:first-child { text-align: left; color: var(--text-primary); }
+
+/* ── Levels strip (Entry / Target / Stop) ─────────────── */
+.insp-levels {
+    display: flex; gap: 0; margin-top: 12px;
+    border-radius: var(--radius-sm); overflow: hidden;
+    border: 1px solid var(--border);
+}
+.insp-level-cell { flex: 1; padding: 10px 12px; text-align: center; background: var(--bg-tertiary); border-right: 1px solid var(--border); }
+.insp-level-cell:last-child { border-right: none; }
+.insp-level-label { font-size: var(--text-2xs); color: var(--text-tertiary); text-transform: uppercase; letter-spacing: var(--tracking-label); margin-bottom: 3px; }
+.insp-level-val { font-size: var(--text-base); font-weight: var(--weight-bold); font-family: var(--font-mono) !important; font-variant-numeric: tabular-nums; }
 
 /* ── P&L hero ─────────────────────────────────────────── */
 .pnl-hero { padding: 24px 0; }
@@ -1166,144 +1247,322 @@ with st.sidebar:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DETAIL PANEL (above tabs — shown when a sidebar item is selected)
+# TICKER INSPECTOR — full-screen overlay replacing all tabs when a ticker is selected
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _render_detail_panel(ticker: str, src: str, positions: list, currency: str, exchange: str):
-    """Full consolidated detail panel for the selected ticker."""
-    import plotly.graph_objects as _go2
+def _render_ticker_inspector(ticker: str, positions: list, currency: str, exchange: str):
+    """
+    Full-screen stock inspector shown instead of the normal tabs.
+    Gathers data from all tabs (signal, position, radar, trade history) for one ticker.
+    """
+    from dashboard.data import get_strategy_radar as _get_radar, get_trades as _get_trades
 
-    # Find matching position and signal
-    pos = next((p for p in positions if p["ticker"] == ticker), None)
-    today_sigs = load_signals(exchange, _today(exchange), 50)
-    sig = next((s for s in today_sigs if s.get("ticker") == ticker), None)
+    # ── Data gathering ───────────────────────────────────────────────────────
+    pos     = next((p for p in positions if p["ticker"] == ticker), None)
+    all_sig = load_signals(exchange, _today(exchange), 200)
+    sig     = next((s for s in all_sig if s.get("ticker") == ticker), None)
 
-    ohlc = fetch_today_ohlc(ticker)
-    ohlcv = fetch_ohlcv(ticker, days=90)
+    all_radar = _get_radar(exchange)
+    radar     = next((r for r in all_radar if r["ticker"] == ticker), None)
 
-    short = _short(ticker)
-    cp = (pos or {}).get("current_price") or (sig or {}).get("entry_price") or 0
-    direction = (sig or {}).get("direction") or (pos or {}).get("direction") or "long"
-    dir_icon = "▲ LONG" if direction == "long" else "▼ SHORT"
+    all_trades = _get_trades(exchange, days=730)
+    hist_trades = [t for t in all_trades if t.get("ticker") == ticker]
+
+    ohlc  = fetch_today_ohlc(ticker)
+    ohlcv = fetch_ohlcv(ticker, days=120)
+
+    short     = _short(ticker)
+    cp        = (pos or {}).get("current_price") or (sig or {}).get("entry_price") or 0
+    direction = (sig or {}).get("direction") or (pos or {}).get("direction") or (radar or {}).get("direction") or "long"
+    dir_icon  = "▲ LONG" if direction == "long" else "▼ SHORT"
     dir_color = "var(--profit)" if direction == "long" else "var(--loss)"
 
-    close_col, _ = st.columns([1, 10])
+    # ── Close button + header ────────────────────────────────────────────────
+    close_col, title_col = st.columns([1, 11])
     with close_col:
-        if st.button("✕", key="detail_close", help="Close detail panel"):
+        if st.button("✕  Back", key="insp_close"):
             st.session_state.sidebar_sel = None
             st.session_state.sidebar_sel_src = None
             st.rerun()
 
+    # Status badges
+    badge_parts = []
+    if sig:
+        score = sig.get("composite_score", 0) or 0
+        score_color = "var(--profit)" if score >= 70 else ("var(--warning)" if score >= 60 else "var(--loss)")
+        score_bg    = "var(--profit-dim)" if score >= 70 else ("var(--warning-dim)" if score >= 60 else "var(--loss-dim)")
+        badge_parts.append(
+            f'<span style="background:{score_bg};color:{score_color};padding:4px 12px;'
+            f'border-radius:var(--radius-sm);font-size:var(--text-sm);font-weight:700;'
+            f'font-variant-numeric:tabular-nums">{score:.0f}/100</span>'
+        )
+    if radar:
+        if radar.get("firing"):
+            badge_parts.append(
+                '<span style="background:var(--profit-dim);color:var(--profit);padding:4px 12px;'
+                'border-radius:var(--radius-sm);font-size:var(--text-xs);font-weight:700;'
+                'display:inline-flex;align-items:center;gap:6px">'
+                '<span style="width:7px;height:7px;border-radius:50%;background:var(--profit);'
+                'animation:radar-pulse 1.6s ease-out infinite;display:inline-block"></span>FIRING</span>'
+            )
+        elif radar.get("near_miss"):
+            badge_parts.append(
+                '<span style="background:var(--gold-dim);color:var(--gold);padding:4px 12px;'
+                'border-radius:var(--radius-sm);font-size:var(--text-xs);font-weight:700">NEAR MISS</span>'
+            )
+        elif radar.get("validated"):
+            badge_parts.append(
+                '<span style="background:var(--accent-dim);color:var(--accent);padding:4px 12px;'
+                'border-radius:var(--radius-sm);font-size:var(--text-xs);font-weight:700">VALIDATED</span>'
+            )
+    if pos:
+        pnl_pct = pos.get("unrealised_pnl_pct") or 0
+        pos_color = "var(--profit)" if pnl_pct >= 0 else "var(--loss)"
+        pos_bg    = "var(--profit-dim)" if pnl_pct >= 0 else "var(--loss-dim)"
+        badge_parts.append(
+            f'<span style="background:{pos_bg};color:{pos_color};padding:4px 12px;'
+            f'border-radius:var(--radius-sm);font-size:var(--text-xs);font-weight:700">'
+            f'IN PORTFOLIO &nbsp;{pnl_pct:+.1f}%</span>'
+        )
+
+    badges_html = " ".join(badge_parts)
     st.markdown(
-        f'<div class="detail-panel">'
-        f'  <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">'
-        f'    <span class="detail-panel-ticker">{short}</span>'
-        f'    <span style="font-size:0.8rem;color:{dir_color};font-weight:600">{dir_icon}</span>'
-        f'    <span style="font-size:0.78rem;color:var(--text-tertiary)">{ticker}</span>'
-        f'    <span style="font-size:1rem;font-weight:600;color:var(--text-primary)">{currency}{cp:,.2f}</span>'
-        f'  </div>',
+        f'<div class="insp-header">'
+        f'  <div class="insp-title">'
+        f'    <span class="insp-ticker">{short}</span>'
+        f'    <span style="color:{dir_color};font-weight:700;font-size:var(--text-sm)">{dir_icon}</span>'
+        f'    <span class="insp-code">{ticker}</span>'
+        f'    <span class="insp-price">{currency}{cp:,.2f}</span>'
+        f'  </div>'
+        f'  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">{badges_html}</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
-    # OHLC bar
+    # ── OHLC strip ───────────────────────────────────────────────────────────
     o = ohlc.get("open") or 0
-    h = ohlc.get("high") or 0
-    l = ohlc.get("low") or 0
-    c = ohlc.get("close") or cp
-    if o or h or l or c:
+    h_price = ohlc.get("high") or 0
+    l_price = ohlc.get("low") or 0
+    c_price = ohlc.get("close") or cp
+    chg_pct = ((c_price - o) / o * 100) if o else 0
+    chg_col = "var(--profit)" if chg_pct >= 0 else "var(--loss)"
+    if o or h_price or l_price or c_price:
         st.markdown(
-            f'<div class="detail-ohlc-row">'
-            f'  <div class="detail-ohlc-cell"><div class="detail-ohlc-label">Open</div><div class="detail-ohlc-val">{currency}{o:,.2f}</div></div>'
-            f'  <div class="detail-ohlc-cell"><div class="detail-ohlc-label">High</div><div class="detail-ohlc-val" style="color:var(--profit)">{currency}{h:,.2f}</div></div>'
-            f'  <div class="detail-ohlc-cell"><div class="detail-ohlc-label">Low</div><div class="detail-ohlc-val" style="color:var(--loss)">{currency}{l:,.2f}</div></div>'
-            f'  <div class="detail-ohlc-cell"><div class="detail-ohlc-label">Close</div><div class="detail-ohlc-val">{currency}{c:,.2f}</div></div>'
-            f'  <div class="detail-ohlc-cell"><div class="detail-ohlc-label">Chg vs Open</div>'
-            f'    <div class="detail-ohlc-val" style="color:{("var(--profit)" if c >= o else "var(--loss)") if o else "inherit"}">'
-            f'      {((c-o)/o*100):+.2f}%</div></div>' if o else ''
+            f'<div class="insp-ohlc">'
+            f'  <div class="insp-ohlc-cell"><div class="insp-ohlc-label">Open</div>'
+            f'    <div class="insp-ohlc-val">{currency}{o:,.2f}</div></div>'
+            f'  <div class="insp-ohlc-cell"><div class="insp-ohlc-label">High</div>'
+            f'    <div class="insp-ohlc-val" style="color:var(--profit)">{currency}{h_price:,.2f}</div></div>'
+            f'  <div class="insp-ohlc-cell"><div class="insp-ohlc-label">Low</div>'
+            f'    <div class="insp-ohlc-val" style="color:var(--loss)">{currency}{l_price:,.2f}</div></div>'
+            f'  <div class="insp-ohlc-cell"><div class="insp-ohlc-label">Close</div>'
+            f'    <div class="insp-ohlc-val">{currency}{c_price:,.2f}</div></div>'
+            f'  <div class="insp-ohlc-cell"><div class="insp-ohlc-label">Day chg</div>'
+            f'    <div class="insp-ohlc-val" style="color:{chg_col}">{chg_pct:+.2f}%</div></div>'
             f'</div>',
             unsafe_allow_html=True,
         )
 
-    # Key info grid
-    kv = []
-    if sig:
-        kv += [
-            ("Score", f"{sig.get('composite_score',0):.1f}/100"),
-            ("Entry", f"{currency}{sig.get('entry_price',0):,.2f}"),
-            ("Target", f"{currency}{sig.get('target_price',0):,.2f}"),
-            ("Stop", f"{currency}{sig.get('stop_loss_price',0):,.2f}"),
-            ("Strategy", sig.get("strategy_name") or "—"),
-        ]
-    if pos:
-        pnl = pos.get("unrealised_pnl") or 0
-        kv += [
-            ("Entry date", str(pos.get("entry_date") or "—")),
-            ("Shares", f"{pos.get('shares',0):,.0f}"),
-            ("Days held", str(pos.get("days_held") or 0)),
-            ("Unrealised P&L", f"{_pnl_sign(pnl, currency)} ({_pnl_pct(pos.get('unrealised_pnl_pct') or 0)})"),
-            ("Day P&L", f"{_pnl_sign(pos.get('day_pnl') or 0, currency)} ({_pnl_pct(pos.get('day_pnl_pct') or 0)})" if pos.get('day_pnl') else "—"),
-        ]
-    if kv:
-        kv_html = '<div class="detail-kv">' + "".join(
-            f'<div class="detail-kv-item">{k}: <b>{v}</b></div>' for k, v in kv
-        ) + '</div>'
-        st.markdown(kv_html, unsafe_allow_html=True)
-
-    # Score breakdown
-    if sig:
-        scores = [
-            ("Sentiment", sig.get("sentiment_score") or 0),
-            ("Fundamental", sig.get("fundamental_score") or 0),
-            ("Technical", sig.get("technical_score") or 0),
-            ("Insider", sig.get("insider_score") or 0),
-        ]
-        sc_html = '<div class="detail-score-grid">'
-        for lbl, val in scores:
-            col = "var(--profit)" if val >= 65 else ("var(--loss)" if val < 40 else "var(--text-primary)")
-            sc_html += (f'<div class="detail-score-card">'
-                        f'  <div class="detail-score-label">{lbl}</div>'
-                        f'  <div class="detail-score-val" style="color:{col}">{val:.0f}</div>'
-                        f'</div>')
-        sc_html += '</div>'
-        st.markdown(sc_html, unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # Mini chart
+    # ── Chart (full width) ───────────────────────────────────────────────────
     if ohlcv:
         _dates  = [r.get("date") or r.get("Date") for r in ohlcv]
         _closes = [r.get("close") or r.get("Close") or 0 for r in ohlcv]
         _opens  = [r.get("open")  or r.get("Open")  or c for r, c in zip(ohlcv, _closes)]
         _highs  = [r.get("high")  or r.get("High")  or c for r, c in zip(ohlcv, _closes)]
         _lows   = [r.get("low")   or r.get("Low")   or c for r, c in zip(ohlcv, _closes)]
+        _vols   = [r.get("volume") or r.get("Volume") or 0 for r in ohlcv]
 
-        _lvls_d = []
-        if sig:
-            _ep = sig.get("entry_price")
-            _tp = sig.get("target_price")
-            _sp = sig.get("stop_loss_price")
-            if _ep: _lvls_d.append((_ep, "Entry",  "#3c3c44", "#eaeaed"))
-            if _tp: _lvls_d.append((_tp, "Target", "#00c48c", "#ffffff"))
-            if _sp: _lvls_d.append((_sp, "Stop",   "#ff5a5a", "#ffffff"))
-        _vols_d = [r.get("volume") or r.get("Volume") or 0 for r in ohlcv]
-        fig_d = _build_candle_chart(
-            _dates, _opens, _highs, _lows, _closes, volumes=_vols_d,
-            levels=_lvls_d, currency=currency,
-            title=f"{short} — 90-day price", h=320,
+        _lvls = []
+        ep = (sig or radar or {}).get("entry_price")
+        tp = (sig or radar or {}).get("target_price")
+        sp = (sig or radar or {}).get("stop_loss_price")
+        if ep: _lvls.append((ep, "Entry",  "#3c3c44", "#eaeaed"))
+        if tp: _lvls.append((tp, "Target", "#00c48c", "#ffffff"))
+        if sp: _lvls.append((sp, "Stop",   "#ff5a5a", "#ffffff"))
+
+        fig = _build_candle_chart(
+            _dates, _opens, _highs, _lows, _closes, volumes=_vols,
+            levels=_lvls, currency=currency,
+            title=f"{short} — 120-day", h=380,
         )
-        st.plotly_chart(fig_d, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+    # ── Three info columns ───────────────────────────────────────────────────
+    col_sig, col_pos, col_radar = st.columns(3)
+
+    # Signal column
+    with col_sig:
+        st.markdown('<div class="insp-section">Signal</div>', unsafe_allow_html=True)
+        if sig:
+            score = sig.get("composite_score", 0) or 0
+            entry = sig.get("entry_price", 0) or 0
+            target = sig.get("target_price", 0) or 0
+            stop = sig.get("stop_loss_price", 0) or 0
+            upside = ((target - entry) / entry * 100) if entry and target else 0
+            risk   = ((entry - stop)  / entry * 100) if entry and stop  else 0
+            rr     = (upside / risk) if risk > 0 else 0
+            rr_col = "var(--profit)" if rr >= 1.5 else ("var(--warning)" if rr >= 1.0 else "var(--loss)")
+            strat  = (sig.get("strategy_name") or "—").replace("_", " ")
+
+            # Levels strip
+            st.markdown(
+                f'<div class="insp-levels">'
+                f'  <div class="insp-level-cell">'
+                f'    <div class="insp-level-label">Entry</div>'
+                f'    <div class="insp-level-val" style="color:var(--text-primary)">{currency}{entry:,.2f}</div></div>'
+                f'  <div class="insp-level-cell">'
+                f'    <div class="insp-level-label">Target <span style="color:var(--profit)">+{upside:.1f}%</span></div>'
+                f'    <div class="insp-level-val" style="color:var(--profit)">{currency}{target:,.2f}</div></div>'
+                f'  <div class="insp-level-cell">'
+                f'    <div class="insp-level-label">Stop <span style="color:var(--loss)">-{risk:.1f}%</span></div>'
+                f'    <div class="insp-level-val" style="color:var(--loss)">{currency}{stop:,.2f}</div></div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+            rows = [
+                ("R:R", f'<span style="color:{rr_col};font-weight:700">{rr:.1f}</span>'),
+                ("Strategy", strat),
+                ("Date", str(sig.get("date") or "—")),
+                ("Regime", "Risk-ON" if sig.get("regime_ok") else ("Risk-OFF" if sig.get("regime_ok") is False else "—")),
+                ("Strategy fired", "Yes" if sig.get("strategy_fires") else "No"),
+            ]
+            rows_html = "".join(
+                f'<div class="insp-stat-row">'
+                f'  <span class="insp-stat-label">{k}</span>'
+                f'  <span class="insp-stat-val">{v}</span>'
+                f'</div>' for k, v in rows
+            )
+            st.markdown(f'<div style="margin-top:12px">{rows_html}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div style="color:var(--text-tertiary);font-size:var(--text-sm);padding:8px 0">No signal today</div>', unsafe_allow_html=True)
+
+    # Position column
+    with col_pos:
+        st.markdown('<div class="insp-section">Position</div>', unsafe_allow_html=True)
+        if pos:
+            pnl      = pos.get("unrealised_pnl") or 0
+            pnl_pct  = pos.get("unrealised_pnl_pct") or 0
+            day_pnl  = pos.get("day_pnl") or 0
+            day_pct  = pos.get("day_pnl_pct") or 0
+            invested = pos.get("position_size_aud") or pos.get("invested") or 0
+            cur_val  = pos.get("current_value") or 0
+            pnl_col  = "var(--profit)" if pnl >= 0 else "var(--loss)"
+            day_col  = "var(--profit)" if day_pnl >= 0 else "var(--loss)"
+
+            rows = [
+                ("Entry date",     str(pos.get("entry_date") or "—")),
+                ("Days held",      str(pos.get("days_held") or 0)),
+                ("Shares",         f"{pos.get('shares', 0):,.0f}"),
+                ("Entry price",    f"{currency}{pos.get('entry_price', 0):,.2f}"),
+                ("Invested",       f"{currency}{invested:,.2f}"),
+                ("Current value",  f"{currency}{cur_val:,.2f}"),
+                ("Unrealised P&L", f'<span style="color:{pnl_col}">{_pnl_sign(pnl, currency)} ({pnl_pct:+.2f}%)</span>'),
+                ("Day P&L",        f'<span style="color:{day_col}">{_pnl_sign(day_pnl, currency)} ({day_pct:+.2f}%)</span>' if day_pnl else "—"),
+            ]
+            rows_html = "".join(
+                f'<div class="insp-stat-row">'
+                f'  <span class="insp-stat-label">{k}</span>'
+                f'  <span class="insp-stat-val">{v}</span>'
+                f'</div>' for k, v in rows
+            )
+            st.markdown(rows_html, unsafe_allow_html=True)
+        else:
+            st.markdown('<div style="color:var(--text-tertiary);font-size:var(--text-sm);padding:8px 0">Not in portfolio</div>', unsafe_allow_html=True)
+
+    # Radar column
+    with col_radar:
+        st.markdown('<div class="insp-section">Strategy Radar</div>', unsafe_allow_html=True)
+        if radar:
+            strat_name = (radar.get("strategy_name") or "—").replace("_", " ")
+            status_str = ("Firing" if radar.get("firing") else
+                          ("Near Miss" if radar.get("near_miss") else
+                           ("Validated" if radar.get("validated") else "Watching")))
+            rows = [
+                ("Strategy",    strat_name),
+                ("Status",      status_str),
+                ("Direction",   (radar.get("direction") or "long").upper()),
+                ("Fwd PF",      f"{radar.get('fw_profit_factor', 0) or 0:.2f}"),
+                ("Fwd win rate",f"{radar.get('fw_win_rate', 0) or 0:.1f}%"),
+                ("Fwd trades",  str(radar.get("fw_trades") or "—")),
+                ("BT win rate", f"{radar.get('bt_win_rate', 0) or 0:.1f}%"),
+                ("BT profit factor", f"{radar.get('bt_profit_factor', 0) or 0:.2f}"),
+                ("Rank score",  f"{radar.get('rank_score', 0) or 0:.2f}"),
+            ]
+            rows_html = "".join(
+                f'<div class="insp-stat-row">'
+                f'  <span class="insp-stat-label">{k}</span>'
+                f'  <span class="insp-stat-val">{v}</span>'
+                f'</div>' for k, v in rows
+            )
+            st.markdown(rows_html, unsafe_allow_html=True)
+        else:
+            st.markdown('<div style="color:var(--text-tertiary);font-size:var(--text-sm);padding:8px 0">No radar assignment</div>', unsafe_allow_html=True)
+
+    # ── Sub-scores row ───────────────────────────────────────────────────────
+    if sig:
+        score_items = [
+            ("Sentiment",    sig.get("sentiment_score")   or 0),
+            ("Fundamental",  sig.get("fundamental_score") or 0),
+            ("Technical",    sig.get("technical_score")   or 0),
+            ("Insider",      sig.get("insider_score")     or 0),
+            ("Composite",    sig.get("composite_score")   or 0),
+        ]
+        pills_html = "".join(
+            f'<div class="insp-score-pill">'
+            f'  <div class="pill-label">{lbl}</div>'
+            f'  <div class="pill-val" style="color:{"var(--profit)" if v >= 65 else ("var(--warning)" if v >= 50 else "var(--loss)")}">{v:.0f}</div>'
+            f'</div>'
+            for lbl, v in score_items
+        )
+        st.markdown(
+            f'<div class="insp-scores">{pills_html}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Trade history ────────────────────────────────────────────────────────
+    st.markdown(
+        f'<div class="kite-section" style="margin-top:28px">Trade History'
+        f' <span class="badge-count">{len(hist_trades)} closed trades</span></div>',
+        unsafe_allow_html=True,
+    )
+    if hist_trades:
+        def _clean_reason(r):
+            return str(r or "—").replace("_", " ").title()
+        rows_html = "".join(
+            f'<tr>'
+            f'  <td style="text-align:left;color:var(--text-secondary)">{str(t.get("exit_date",""))[:10]}</td>'
+            f'  <td style="color:var(--profit)" title="Profit">{_pnl_sign(t.get("realised_pnl") or 0, currency)}</td>'
+            f'  <td style="color:{"var(--profit)" if (t.get("realised_pnl_pct") or 0) >= 0 else "var(--loss)"}">'
+            f'    {(t.get("realised_pnl_pct") or 0):+.1f}%</td>'
+            f'  <td>{t.get("shares","—")}</td>'
+            f'  <td>{currency}{t.get("entry_price", 0):,.2f}</td>'
+            f'  <td>{currency}{t.get("exit_price", 0):,.2f}</td>'
+            f'  <td style="text-align:left;color:var(--text-tertiary)">{_clean_reason(t.get("exit_reason"))}</td>'
+            f'</tr>'
+            for t in hist_trades
+        )
+        st.markdown(
+            f'<table class="insp-hist-table">'
+            f'<thead><tr>'
+            f'  <th style="text-align:left">Exit date</th>'
+            f'  <th>P&L</th><th>Return</th><th>Shares</th>'
+            f'  <th>Entry</th><th>Exit</th>'
+            f'  <th style="text-align:left">Reason</th>'
+            f'</tr></thead>'
+            f'<tbody>{rows_html}</tbody></table>',
+            unsafe_allow_html=True,
+        )
 
 
 if st.session_state.sidebar_sel:
-    _render_detail_panel(
+    _render_ticker_inspector(
         st.session_state.sidebar_sel,
-        st.session_state.sidebar_sel_src,
         positions if "positions" in dir() else [],
         currency if "currency" in dir() else "$",
         exchange if "exchange" in dir() else "asx",
     )
-    st.markdown('<div style="border-bottom:1px solid var(--border);margin:0 0 16px"></div>',
-                unsafe_allow_html=True)
+    st.stop()  # Nothing else renders — inspector replaces all tabs
 
 
 # ══════════════════════════════════════════════════════════════════════════════
