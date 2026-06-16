@@ -488,6 +488,114 @@ footer { visibility: hidden; }
 /* ── Deploy button dim ───────────────────────────────── */
 [data-testid="stToolbar"] { opacity: 0.4; transition: opacity 0.2s; }
 [data-testid="stToolbar"]:hover { opacity: 1; }
+
+/* ── Loss row highlight ────────────────────────────────*/
+.kite-table tbody tr.loss-row td { background: rgba(255,90,90,0.04); }
+.kite-table tbody tr.loss-row:hover td { background: rgba(255,90,90,0.09); }
+
+/* ── Bought / in-portfolio badge on signal card ───────*/
+.sig-card.is-bought {
+    border-color: var(--profit);
+    box-shadow: 0 0 0 1px var(--profit-dim);
+}
+.bought-badge {
+    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em;
+    padding: 2px 7px; border-radius: 4px; text-transform: uppercase;
+    background: var(--profit-dim); color: var(--profit); margin-left: 4px;
+}
+
+/* ── Signal card layout ───────────────────────────────*/
+.sig-meta {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 2px;
+}
+.sig-strategy {
+    font-size: 0.72rem; font-weight: 500; padding: 2px 8px; border-radius: 4px;
+    background: var(--accent-dim); color: var(--accent);
+}
+.sig-dir { font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 4px; text-transform: uppercase; }
+.sig-dir.long  { background: var(--profit-dim); color: var(--profit); }
+.sig-dir.short { background: var(--loss-dim); color: var(--loss); }
+
+/* ── Signal hover tooltip ─────────────────────────────*/
+.sig-card { position: relative; }
+.sig-tooltip {
+    display: none; position: absolute; z-index: 999;
+    top: 0; left: 50%; transform: translateX(-50%) translateY(-105%);
+    min-width: 260px; max-width: 320px;
+    background: #1e1e24; border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 12px 14px;
+    font-size: 0.78rem; color: var(--text-secondary);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5); line-height: 1.55;
+    pointer-events: none;
+}
+.sig-card:hover .sig-tooltip { display: block; }
+.sig-tooltip h5 {
+    margin: 0 0 6px; font-size: 0.72rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-primary);
+}
+.sig-tooltip .tt-row {
+    display: flex; justify-content: space-between;
+    border-bottom: 1px solid rgba(255,255,255,0.04); padding: 3px 0;
+}
+.sig-tooltip .tt-row:last-child { border: none; }
+.sig-tooltip .tt-label { color: var(--text-tertiary); }
+.sig-tooltip .tt-val { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ── P&L hero two-up ──────────────────────────────────*/
+.pnl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 8px; }
+.pnl-card {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 18px 20px;
+}
+.pnl-card .pnl-label {
+    font-size: 0.72rem; font-weight: 600; color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;
+}
+.pnl-card .pnl-value {
+    font-size: 1.9rem; font-weight: 700; font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em; line-height: 1;
+}
+.pnl-card .pnl-sub {
+    font-size: 0.78rem; margin-top: 5px;
+    color: var(--text-tertiary); font-variant-numeric: tabular-nums;
+}
+.pnl-card .pnl-value.up  { color: var(--profit); }
+.pnl-card .pnl-value.down { color: var(--loss); }
+.pnl-card .pnl-sub.up   { color: var(--profit); }
+.pnl-card .pnl-sub.down  { color: var(--loss); }
+
+/* ── Holdings split summary ───────────────────────────*/
+.hold-summary {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;
+}
+.hold-block {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 14px 16px;
+}
+.hold-block .hb-title {
+    font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--text-tertiary); margin-bottom: 10px;
+}
+.hold-block .hb-row {
+    display: flex; justify-content: space-between;
+    font-size: 0.8rem; padding: 3px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.hold-block .hb-row:last-child { border: none; padding-bottom: 0; }
+.hold-block .hb-key { color: var(--text-secondary); }
+.hold-block .hb-val { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.hold-block .hb-val.up { color: var(--profit); }
+.hold-block .hb-val.down { color: var(--loss); }
+
+/* ── Strategy prediction overlay chart ───────────────*/
+.pred-container {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: 14px 16px; margin-top: 10px;
+}
+.pred-container h4 {
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-primary); margin: 0 0 8px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -713,19 +821,26 @@ with tab_dash:
     pnl_cls = _pnl_class(total_pnl)
     regime_ok = regime.get("regime_ok")
 
-    col_pnl, col_stats = st.columns([1, 1])
-    with col_pnl:
-        st.markdown(
-            f'<div class="pnl-hero">'
-            f'  <div class="kite-section">Total P&L</div>'
-            f'  <div class="big-num {pnl_cls}">{_pnl_sign(total_pnl, currency)}</div>'
-            f'  <div class="big-sub"><span class="{pnl_cls}">{_pnl_pct(total_pnl_pct)}</span>'
-            f'  &nbsp;on {len(positions)} positions</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+    day_pnl_dash  = portfolio.get("total_day_pnl", 0) or 0
+    day_pnl_dash_pct = (day_pnl_dash / total_value * 100) if total_value else 0
 
-    with col_stats:
+    st.markdown(
+        f'<div class="pnl-grid">'
+        f'  <div class="pnl-card">'
+        f'    <div class="pnl-label">Today\'s P&L</div>'
+        f'    <div class="pnl-value {_pnl_class(day_pnl_dash)}">{_pnl_sign(day_pnl_dash, currency)}</div>'
+        f'    <div class="pnl-sub {_pnl_class(day_pnl_dash)}">{_pnl_pct(day_pnl_dash_pct)} &nbsp;vs prev close</div>'
+        f'  </div>'
+        f'  <div class="pnl-card">'
+        f'    <div class="pnl-label">Total P&L (all-time)</div>'
+        f'    <div class="pnl-value {pnl_cls}">{_pnl_sign(total_pnl, currency)}</div>'
+        f'    <div class="pnl-sub {pnl_cls}">{_pnl_pct(total_pnl_pct)} &nbsp;on {len(positions)} open + all closed</div>'
+        f'  </div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    if True:  # regime stats block
         regime_cls = "risk-on" if regime_ok else "risk-off"
         regime_text = "RISK-ON" if regime_ok else "RISK-OFF"
 
@@ -766,11 +881,18 @@ with tab_dash:
 
     st.markdown('<div style="height:20px"></div>', unsafe_allow_html=True)
 
-    # Market overview chart with period filter
-    dash_period = st.selectbox("P&L Period", ["30 days", "60 days", "90 days", "180 days", "1 year"],
-                               index=2, key="dash_pnl_period")
-    dash_days = {"30 days": 30, "60 days": 60, "90 days": 90, "180 days": 180, "1 year": 365}[dash_period]
-    st.markdown(f'<div class="kite-section">Market Overview — {dash_period} P&L</div>', unsafe_allow_html=True)
+    # Market overview chart with free-form period filter
+    pcol1, pcol2 = st.columns([2, 1])
+    with pcol1:
+        dash_period = st.selectbox("P&L Period", ["7 days", "30 days", "60 days", "90 days", "180 days", "1 year", "Custom"],
+                                   index=3, key="dash_pnl_period")
+    with pcol2:
+        dash_custom = st.number_input("Custom days", min_value=1, max_value=3650, value=90, step=1,
+                                      key="dash_custom_days", label_visibility="visible")
+    _period_map = {"7 days": 7, "30 days": 30, "60 days": 60, "90 days": 90,
+                   "180 days": 180, "1 year": 365, "Custom": int(dash_custom)}
+    dash_days = _period_map[dash_period]
+    st.markdown(f'<div class="kite-section">Realized P&L — last {dash_days} days</div>', unsafe_allow_html=True)
 
     pnl_data = load_pnl(exchange, dash_days)
     if pnl_data:
@@ -818,44 +940,80 @@ with tab_holdings:
             unsafe_allow_html=True,
         )
     else:
-        hold_sort = st.selectbox("Sort by", ["Default", "P&L (high to low)", "P&L (low to high)",
-                                              "P&L % (high to low)", "Value (high to low)", "Days held"],
-                                 index=0, key="hold_sort")
-        if hold_sort == "P&L (high to low)":
-            positions = sorted(positions, key=lambda x: x.get("unrealised_pnl", 0), reverse=True)
-        elif hold_sort == "P&L (low to high)":
-            positions = sorted(positions, key=lambda x: x.get("unrealised_pnl", 0))
-        elif hold_sort == "P&L % (high to low)":
-            positions = sorted(positions, key=lambda x: x.get("unrealised_pnl_pct", 0), reverse=True)
-        elif hold_sort == "Value (high to low)":
-            positions = sorted(positions, key=lambda x: x.get("current_value", 0), reverse=True)
-        elif hold_sort == "Days held":
-            positions = sorted(positions, key=lambda x: x.get("days_held", 0), reverse=True)
+        # ── Filters ──────────────────────────────────────────────────────────
+        hf1, hf2, hf3 = st.columns([1, 1, 1])
+        with hf1:
+            hold_sort = st.selectbox("Sort by", ["Default", "P&L ↑", "P&L ↓", "P&L % ↑", "Value ↓", "Days held ↓"],
+                                     index=0, key="hold_sort")
+        with hf2:
+            all_entry_dates = sorted({str(p.get("entry_date", "")) for p in positions if p.get("entry_date")})
+            hold_date_from = st.date_input("Entered from", value=None, key="hold_date_from")
+        with hf3:
+            hold_date_to = st.date_input("Entered to", value=None, key="hold_date_to")
 
-        day_pnl = portfolio.get("total_day_pnl", 0) or 0
-        day_pnl_pct = (day_pnl / total_value * 100) if total_value else 0
+        # apply date filter
+        _pos = positions
+        if hold_date_from:
+            _pos = [p for p in _pos if p.get("entry_date") and str(p["entry_date"]) >= str(hold_date_from)]
+        if hold_date_to:
+            _pos = [p for p in _pos if p.get("entry_date") and str(p["entry_date"]) <= str(hold_date_to)]
+
+        if hold_sort == "P&L ↑":
+            _pos = sorted(_pos, key=lambda x: x.get("unrealised_pnl", 0), reverse=True)
+        elif hold_sort == "P&L ↓":
+            _pos = sorted(_pos, key=lambda x: x.get("unrealised_pnl", 0))
+        elif hold_sort == "P&L % ↑":
+            _pos = sorted(_pos, key=lambda x: x.get("unrealised_pnl_pct", 0), reverse=True)
+        elif hold_sort == "Value ↓":
+            _pos = sorted(_pos, key=lambda x: x.get("current_value", 0), reverse=True)
+        elif hold_sort == "Days held ↓":
+            _pos = sorted(_pos, key=lambda x: x.get("days_held", 0), reverse=True)
+
+        # Derived totals for filtered set
+        _total_invested  = sum(p.get("invested", 0) or 0 for p in _pos)
+        _total_value     = sum(p.get("current_value", 0) or 0 for p in _pos)
+        _unrealised_pnl  = sum(p.get("unrealised_pnl", 0) or 0 for p in _pos)
+        _day_pnl         = sum(p.get("day_pnl", 0) or 0 for p in _pos)
+        _day_pnl_pct     = (_day_pnl / _total_value * 100) if _total_value else 0
+        _unreal_pct      = (_unrealised_pnl / _total_invested * 100) if _total_invested else 0
+
+        from dashboard.data import _realised_pnl_totals as _rpt
+        _real_all, _real_today = _rpt(exchange)
+
         st.markdown(
-            f'<div class="summary-strip">'
-            f'  <div class="summary-item"><div class="label">Investment</div>'
-            f'    <div class="value">{currency}{total_invested:,.2f}</div></div>'
-            f'  <div class="summary-item"><div class="label">Current Value</div>'
-            f'    <div class="value">{currency}{total_value:,.2f}</div></div>'
-            f'  <div class="summary-item"><div class="label">Day\'s P&L</div>'
-            f'    <div class="value {_pnl_class(day_pnl)}">{_pnl_sign(day_pnl, currency)}</div>'
-            f'    <div class="sub {_pnl_class(day_pnl)}">{_pnl_pct(day_pnl_pct)}</div></div>'
-            f'  <div class="summary-item"><div class="label">Total P&L</div>'
-            f'    <div class="value {_pnl_class(total_pnl)}">{_pnl_sign(total_pnl, currency)}</div>'
-            f'    <div class="sub {_pnl_class(total_pnl)}">{_pnl_pct(total_pnl_pct)}</div></div>'
+            f'<div class="hold-summary">'
+            f'  <div class="hold-block">'
+            f'    <div class="hb-title">Unrealised (open positions)</div>'
+            f'    <div class="hb-row"><span class="hb-key">Today\'s P&L</span>'
+            f'      <span class="hb-val {_pnl_class(_day_pnl)}">{_pnl_sign(_day_pnl, currency)} ({_pnl_pct(_day_pnl_pct)})</span></div>'
+            f'    <div class="hb-row"><span class="hb-key">Total Unrealised</span>'
+            f'      <span class="hb-val {_pnl_class(_unrealised_pnl)}">{_pnl_sign(_unrealised_pnl, currency)} ({_pnl_pct(_unreal_pct)})</span></div>'
+            f'    <div class="hb-row"><span class="hb-key">Positions shown</span>'
+            f'      <span class="hb-val">{len(_pos)} of {len(positions)}</span></div>'
+            f'    <div class="hb-row"><span class="hb-key">Current value</span>'
+            f'      <span class="hb-val">{currency}{_total_value:,.2f}</span></div>'
+            f'  </div>'
+            f'  <div class="hold-block">'
+            f'    <div class="hb-title">Realised (all closed trades)</div>'
+            f'    <div class="hb-row"><span class="hb-key">Today\'s Realised P&L</span>'
+            f'      <span class="hb-val {_pnl_class(_real_today)}">{_pnl_sign(_real_today, currency)}</span></div>'
+            f'    <div class="hb-row"><span class="hb-key">All-time Realised P&L</span>'
+            f'      <span class="hb-val {_pnl_class(_real_all)}">{_pnl_sign(_real_all, currency)}</span></div>'
+            f'    <div class="hb-row"><span class="hb-key">Combined Total P&L</span>'
+            f'      <span class="hb-val {_pnl_class(total_pnl)}">{_pnl_sign(total_pnl, currency)}</span></div>'
+            f'    <div class="hb-row"><span class="hb-key">W / L</span>'
+            f'      <span class="hb-val">{portfolio.get("winners",0)}W / {portfolio.get("losers",0)}L</span></div>'
+            f'  </div>'
             f'</div>',
             unsafe_allow_html=True,
         )
 
         table_html = '''<table class="kite-table"><thead><tr>
             <th>Instrument</th><th>Qty.</th><th>Avg. cost</th><th>LTP</th>
-            <th>Invested</th><th>Cur. val</th><th>P&L</th><th>Net chg.</th><th>Days</th>
+            <th>Invested</th><th>Cur. val</th><th>Day P&L</th><th>P&L</th><th>Net chg.</th><th>Days</th>
         </tr></thead><tbody>'''
 
-        for p in positions:
+        for p in _pos:
             t = p["ticker"]
             shares = p.get("shares") or 0
             entry = p.get("entry_price") or 0
@@ -864,28 +1022,33 @@ with tab_holdings:
             cur_val = p.get("current_value") or 0
             pnl = p.get("unrealised_pnl") or 0
             pnl_pct = p.get("unrealised_pnl_pct") or 0
+            dpnl = p.get("day_pnl") or 0
             days = p.get("days_held") or 0
             cls = _pnl_class(pnl)
+            dcls = _pnl_class(dpnl)
+            row_cls = "loss-row" if pnl < 0 else ""
             tv = _tv_url(t)
 
-            table_html += f'''<tr>
+            table_html += f'''<tr class="{row_cls}">
                 <td><a href="{tv}" target="_blank" class="ticker-link">{_short(t)}</a></td>
                 <td>{shares:,.0f}</td>
                 <td>{entry:,.2f}</td>
                 <td>{cp:,.2f}</td>
                 <td>{currency}{invested:,.2f}</td>
                 <td>{currency}{cur_val:,.2f}</td>
+                <td class="{dcls}">{_pnl_sign(dpnl, currency)}</td>
                 <td class="{cls}">{_pnl_sign(pnl, currency)}</td>
                 <td class="{cls}">{_pnl_pct(pnl_pct)}</td>
                 <td>{days}</td>
             </tr>'''
 
         table_html += f'''<tr class="total-row">
-            <td>Total ({len(positions)})</td><td></td><td></td><td></td>
-            <td>{currency}{total_invested:,.2f}</td>
-            <td>{currency}{total_value:,.2f}</td>
-            <td class="{_pnl_class(total_pnl)}">{_pnl_sign(total_pnl, currency)}</td>
-            <td class="{_pnl_class(total_pnl)}">{_pnl_pct(total_pnl_pct)}</td>
+            <td>Total ({len(_pos)})</td><td></td><td></td><td></td>
+            <td>{currency}{_total_invested:,.2f}</td>
+            <td>{currency}{_total_value:,.2f}</td>
+            <td class="{_pnl_class(_day_pnl)}">{_pnl_sign(_day_pnl, currency)}</td>
+            <td class="{_pnl_class(_unrealised_pnl)}">{_pnl_sign(_unrealised_pnl, currency)}</td>
+            <td class="{_pnl_class(_unrealised_pnl)}">{_pnl_pct(_unreal_pct)}</td>
             <td></td>
         </tr>'''
 
@@ -893,11 +1056,11 @@ with tab_holdings:
         st.markdown(table_html, unsafe_allow_html=True)
 
         # Allocation bar + legend
-        if total_value > 0:
+        if _total_value > 0:
             bar_html = '<div class="alloc-bar" style="margin-top:24px">'
             legend_html = '<div class="alloc-legend">'
-            for i, p in enumerate(positions):
-                pct = (p.get("current_value", 0) / total_value * 100)
+            for i, p in enumerate(_pos):
+                pct = (p.get("current_value", 0) / _total_value * 100)
                 color = _ALLOC_COLORS[i % len(_ALLOC_COLORS)]
                 short = _short(p["ticker"])
                 bar_html += f'<div class="alloc-seg" style="width:{pct:.1f}%;background:{color}" title="{short}: {pct:.1f}%"></div>'
@@ -915,7 +1078,7 @@ with tab_holdings:
                     unsafe_allow_html=True)
 
         import plotly.graph_objects as go
-        sorted_pos = sorted(positions, key=lambda x: x.get("unrealised_pnl", 0))
+        sorted_pos = sorted(_pos, key=lambda x: x.get("unrealised_pnl", 0))
         tickers_short = [_short(p["ticker"]) for p in sorted_pos]
         pnls = [p.get("unrealised_pnl", 0) for p in sorted_pos]
         colors = ["#00c48c" if v >= 0 else "#ff5a5a" for v in pnls]
@@ -936,17 +1099,52 @@ with tab_holdings:
 
 # ── TAB 3: Signals ────────────────────────────────────────────────────────────
 with tab_signals:
-    sig_col1, sig_col2, sig_col3 = st.columns([1, 1, 1])
-    with sig_col1:
+    sc1, sc2, sc3, sc4, sc5 = st.columns([1.2, 0.8, 0.8, 0.8, 1.2])
+    with sc1:
         sig_date = st.date_input("Signal Date", value=_today(exchange), key="sig_date_pick")
-    with sig_col2:
+    with sc2:
         sig_min_score = st.number_input("Min Score", min_value=0, max_value=100, value=0, step=5, key="sig_min")
-    with sig_col3:
-        sig_count = st.selectbox("Show Top", [10, 20, 50], index=1, key="sig_count")
+    with sc3:
+        sig_count = st.selectbox("Show Top", [10, 20, 50, 100], index=1, key="sig_count")
+    with sc4:
+        sig_dir_filter = st.selectbox("Direction", ["All", "Long", "Short"], key="sig_dir")
+    with sc5:
+        sig_sort = st.selectbox("Sort by", ["Score ↓", "Score ↑", "R:R ↓", "Upside ↓", "Entry price ↓", "Entry price ↑"],
+                                key="sig_sort")
 
     signals = load_signals(exchange, sig_date, sig_count)
+
+    # Direction filter
+    if sig_dir_filter == "Long":
+        signals = [s for s in signals if (s.get("direction") or "long") == "long"]
+    elif sig_dir_filter == "Short":
+        signals = [s for s in signals if (s.get("direction") or "long") == "short"]
+
     if sig_min_score > 0:
         signals = [s for s in signals if (s.get("composite_score", 0) or 0) >= sig_min_score]
+
+    # Sort
+    def _rr(s):
+        e = s.get("entry_price") or 0; tgt = s.get("target_price") or 0; stp = s.get("stop_loss_price") or 0
+        up = abs(tgt - e) / e * 100 if e and tgt else 0
+        dn = abs(e - stp) / e * 100 if e and stp else 0
+        return up / dn if dn else 0
+
+    if sig_sort == "Score ↑":
+        signals = sorted(signals, key=lambda s: s.get("composite_score", 0) or 0)
+    elif sig_sort == "R:R ↓":
+        signals = sorted(signals, key=_rr, reverse=True)
+    elif sig_sort == "Upside ↓":
+        signals = sorted(signals, key=lambda s: abs((s.get("target_price", 0) or 0) - (s.get("entry_price", 0) or 0)), reverse=True)
+    elif sig_sort == "Entry price ↓":
+        signals = sorted(signals, key=lambda s: s.get("entry_price", 0) or 0, reverse=True)
+    elif sig_sort == "Entry price ↑":
+        signals = sorted(signals, key=lambda s: s.get("entry_price", 0) or 0)
+    else:
+        signals = sorted(signals, key=lambda s: s.get("composite_score", 0) or 0, reverse=True)
+
+    # Which tickers are currently in portfolio
+    bought_tickers = {p["ticker"] for p in positions}
 
     if not signals:
         st.markdown(
@@ -958,11 +1156,14 @@ with tab_signals:
             unsafe_allow_html=True,
         )
     else:
-        buy_count = sum(1 for s in signals if (s.get("composite_score", 0) or 0) >= 65)
+        buy_count = sum(1 for s in signals if (s.get("position_size_aud", 0) or 0) > 0)
+        short_count = sum(1 for s in signals if (s.get("direction") or "long") == "short")
         st.markdown(
             f'<div class="kite-section">Signals for {sig_date}'
             f' <span class="badge-count">{len(signals)} total</span>'
             f' <span class="badge-count" style="background:var(--profit-dim);color:var(--profit)">{buy_count} buy</span>'
+            f' <span class="badge-count" style="background:var(--loss-dim);color:var(--loss)">{short_count} short</span>'
+            f' <span class="badge-count" style="background:var(--profit-dim);color:var(--profit)">{len(bought_tickers & {s.get("ticker","") for s in signals})} in portfolio</span>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -971,31 +1172,71 @@ with tab_signals:
         for i, sig in enumerate(signals):
             with cols[i % 2]:
                 t = sig.get("ticker", "")
-                score = sig.get("composite_score", 0)
-                entry = sig.get("entry_price", 0)
-                target = sig.get("target_price", 0)
-                stop = sig.get("stop_loss_price", 0)
+                score = sig.get("composite_score", 0) or 0
+                entry = sig.get("entry_price", 0) or 0
+                target = sig.get("target_price", 0) or 0
+                stop = sig.get("stop_loss_price", 0) or 0
+                direction = sig.get("direction") or "long"
                 tv = _tv_url(t)
+                is_bought = t in bought_tickers
 
-                badge_cls = "high" if score >= 70 else ("mid" if score >= 60 else "low")
-                upside = ((target - entry) / entry * 100) if entry and target else 0
-                risk = ((entry - stop) / entry * 100) if entry and stop else 0
+                badge_cls = "high" if score >= 70 else ("mid" if score >= 55 else "low")
+
+                if direction == "long":
+                    upside = ((target - entry) / entry * 100) if entry and target else 0
+                    risk   = ((entry - stop)  / entry * 100) if entry and stop  else 0
+                else:
+                    upside = ((entry - target) / entry * 100) if entry and target else 0
+                    risk   = ((stop - entry)   / entry * 100) if entry and stop  else 0
 
                 rr_ratio = (upside / risk) if risk > 0 else 0
-                rr_color = "var(--profit)" if rr_ratio >= 1.5 else ("var(--warning)" if rr_ratio >= 1.0 else "var(--loss)")
+                rr_color = ("var(--profit)" if rr_ratio >= 1.5
+                            else ("var(--warning)" if rr_ratio >= 1.0 else "var(--loss)"))
 
-                strat = sig.get("strategy_name")
-                strat_chip = (
-                    f'<span class="score-pill" style="background:var(--accent-dim, rgba(98,84,243,.15));'
-                    f'color:var(--accent, #8b7cf6)">{strat.replace("_", " ")}</span>'
-                ) if strat else ""
+                strat = (sig.get("strategy_name") or "").replace("_", " ")
+                sent = sig.get("sentiment_score") or 0
+                fund = sig.get("fundamental_score") or 0
+                tech = sig.get("technical_score") or 0
+                ins  = sig.get("insider_score") or 0
+                regime_ok = sig.get("regime_ok")
+
+                # Hover tooltip details
+                regime_str = "Risk-ON" if regime_ok else ("Risk-OFF" if regime_ok is False else "—")
+                strat_fires = sig.get("strategy_fires", False)
+                tooltip = (
+                    f'<div class="sig-tooltip">'
+                    f'  <h5>{_short(t)} — Signal Details</h5>'
+                    f'  <div class="tt-row"><span class="tt-label">Strategy</span><span class="tt-val">{strat or "—"}</span></div>'
+                    f'  <div class="tt-row"><span class="tt-label">Direction</span><span class="tt-val">{direction.upper()}</span></div>'
+                    f'  <div class="tt-row"><span class="tt-label">Composite score</span><span class="tt-val">{score:.0f}/100</span></div>'
+                    f'  <div class="tt-row"><span class="tt-label">Sentiment</span><span class="tt-val">{sent:.0f}</span></div>'
+                    f'  <div class="tt-row"><span class="tt-label">Fundamental</span><span class="tt-val">{fund:.0f}</span></div>'
+                    f'  <div class="tt-row"><span class="tt-label">Technical</span><span class="tt-val">{tech:.0f}</span></div>'
+                    f'  <div class="tt-row"><span class="tt-label">Insider</span><span class="tt-val">{ins:.0f}</span></div>'
+                    f'  <div class="tt-row"><span class="tt-label">Market regime</span><span class="tt-val">{regime_str}</span></div>'
+                    f'  <div class="tt-row"><span class="tt-label">Strategy fired</span><span class="tt-val">{"Yes" if strat_fires else "No"}</span></div>'
+                    f'  <div class="tt-row"><span class="tt-label">R:R</span><span class="tt-val">{rr_ratio:.2f}</span></div>'
+                    f'  <div class="tt-row"><span class="tt-label">In portfolio</span><span class="tt-val">{"Yes" if is_bought else "No"}</span></div>'
+                    f'</div>'
+                )
+
+                card_cls = "sig-card is-bought" if is_bought else "sig-card"
+                bought_badge = '<span class="bought-badge">Bought</span>' if is_bought else ""
+                strat_html = f'<span class="sig-strategy">{strat}</span>' if strat else ""
 
                 st.markdown(
-                    f'<div class="sig-card">'
+                    f'<div class="{card_cls}">'
+                    f'  {tooltip}'
                     f'  <div class="sig-header">'
-                    f'    <a href="{tv}" target="_blank" class="sig-ticker">{_short(t)}</a>'
-                    f'    {strat_chip}'
-                    f'    <span class="sig-badge {badge_cls}">{score:.0f}</span>'
+                    f'    <div style="display:flex;align-items:center;gap:8px">'
+                    f'      <a href="{tv}" target="_blank" class="sig-ticker">{_short(t)}</a>'
+                    f'      {bought_badge}'
+                    f'    </div>'
+                    f'    <div style="display:flex;align-items:center;gap:6px">'
+                    f'      {strat_html}'
+                    f'      <span class="sig-dir {direction}">{direction}</span>'
+                    f'      <span class="sig-badge {badge_cls}">{score:.0f}</span>'
+                    f'    </div>'
                     f'  </div>'
                     f'  <div class="sig-levels">'
                     f'    <span>Entry <b>{currency}{entry:,.2f}</b></span>'
@@ -1004,10 +1245,10 @@ with tab_signals:
                     f'    <span style="color:{rr_color}">R:R <b>{rr_ratio:.1f}</b></span>'
                     f'  </div>'
                     f'  <div class="sig-subscores">'
-                    f'    <span class="score-pill">Sent {sig.get("sentiment_score", 0):.0f}</span>'
-                    f'    <span class="score-pill">Fund {sig.get("fundamental_score", 0):.0f}</span>'
-                    f'    <span class="score-pill">Tech {sig.get("technical_score", 0):.0f}</span>'
-                    f'    <span class="score-pill">Ins {sig.get("insider_score", 0):.0f}</span>'
+                    f'    <span class="score-pill">Sent {sent:.0f}</span>'
+                    f'    <span class="score-pill">Fund {fund:.0f}</span>'
+                    f'    <span class="score-pill">Tech {tech:.0f}</span>'
+                    f'    <span class="score-pill">Ins {ins:.0f}</span>'
                     f'  </div>'
                     f'</div>',
                     unsafe_allow_html=True,
@@ -1017,8 +1258,11 @@ with tab_signals:
                     unsafe_allow_html=True)
         import pandas as pd
         df_sig = pd.DataFrame(signals)
-        display_cols = ["ticker", "strategy_name", "composite_score", "entry_price", "target_price",
-                        "stop_loss_price", "sentiment_score", "fundamental_score",
+        _clean = lambda v: str(v).replace("_", " ").title() if isinstance(v, str) else v
+        if "strategy_name" in df_sig.columns:
+            df_sig["strategy_name"] = df_sig["strategy_name"].apply(_clean)
+        display_cols = ["ticker", "direction", "strategy_name", "composite_score", "entry_price",
+                        "target_price", "stop_loss_price", "sentiment_score", "fundamental_score",
                         "technical_score", "insider_score"]
         display_cols = [c for c in display_cols if c in df_sig.columns]
         if display_cols:
@@ -1265,6 +1509,92 @@ with tab_radar:
             f'</div>',
             unsafe_allow_html=True,
         )
+
+        # ── Strategy Prediction Chart ─────────────────────────────────────────
+        # Shows the last 60 days of OHLCV with entry/target/stop levels overlaid
+        # so you can see if price is moving in the predicted direction.
+        st.markdown('<div class="kite-section" style="margin-top:14px">Strategy Prediction vs Real-time Price</div>',
+                    unsafe_allow_html=True)
+        import plotly.graph_objects as _go
+
+        try:
+            _ohlcv = fetch_ohlcv(sel_ticker, days=60)
+        except Exception:
+            _ohlcv = []
+
+        if _ohlcv:
+            _dates  = [r.get("date") or r.get("Date") for r in _ohlcv]
+            _closes = [r.get("close") or r.get("Close") or 0 for r in _ohlcv]
+            _opens  = [r.get("open")  or r.get("Open")  or c for r, c in zip(_ohlcv, _closes)]
+            _highs  = [r.get("high")  or r.get("High")  or c for r, c in zip(_ohlcv, _closes)]
+            _lows   = [r.get("low")   or r.get("Low")   or c for r, c in zip(_ohlcv, _closes)]
+
+            _fig_pred = _go.Figure()
+            # Candlestick
+            _fig_pred.add_trace(_go.Candlestick(
+                x=_dates, open=_opens, high=_highs, low=_lows, close=_closes,
+                name="Price",
+                increasing_line_color="#00c48c", decreasing_line_color="#ff5a5a",
+                increasing_fillcolor="rgba(0,196,140,0.25)",
+                decreasing_fillcolor="rgba(255,90,90,0.25)",
+            ))
+            # Horizontal level lines
+            _entry_v = sel.get("entry_price")
+            _target_v = sel.get("target_price")
+            _stop_v   = sel.get("stop_loss_price")
+            if _entry_v:
+                _fig_pred.add_hline(y=_entry_v,  line_color="#a0a0a6", line_dash="dash",
+                                    line_width=1, annotation_text=f"Entry {currency}{_entry_v:.2f}",
+                                    annotation_font_color="#a0a0a6", annotation_position="left")
+            if _target_v:
+                _fig_pred.add_hline(y=_target_v, line_color="#00c48c", line_dash="dot",
+                                    line_width=1.5, annotation_text=f"Target {currency}{_target_v:.2f}",
+                                    annotation_font_color="#00c48c", annotation_position="left")
+            if _stop_v:
+                _fig_pred.add_hline(y=_stop_v,   line_color="#ff5a5a", line_dash="dot",
+                                    line_width=1.5, annotation_text=f"Stop {currency}{_stop_v:.2f}",
+                                    annotation_font_color="#ff5a5a", annotation_position="left")
+            # Shade predicted zone (entry → target for long, entry → target for short)
+            if _entry_v and _target_v and _dates:
+                _zone_color = "rgba(0,196,140,0.06)" if direction == "long" else "rgba(255,90,90,0.06)"
+                _fig_pred.add_hrect(y0=min(_entry_v, _target_v), y1=max(_entry_v, _target_v),
+                                    fillcolor=_zone_color, line_width=0)
+
+            # Direction arrow annotation at latest date
+            if _closes and _dates and _entry_v:
+                _arrow_y = _entry_v * (1.05 if direction == "long" else 0.95)
+                _arrow_text = "▲ Long target zone" if direction == "long" else "▼ Short target zone"
+                _arrow_color = "#00c48c" if direction == "long" else "#ff5a5a"
+                _fig_pred.add_annotation(
+                    x=_dates[-1], y=_arrow_y, text=_arrow_text,
+                    font=dict(color=_arrow_color, size=11), showarrow=False, xanchor="right",
+                )
+
+            _layout_pred = _chart_base(h=340, title="")
+            _layout_pred["xaxis"]["rangeslider"] = {"visible": False}
+            _layout_pred["yaxis"]["tickprefix"] = currency
+            _layout_pred["margin"] = dict(t=20, b=30, l=70, r=10)
+            _fig_pred.update_layout(**_layout_pred)
+            st.plotly_chart(_fig_pred, use_container_width=True, config={"displayModeBar": False})
+
+            # Direction verdict vs latest price
+            if _closes and _entry_v:
+                _latest = _closes[-1]
+                if direction == "long":
+                    _pred_ok = _latest > _entry_v
+                    _pred_txt = f"Price {currency}{_latest:.2f} is {'above' if _pred_ok else 'below'} entry — moving {'with' if _pred_ok else 'against'} the long prediction."
+                else:
+                    _pred_ok = _latest < _entry_v
+                    _pred_txt = f"Price {currency}{_latest:.2f} is {'below' if _pred_ok else 'above'} entry — moving {'with' if _pred_ok else 'against'} the short prediction."
+                _pred_color = "var(--profit)" if _pred_ok else "var(--loss)"
+                st.markdown(
+                    f'<div style="font-size:0.82rem;color:{_pred_color};padding:6px 0 14px;font-weight:500">'
+                    f'{_pred_txt}</div>',
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.markdown('<div class="radar-empty">Price history not available for prediction chart.</div>',
+                        unsafe_allow_html=True)
 
         chart_html = f"""
         <div id="radar-chart-container" style="height:420px; border-radius:10px; overflow:hidden; border:1px solid #2c2c30; margin-top:10px;">
@@ -1724,84 +2054,151 @@ with tab_scanner:
 
 # ── TAB 6: Trade History ──────────────────────────────────────────────────────
 with tab_history:
-    hist_period = st.selectbox("Period", ["30 days", "60 days", "90 days", "180 days", "1 year", "All time"],
-                               index=2, key="hist_period")
-    hist_days = {"30 days": 30, "60 days": 60, "90 days": 90, "180 days": 180, "1 year": 365, "All time": 3650}[hist_period]
-    trades = load_trades(exchange, hist_days)
+    # ── Filters ───────────────────────────────────────────────────────────────
+    hf1, hf2, hf3, hf4, hf5 = st.columns([1.2, 0.8, 0.8, 0.8, 0.8])
+    with hf1:
+        hist_period = st.selectbox("Period", ["7 days", "30 days", "60 days", "90 days", "180 days", "1 year", "All time"],
+                                   index=3, key="hist_period")
+    with hf2:
+        hist_date_from = st.date_input("Exit date from", value=None, key="hist_date_from")
+    with hf3:
+        hist_date_to = st.date_input("Exit date to", value=None, key="hist_date_to")
+    with hf4:
+        hist_outcome = st.selectbox("Outcome", ["All", "Wins", "Losses"], key="hist_outcome")
+    with hf5:
+        hist_type = st.selectbox("Type", ["Realised", "Unrealised"], key="hist_type")
 
-    if not trades:
-        st.markdown(
-            '<div class="empty-state">'
-            '  <div class="empty-title">No closed trades</div>'
-            '  <div class="empty-sub">Trade history will appear after positions are closed '
-            '  via stop-loss, target hit, or manual exit.</div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+    hist_days = {"7 days": 7, "30 days": 30, "60 days": 60, "90 days": 90,
+                 "180 days": 180, "1 year": 365, "All time": 3650}[hist_period]
+
+    if hist_type == "Unrealised":
+        # Show open positions as "unrealised trades"
+        st.markdown('<div class="kite-section">Unrealised (Open Positions)</div>', unsafe_allow_html=True)
+        if not positions:
+            st.markdown('<div class="radar-empty">No open positions.</div>', unsafe_allow_html=True)
+        else:
+            _u_total = sum(p.get("unrealised_pnl", 0) or 0 for p in positions)
+            _u_table = '''<table class="kite-table"><thead><tr>
+                <th>Ticker</th><th>Entry Date</th><th>Entry Price</th><th>Current Price</th>
+                <th>Shares</th><th>Unrealised P&L</th><th>Net chg.</th><th>Days held</th>
+            </tr></thead><tbody>'''
+            for p in positions:
+                pnl = p.get("unrealised_pnl", 0) or 0
+                cls = _pnl_class(pnl)
+                row_cls = "loss-row" if pnl < 0 else ""
+                tv = _tv_url(p["ticker"])
+                _u_table += f'''<tr class="{row_cls}">
+                    <td><a href="{tv}" target="_blank" class="ticker-link">{_short(p["ticker"])}</a></td>
+                    <td>{p.get("entry_date","")}</td>
+                    <td>{currency}{p.get("entry_price",0):,.2f}</td>
+                    <td>{currency}{p.get("current_price",0):,.2f}</td>
+                    <td>{p.get("shares",0):,.0f}</td>
+                    <td class="{cls}">{_pnl_sign(pnl, currency)}</td>
+                    <td class="{cls}">{_pnl_pct(p.get("unrealised_pnl_pct",0) or 0)}</td>
+                    <td>{p.get("days_held",0)}</td>
+                </tr>'''
+            _u_table += f'''<tr class="total-row">
+                <td>Total ({len(positions)})</td><td></td><td></td><td></td><td></td>
+                <td class="{_pnl_class(_u_total)}">{_pnl_sign(_u_total, currency)}</td><td></td><td></td>
+            </tr></tbody></table>'''
+            st.markdown(_u_table, unsafe_allow_html=True)
     else:
-        total_realized = sum(t.get("net_pnl", 0) for t in trades)
-        wins = sum(1 for t in trades if (t.get("net_pnl", 0) > 0))
-        losses = len(trades) - wins
-        win_rate = (wins / len(trades) * 100) if trades else 0
-        avg_win = (sum(t.get("net_pnl", 0) for t in trades if t.get("net_pnl", 0) > 0) / max(wins, 1))
-        avg_loss = (sum(t.get("net_pnl", 0) for t in trades if t.get("net_pnl", 0) <= 0) / max(losses, 1))
-        profit_factor = abs(avg_win * wins / (avg_loss * losses)) if losses and avg_loss else 0
+        trades = load_trades(exchange, hist_days)
 
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Closed Trades", len(trades))
-        c2.metric("Net P&L", f"{currency}{total_realized:+,.2f}")
-        c3.metric("Win Rate", f"{win_rate:.0f}%")
-        c4.metric("Avg Win / Loss", f"{currency}{avg_win:+,.0f} / {currency}{avg_loss:+,.0f}")
-        c5.metric("Profit Factor", f"{profit_factor:.2f}")
+        # Apply date and outcome filters
+        if hist_date_from:
+            trades = [t for t in trades if str(t.get("exit_date","")) >= str(hist_date_from)]
+        if hist_date_to:
+            trades = [t for t in trades if str(t.get("exit_date","")) <= str(hist_date_to)]
+        if hist_outcome == "Wins":
+            trades = [t for t in trades if (t.get("net_pnl", 0) or 0) > 0]
+        elif hist_outcome == "Losses":
+            trades = [t for t in trades if (t.get("net_pnl", 0) or 0) <= 0]
 
-        pnl_data = load_pnl(exchange, hist_days)
-        if pnl_data:
+        def _clean_reason(r):
+            return str(r or "").replace("_", " ").strip().title()
+
+        if not trades:
+            st.markdown(
+                '<div class="empty-state">'
+                '  <div class="empty-title">No closed trades match filters</div>'
+                '  <div class="empty-sub">Try a wider date range or change the outcome filter.</div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            total_realized = sum(t.get("net_pnl", 0) for t in trades)
+            wins = sum(1 for t in trades if (t.get("net_pnl", 0) > 0))
+            losses = len(trades) - wins
+            win_rate = (wins / len(trades) * 100) if trades else 0
+            avg_win = (sum(t.get("net_pnl", 0) for t in trades if t.get("net_pnl", 0) > 0) / max(wins, 1))
+            avg_loss = (sum(t.get("net_pnl", 0) for t in trades if t.get("net_pnl", 0) <= 0) / max(losses, 1))
+            profit_factor = abs(avg_win * wins / (avg_loss * losses)) if losses and avg_loss else 0
+
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("Closed Trades", len(trades))
+            c2.metric("Net P&L", f"{currency}{total_realized:+,.2f}")
+            c3.metric("Win Rate", f"{win_rate:.0f}%")
+            c4.metric("Avg Win / Loss", f"{currency}{avg_win:+,.0f} / {currency}{avg_loss:+,.0f}")
+            c5.metric("Profit Factor", f"{profit_factor:.2f}")
+
+            pnl_data = load_pnl(exchange, hist_days)
+            if pnl_data:
+                import plotly.graph_objects as go
+                dates = [r.get("date") or r.get("exit_date") for r in pnl_data]
+                cum = [r.get("cumulative_pnl", 0) for r in pnl_data]
+                daily_vals = [r.get("daily_pnl", 0) for r in pnl_data]
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=dates, y=cum, mode="lines",
+                    line=dict(color="#6993ff", width=2),
+                    fill="tozeroy", fillcolor="rgba(105,147,255,0.06)",
+                    name="Cumulative P&L",
+                ))
+                fig.add_trace(go.Bar(
+                    x=dates, y=daily_vals,
+                    marker_color=["#00c48c" if v >= 0 else "#ff5a5a" for v in daily_vals],
+                    opacity=0.4, name="Daily P&L",
+                ))
+                layout = _chart_base(h=260, title="Cumulative Realized P&L")
+                layout["yaxis"]["tickprefix"] = currency
+                layout["barmode"] = "overlay"
+                fig.update_layout(**layout)
+                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+            st.markdown('<div class="kite-section">Trade Log</div>', unsafe_allow_html=True)
+
+            table_html = '''<table class="kite-table"><thead><tr>
+                <th>Ticker</th><th>Entry</th><th>Exit</th><th>Shares</th>
+                <th>Entry Price</th><th>Exit Price</th><th>P&L</th><th>Reason</th>
+            </tr></thead><tbody>'''
+
+            for t in trades:
+                ticker = t.get("ticker", "")
+                pnl = t.get("net_pnl", 0)
+                cls = _pnl_class(pnl)
+                row_cls = "loss-row" if pnl < 0 else ""
+                tv = _tv_url(ticker)
+                reason = _clean_reason(t.get("exit_reason", ""))
+
+                table_html += f'''<tr class="{row_cls}">
+                    <td><a href="{tv}" target="_blank" class="ticker-link">{_short(ticker)}</a></td>
+                    <td>{t.get("entry_date", "")}</td>
+                    <td>{t.get("exit_date", "")}</td>
+                    <td>{t.get("shares", 0):,.0f}</td>
+                    <td>{currency}{t.get("entry_price", 0):,.2f}</td>
+                    <td>{currency}{t.get("exit_price", 0):,.2f}</td>
+                    <td class="{cls}">{_pnl_sign(pnl, currency)}</td>
+                    <td style="font-size:0.78rem;color:var(--text-secondary)">{reason}</td>
+                </tr>'''
+
+            table_html += '</tbody></table>'
+            st.markdown(table_html, unsafe_allow_html=True)
+
+            st.markdown('<div class="kite-section" style="margin-top:20px">Exit Reasons</div>',
+                        unsafe_allow_html=True)
             import plotly.graph_objects as go
-            dates = [r.get("date") or r.get("exit_date") for r in pnl_data]
-            cum = [r.get("cumulative_pnl", 0) for r in pnl_data]
-
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=dates, y=cum, mode="lines",
-                line=dict(color="#6993ff", width=2),
-                fill="tozeroy", fillcolor="rgba(105,147,255,0.06)",
-                name="Cumulative P&L",
-            ))
-            layout = _chart_base(h=260, title="Cumulative Realized P&L")
-            layout["yaxis"]["tickprefix"] = currency
-            fig.update_layout(**layout)
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-        st.markdown('<div class="kite-section">Trade Log</div>', unsafe_allow_html=True)
-
-        table_html = '''<table class="kite-table"><thead><tr>
-            <th>Ticker</th><th>Entry</th><th>Exit</th><th>Shares</th>
-            <th>Entry Price</th><th>Exit Price</th><th>P&L</th><th>Reason</th>
-        </tr></thead><tbody>'''
-
-        for t in trades:
-            ticker = t.get("ticker", "")
-            pnl = t.get("net_pnl", 0)
-            cls = _pnl_class(pnl)
-            tv = _tv_url(ticker)
-
-            table_html += f'''<tr>
-                <td><a href="{tv}" target="_blank" class="ticker-link">{_short(ticker)}</a></td>
-                <td>{t.get("entry_date", "")}</td>
-                <td>{t.get("exit_date", "")}</td>
-                <td>{t.get("shares", 0):,.0f}</td>
-                <td>{currency}{t.get("entry_price", 0):,.2f}</td>
-                <td>{currency}{t.get("exit_price", 0):,.2f}</td>
-                <td class="{cls}">{_pnl_sign(pnl, currency)}</td>
-                <td style="font-size:0.78rem;color:var(--text-tertiary)">{t.get("exit_reason", "")}</td>
-            </tr>'''
-
-        table_html += '</tbody></table>'
-        st.markdown(table_html, unsafe_allow_html=True)
-
-        st.markdown('<div class="kite-section" style="margin-top:20px">Exit Reasons</div>',
-                    unsafe_allow_html=True)
-        import plotly.graph_objects as go
         from collections import Counter
         reasons = Counter(t.get("exit_reason", "unknown") for t in trades)
         fig = go.Figure(go.Pie(
