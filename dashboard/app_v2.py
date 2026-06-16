@@ -805,15 +805,10 @@ def _build_candle_chart(
     currency="$", title="", h=400, y_range=None,
 ):
     """
-    Modern candlestick chart with:
-    - Volume subplot (25% height) with colour-coded bars
-    - 20-day EMA overlay
-    - Pill-badge level labels (solid background, high contrast)
-    - Auto-zoomed Y-axis
+    Modern candlestick chart with volume subplot, EMA, and pill-badge level labels.
     """
     import plotly.graph_objects as _go_c
     from plotly.subplots import make_subplots as _make_sub
-    import numpy as np
 
     has_vol = bool(volumes and any(v for v in volumes))
     row_heights = [0.75, 0.25] if has_vol else [1.0]
@@ -836,7 +831,6 @@ def _build_candle_chart(
     # ── 20-day EMA ───────────────────────────────────────────────────────────
     if len(closes) >= 5:
         k = min(20, len(closes))
-        ema = []
         mul = 2 / (k + 1)
         prev = sum(closes[:k]) / k
         ema = [None] * (k - 1) + [prev]
@@ -845,7 +839,7 @@ def _build_candle_chart(
             ema.append(prev)
         fig.add_trace(_go_c.Scatter(
             x=dates, y=ema, mode="lines", name=f"EMA{k}",
-            line=dict(color="#6993ff", width=1.5, dash="solid"),
+            line=dict(color="#6993ff", width=1.5),
             opacity=0.8,
         ), row=1, col=1)
 
@@ -861,56 +855,66 @@ def _build_candle_chart(
         ), row=2, col=1)
 
     # ── Level lines + pill badges ─────────────────────────────────────────────
+    # yref must use the subplot axis name ("y" for row=1 in a subplot figure)
+    _price_yref = "y" if rows == 1 else "y"   # row-1 axis is always "y" in make_subplots
     if levels:
-        # Sort by price and stagger overlapping labels
         sorted_lvls = sorted(levels, key=lambda x: x[0])
         placed = []
         for price, label, bg, fg in sorted_lvls:
             y_label = price
             for py in placed:
                 if abs(y_label - py) / max(abs(py), 1) < 0.022:
-                    y_label = py * 1.023
+                    y_label = py * 1.024
             placed.append(y_label)
 
-            # Dashed level line
+            # Level line — use yref not row/col (can't mix them)
             fig.add_shape(
-                type="line", x0=0, x1=1, xref="paper", y0=price, y1=price,
-                line=dict(color=bg, width=1.5, dash="dot"), row=1, col=1,
-                yref="y1",
+                type="line", x0=0, x1=1, xref="paper",
+                y0=price, y1=price, yref=_price_yref,
+                line=dict(color=bg, width=1.5, dash="dot"),
             )
-            # Pill badge: solid background, high-contrast text
+            # Pill badge outside right edge
             fig.add_annotation(
-                x=1.01, xref="paper", y=y_label, yref="y",
-                text=f"<b>{label}<br>{currency}{price:,.2f}</b>",
+                x=1.01, xref="paper", y=y_label, yref=_price_yref,
+                text=f"<b>{label}</b><br><span style='font-size:10px'>{currency}{price:,.2f}</span>",
                 showarrow=False, align="left",
                 font=dict(color=fg, size=11, family="Inter"),
-                bgcolor=bg, bordercolor=bg, borderwidth=0,
-                borderpad=5, xanchor="left", yanchor="middle",
+                bgcolor=bg, borderpad=5,
+                xanchor="left", yanchor="middle",
             )
 
     # ── Prediction zone ──────────────────────────────────────────────────────
     if zone:
         y0, y1, fill = zone
-        fig.add_hrect(y0=y0, y1=y1, fillcolor=fill, line_width=0, row=1, col=1)
+        fig.add_hrect(y0=y0, y1=y1, yref=_price_yref, fillcolor=fill, line_width=0)
 
     # ── Y-axis zoom ───────────────────────────────────────────────────────────
     if y_range is None and closes:
         level_vals = [p for p, *_ in (levels or [])]
         recent = closes[-30:]
         all_vals = recent + level_vals
-        pad = (max(all_vals) - min(all_vals)) * 0.15 or max(all_vals) * 0.05
+        span = max(all_vals) - min(all_vals)
+        pad = span * 0.15 if span > 0 else max(all_vals) * 0.05
         y_range = [min(all_vals) - pad, max(all_vals) + pad]
 
-    # ── Layout ────────────────────────────────────────────────────────────────
-    base = _chart_base(h=h, title=title, margin=(32, 20, 55, 10))
+    # ── Layout — avoid passing xaxis/yaxis dicts which break subplot linking ──
+    _BG = "#121214"
     fig.update_layout(
-        **base,
-        xaxis_rangeslider_visible=False,
+        height=h,
+        title=dict(text=title, font=dict(size=12, color="#a0a0a6")) if title else {},
+        plot_bgcolor=_BG, paper_bgcolor=_BG,
+        font=dict(color="#a0a0a6", size=11, family="Inter"),
         showlegend=False,
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#222226", bordercolor="#2c2c30",
+                        font=dict(color="#eaeaed", size=12)),
         margin=dict(t=32, b=20, l=62, r=130),
+        xaxis_rangeslider_visible=False,
     )
-    fig.update_yaxes(tickprefix=currency, gridcolor="#1e1e22", zeroline=False, row=1, col=1)
-    fig.update_xaxes(showgrid=False, zeroline=False)
+    # Axis styling via update_xaxes / update_yaxes (subplot-safe)
+    fig.update_xaxes(showgrid=False, zeroline=False, color="#78787e", linecolor="#2c2c30")
+    fig.update_yaxes(gridcolor="#1e1e22", zeroline=False, color="#78787e")
+    fig.update_yaxes(tickprefix=currency, row=1, col=1)
     if y_range:
         fig.update_yaxes(range=y_range, row=1, col=1)
     if has_vol:
@@ -920,8 +924,6 @@ def _build_candle_chart(
     return fig
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
