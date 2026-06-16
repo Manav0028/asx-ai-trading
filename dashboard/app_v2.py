@@ -498,10 +498,19 @@ footer { visibility: hidden; }
     border-color: var(--profit);
     box-shadow: 0 0 0 1px var(--profit-dim);
 }
+.sig-card.is-holding {
+    border-color: #6993ff;
+    box-shadow: 0 0 0 1px rgba(105,147,255,0.18);
+}
 .bought-badge {
     font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em;
     padding: 2px 7px; border-radius: 4px; text-transform: uppercase;
     background: var(--profit-dim); color: var(--profit); margin-left: 4px;
+}
+.holding-badge {
+    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em;
+    padding: 2px 7px; border-radius: 4px; text-transform: uppercase;
+    background: rgba(105,147,255,0.15); color: #6993ff; margin-left: 4px;
 }
 
 /* ── Signal card layout ───────────────────────────────*/
@@ -1143,8 +1152,11 @@ with tab_signals:
     else:
         signals = sorted(signals, key=lambda s: s.get("composite_score", 0) or 0, reverse=True)
 
-    # Which tickers are currently in portfolio
-    bought_tickers = {p["ticker"] for p in positions}
+    # Split portfolio into: bought on signal date vs already held before it
+    _sig_date_str = str(sig_date)
+    bought_today   = {p["ticker"] for p in positions if str(p.get("entry_date", "")) == _sig_date_str}
+    holding_before = {p["ticker"] for p in positions if str(p.get("entry_date", "")) != _sig_date_str and p["ticker"] not in bought_today}
+    bought_tickers = bought_today | holding_before  # all in portfolio (for count badge)
 
     if not signals:
         st.markdown(
@@ -1163,7 +1175,8 @@ with tab_signals:
             f' <span class="badge-count">{len(signals)} total</span>'
             f' <span class="badge-count" style="background:var(--profit-dim);color:var(--profit)">{buy_count} buy</span>'
             f' <span class="badge-count" style="background:var(--loss-dim);color:var(--loss)">{short_count} short</span>'
-            f' <span class="badge-count" style="background:var(--profit-dim);color:var(--profit)">{len(bought_tickers & {s.get("ticker","") for s in signals})} in portfolio</span>'
+            f' <span class="badge-count" style="background:var(--profit-dim);color:var(--profit)">{len(bought_today & {s.get("ticker","") for s in signals})} bought today</span>'
+            f' <span class="badge-count" style="background:rgba(105,147,255,0.15);color:#6993ff">{len(holding_before & {s.get("ticker","") for s in signals})} holding</span>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -1178,7 +1191,8 @@ with tab_signals:
                 stop = sig.get("stop_loss_price", 0) or 0
                 direction = sig.get("direction") or "long"
                 tv = _tv_url(t)
-                is_bought = t in bought_tickers
+                is_bought_today   = t in bought_today
+                is_holding_before = t in holding_before
 
                 badge_cls = "high" if score >= 70 else ("mid" if score >= 55 else "low")
 
@@ -1216,12 +1230,19 @@ with tab_signals:
                     f'  <div class="tt-row"><span class="tt-label">Market regime</span><span class="tt-val">{regime_str}</span></div>'
                     f'  <div class="tt-row"><span class="tt-label">Strategy fired</span><span class="tt-val">{"Yes" if strat_fires else "No"}</span></div>'
                     f'  <div class="tt-row"><span class="tt-label">R:R</span><span class="tt-val">{rr_ratio:.2f}</span></div>'
-                    f'  <div class="tt-row"><span class="tt-label">In portfolio</span><span class="tt-val">{"Yes" if is_bought else "No"}</span></div>'
+                    f'  <div class="tt-row"><span class="tt-label">Portfolio status</span><span class="tt-val">{"Bought today" if is_bought_today else ("Already holding" if is_holding_before else "Not held")}</span></div>'
                     f'</div>'
                 )
 
-                card_cls = "sig-card is-bought" if is_bought else "sig-card"
-                bought_badge = '<span class="bought-badge">Bought</span>' if is_bought else ""
+                if is_bought_today:
+                    card_cls = "sig-card is-bought"
+                    bought_badge = '<span class="bought-badge">Bought</span>'
+                elif is_holding_before:
+                    card_cls = "sig-card is-holding"
+                    bought_badge = '<span class="holding-badge">Holding</span>'
+                else:
+                    card_cls = "sig-card"
+                    bought_badge = ""
                 strat_html = f'<span class="sig-strategy">{strat}</span>' if strat else ""
 
                 st.markdown(
