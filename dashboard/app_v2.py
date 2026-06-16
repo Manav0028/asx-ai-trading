@@ -192,6 +192,61 @@ section[data-testid="stSidebar"] .stSelectbox label {
 .wl-pct.up { background: var(--profit-dim); color: var(--profit); }
 .wl-pct.down { background: var(--loss-dim); color: var(--loss); }
 .wl-price { font-size: 0.85rem; color: var(--text-primary); font-weight: 500; min-width: 64px; text-align: right; }
+.wl-ohlc { font-size: 0.66rem; color: var(--text-tertiary); letter-spacing: 0.02em; margin-top: 2px; }
+.wl-ohlc b { color: var(--text-secondary); }
+.wl-score-chip {
+    font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+    background: rgba(105,147,255,0.15); color: #6993ff; min-width: 28px; text-align: center;
+}
+.wl-score-chip.high { background: var(--profit-dim); color: var(--profit); }
+.wl-score-chip.low  { background: rgba(120,120,126,0.15); color: var(--text-tertiary); }
+
+/* ── Sidebar section header ───────────────────────────── */
+.sb-section {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0 8px; cursor: pointer;
+}
+.sb-section-title {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.09em;
+    text-transform: uppercase; color: var(--text-secondary);
+}
+.sb-count {
+    font-size: 0.70rem; background: var(--bg-tertiary); color: var(--text-tertiary);
+    padding: 1px 7px; border-radius: 4px;
+}
+
+/* ── Ticker detail panel (main area overlay) ──────────── */
+.detail-panel {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px 24px; margin-bottom: 20px;
+    position: relative;
+}
+.detail-panel-close {
+    position: absolute; top: 12px; right: 14px;
+    font-size: 1rem; color: var(--text-tertiary); cursor: pointer;
+    background: var(--bg-tertiary); border: none; border-radius: 4px;
+    padding: 2px 8px; line-height: 1.4;
+}
+.detail-panel-ticker {
+    font-size: 1.4rem; font-weight: 700; color: var(--text-primary);
+}
+.detail-kv { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 10px 0; }
+.detail-kv-item { font-size: 0.78rem; color: var(--text-tertiary); }
+.detail-kv-item b { color: var(--text-primary); }
+.detail-ohlc-row {
+    display: flex; gap: 14px; padding: 8px 0; border-top: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle); margin: 10px 0;
+}
+.detail-ohlc-cell { text-align: center; }
+.detail-ohlc-label { font-size: 0.66rem; color: var(--text-tertiary); text-transform: uppercase; }
+.detail-ohlc-val { font-size: 0.88rem; font-weight: 600; color: var(--text-primary); }
+.detail-score-grid { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+.detail-score-card {
+    flex: 1; min-width: 70px; background: var(--bg-tertiary);
+    border-radius: var(--radius-sm); padding: 8px 10px; text-align: center;
+}
+.detail-score-label { font-size: 0.65rem; color: var(--text-tertiary); text-transform: uppercase; margin-bottom: 3px; }
+.detail-score-val { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); }
 
 /* ── P&L hero ─────────────────────────────────────────── */
 .pnl-hero { padding: 24px 0; }
@@ -696,6 +751,35 @@ def fetch_ohlcv(ticker, days=60):
 def fetch_sparklines(tickers, days=20):
     return get_multi_close(list(tickers), days)
 
+@st.cache_data(ttl=120)
+def fetch_today_ohlc(ticker: str) -> dict:
+    """Return today's O/H/L/C for the given ticker (last 2 days, take latest)."""
+    try:
+        rows = get_price_history(ticker, days=3)
+        if rows:
+            r = rows[-1]
+            return {
+                "open":  r.get("open")  or r.get("Open"),
+                "high":  r.get("high")  or r.get("High"),
+                "low":   r.get("low")   or r.get("Low"),
+                "close": r.get("close") or r.get("Close"),
+                "date":  str(r.get("date") or r.get("Date") or ""),
+            }
+    except Exception:
+        pass
+    return {}
+
+
+# ── Session state ─────────────────────────────────────────────────────────────
+if "sidebar_sel" not in st.session_state:
+    st.session_state.sidebar_sel = None   # ticker string or None
+if "sidebar_sel_src" not in st.session_state:
+    st.session_state.sidebar_sel_src = None  # "holding" | "signal"
+if "sb_hold_open" not in st.session_state:
+    st.session_state.sb_hold_open = True
+if "sb_sig_open" not in st.session_state:
+    st.session_state.sb_sig_open = True
+
 
 # ── Chart base ────────────────────────────────────────────────────────────────
 def _chart_base(h=300, title="", margin=(30, 20, 40, 10)):
@@ -717,6 +801,8 @@ def _chart_base(h=300, title="", margin=(30, 20, 40, 10)):
 # ══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
+# SIDEBAR
+# ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     exchange = st.radio(
         "Exchange",
@@ -732,8 +818,8 @@ with st.sidebar:
     status_text = "Market Open" if _market_open else "Market Closed"
 
     st.markdown(
-        f'<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0 12px">'
-        f'  <span style="font-size:0.78rem;color:var(--text-tertiary)">{mkt["local_time"]}</span>'
+        f'<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0 10px">'
+        f'  <span style="font-size:0.77rem;color:var(--text-tertiary)">{mkt["local_time"]}</span>'
         f'  <span class="status-badge">'
         f'    <span class="status-dot {dot_cls}"></span>'
         f'    <span style="color:{"var(--profit)" if _market_open else "var(--loss)"}">{status_text}</span>'
@@ -741,72 +827,296 @@ with st.sidebar:
         f'</div>',
         unsafe_allow_html=True,
     )
-
-    st.markdown('<div style="border-bottom:1px solid var(--border);margin:0 0 12px"></div>',
+    st.markdown('<div style="border-bottom:1px solid var(--border);margin:0 0 10px"></div>',
                 unsafe_allow_html=True)
 
     portfolio = load_portfolio(exchange, live=_market_open)
     positions = portfolio.get("positions", [])
 
-    if positions:
-        st.markdown(
-            f'<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0 10px">'
-            f'  <span style="font-size:0.78rem;color:var(--text-secondary);font-weight:600;'
-            f'    text-transform:uppercase;letter-spacing:0.08em">Holdings</span>'
-            f'  <span style="font-size:0.72rem;color:var(--text-tertiary);'
-            f'    background:var(--bg-tertiary);padding:2px 8px;border-radius:4px">{len(positions)}</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+    # Sort holdings by unrealised P&L% descending (best first)
+    _pos_sorted = sorted(positions, key=lambda p: p.get("unrealised_pnl_pct") or 0, reverse=True)
 
-        for p in positions:
-            t = p["ticker"]
-            cp = p.get("current_price") or 0
-            pnl = p.get("unrealised_pnl") or 0
-            pnl_pct = p.get("unrealised_pnl_pct") or 0
-            cls = _pnl_class(pnl)
+    # Load today's top signals for sidebar
+    from datetime import date as _date
+    _today_sig_date = _today(exchange)
+    _sb_signals = load_signals(exchange, _today_sig_date, 20)
+    _sb_signals_sorted = sorted(_sb_signals, key=lambda s: s.get("composite_score") or 0, reverse=True)
 
-            st.markdown(
-                f'<div class="wl-item">'
-                f'  <span class="wl-ticker">{_short(t)}</span>'
-                f'  <div class="wl-right">'
-                f'    <span class="wl-pct {cls}">{pnl_pct:+.1f}%</span>'
-                f'    <span class="wl-price">{cp:,.2f}</span>'
-                f'  </div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-    else:
-        st.markdown(
-            '<div class="empty-state" style="padding:40px 12px">'
-            '  <div class="empty-title">No active positions</div>'
-            '  <div class="empty-sub">Signals will appear when the market opens and the AI engine runs.</div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+    # ── HOLDINGS section ──────────────────────────────────────────────────────
+    _hold_toggle = st.toggle(
+        f"Holdings  ({len(_pos_sorted)})",
+        value=st.session_state.sb_hold_open,
+        key="sb_hold_toggle",
+    )
+    st.session_state.sb_hold_open = _hold_toggle
 
-    st.markdown('<div style="border-bottom:1px solid var(--border);margin:12px 0"></div>',
+    if _hold_toggle:
+        if _pos_sorted:
+            for p in _pos_sorted:
+                t = p["ticker"]
+                cp = p.get("current_price") or 0
+                pnl_pct = p.get("unrealised_pnl_pct") or 0
+                pnl = p.get("unrealised_pnl") or 0
+                cls = _pnl_class(pnl)
+                ohlc = fetch_today_ohlc(t)
+                o = ohlc.get("open") or 0
+                h = ohlc.get("high") or 0
+                l = ohlc.get("low") or 0
+                c = ohlc.get("close") or cp
+
+                is_selected = st.session_state.sidebar_sel == t
+                btn_label = f"{'▶ ' if is_selected else ''}{_short(t)}   {pnl_pct:+.1f}%   {currency}{cp:,.2f}"
+                if st.button(btn_label, key=f"sb_h_{t}", use_container_width=True,
+                             type="primary" if is_selected else "secondary"):
+                    if st.session_state.sidebar_sel == t:
+                        st.session_state.sidebar_sel = None
+                        st.session_state.sidebar_sel_src = None
+                    else:
+                        st.session_state.sidebar_sel = t
+                        st.session_state.sidebar_sel_src = "holding"
+                    st.rerun()
+
+                if o or h or l or c:
+                    st.markdown(
+                        f'<div class="wl-ohlc" style="margin:-6px 0 6px 4px">'
+                        f'O:<b>{currency}{o:,.2f}</b> '
+                        f'H:<b style="color:var(--profit)">{currency}{h:,.2f}</b> '
+                        f'L:<b style="color:var(--loss)">{currency}{l:,.2f}</b> '
+                        f'C:<b>{currency}{c:,.2f}</b>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+        else:
+            st.markdown('<div style="font-size:0.76rem;color:var(--text-tertiary);padding:6px 2px">No active positions</div>',
+                        unsafe_allow_html=True)
+
+    st.markdown('<div style="border-bottom:1px solid var(--border);margin:8px 0"></div>',
                 unsafe_allow_html=True)
 
+    # ── SIGNALS section ───────────────────────────────────────────────────────
+    _sig_toggle = st.toggle(
+        f"Signals  ({len(_sb_signals_sorted)})",
+        value=st.session_state.sb_sig_open,
+        key="sb_sig_toggle",
+    )
+    st.session_state.sb_sig_open = _sig_toggle
+
+    if _sig_toggle:
+        if _sb_signals_sorted:
+            for sig in _sb_signals_sorted:
+                t = sig.get("ticker", "")
+                score = sig.get("composite_score") or 0
+                direction = sig.get("direction") or "long"
+                sz = sig.get("position_size_aud") or 0
+                ohlc = fetch_today_ohlc(t)
+                o = ohlc.get("open") or 0
+                h = ohlc.get("high") or 0
+                l = ohlc.get("low") or 0
+                c = ohlc.get("close") or sig.get("entry_price") or 0
+                dir_icon = "▲" if direction == "long" else "▼"
+                score_chip = "high" if score >= 70 else ("low" if score < 55 else "")
+                actionable = sz > 0
+
+                is_selected = st.session_state.sidebar_sel == t
+                btn_label = f"{'▶ ' if is_selected else ''}{dir_icon} {_short(t)}   {score:.0f}"
+                btn_style = "primary" if is_selected else ("secondary" if actionable else "secondary")
+                if st.button(btn_label, key=f"sb_s_{t}", use_container_width=True, type=btn_style):
+                    if st.session_state.sidebar_sel == t:
+                        st.session_state.sidebar_sel = None
+                        st.session_state.sidebar_sel_src = None
+                    else:
+                        st.session_state.sidebar_sel = t
+                        st.session_state.sidebar_sel_src = "signal"
+                    st.rerun()
+
+                if o or h or l or c:
+                    st.markdown(
+                        f'<div class="wl-ohlc" style="margin:-6px 0 6px 4px">'
+                        f'O:<b>{currency}{o:,.2f}</b> '
+                        f'H:<b style="color:var(--profit)">{currency}{h:,.2f}</b> '
+                        f'L:<b style="color:var(--loss)">{currency}{l:,.2f}</b> '
+                        f'C:<b>{currency}{c:,.2f}</b>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+        else:
+            st.markdown('<div style="font-size:0.76rem;color:var(--text-tertiary);padding:6px 2px">No signals for today</div>',
+                        unsafe_allow_html=True)
+
+    st.markdown('<div style="border-bottom:1px solid var(--border);margin:8px 0"></div>',
+                unsafe_allow_html=True)
+
+    # ── Footer ────────────────────────────────────────────────────────────────
     _phase = int(os.getenv("TRADING_PHASE", 1))
     _capital = float(os.getenv("PORTFOLIO_CAPITAL", 100000))
     mode_map = {1: ("Paper", "var(--warning)"), 2: ("IBKR Paper", "var(--accent)"), 3: ("LIVE", "var(--profit)")}
     mode_text, mode_color = mode_map.get(_phase, ("Paper", "var(--warning)"))
 
     st.markdown(
-        f'<div style="font-size:0.75rem;color:var(--text-tertiary);padding:4px 0;line-height:1.8">'
-        f'  Mode: <span style="color:{mode_color};font-weight:600">{mode_text}</span><br>'
-        f'  Capital: <span style="color:var(--text-secondary);font-weight:500">{currency}{_capital:,.0f}</span><br>'
-        f'  Source: <span style="color:var(--text-secondary);font-weight:500">{"Supabase" if _use_supabase() else "Local DB"}</span>'
+        f'<div style="font-size:0.73rem;color:var(--text-tertiary);padding:4px 0 6px;line-height:1.9">'
+        f'  Mode: <span style="color:{mode_color};font-weight:600">{mode_text}</span> &nbsp;·&nbsp;'
+        f'  {currency}{_capital:,.0f}'
+        f'  <br>Source: <span style="color:var(--text-secondary);font-weight:500">{"Supabase" if _use_supabase() else "Local DB"}</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
-
-    st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-
     if st.button("Refresh", use_container_width=True, type="secondary"):
         st.cache_data.clear()
         st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DETAIL PANEL (above tabs — shown when a sidebar item is selected)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _render_detail_panel(ticker: str, src: str, positions: list, currency: str, exchange: str):
+    """Full consolidated detail panel for the selected ticker."""
+    import plotly.graph_objects as _go2
+
+    # Find matching position and signal
+    pos = next((p for p in positions if p["ticker"] == ticker), None)
+    today_sigs = load_signals(exchange, _today(exchange), 50)
+    sig = next((s for s in today_sigs if s.get("ticker") == ticker), None)
+
+    ohlc = fetch_today_ohlc(ticker)
+    ohlcv = fetch_ohlcv(ticker, days=90)
+
+    short = _short(ticker)
+    cp = (pos or {}).get("current_price") or (sig or {}).get("entry_price") or 0
+    direction = (sig or {}).get("direction") or (pos or {}).get("direction") or "long"
+    dir_icon = "▲ LONG" if direction == "long" else "▼ SHORT"
+    dir_color = "var(--profit)" if direction == "long" else "var(--loss)"
+
+    close_col, _ = st.columns([1, 10])
+    with close_col:
+        if st.button("✕", key="detail_close", help="Close detail panel"):
+            st.session_state.sidebar_sel = None
+            st.session_state.sidebar_sel_src = None
+            st.rerun()
+
+    st.markdown(
+        f'<div class="detail-panel">'
+        f'  <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">'
+        f'    <span class="detail-panel-ticker">{short}</span>'
+        f'    <span style="font-size:0.8rem;color:{dir_color};font-weight:600">{dir_icon}</span>'
+        f'    <span style="font-size:0.78rem;color:var(--text-tertiary)">{ticker}</span>'
+        f'    <span style="font-size:1rem;font-weight:600;color:var(--text-primary)">{currency}{cp:,.2f}</span>'
+        f'  </div>',
+        unsafe_allow_html=True,
+    )
+
+    # OHLC bar
+    o = ohlc.get("open") or 0
+    h = ohlc.get("high") or 0
+    l = ohlc.get("low") or 0
+    c = ohlc.get("close") or cp
+    if o or h or l or c:
+        st.markdown(
+            f'<div class="detail-ohlc-row">'
+            f'  <div class="detail-ohlc-cell"><div class="detail-ohlc-label">Open</div><div class="detail-ohlc-val">{currency}{o:,.2f}</div></div>'
+            f'  <div class="detail-ohlc-cell"><div class="detail-ohlc-label">High</div><div class="detail-ohlc-val" style="color:var(--profit)">{currency}{h:,.2f}</div></div>'
+            f'  <div class="detail-ohlc-cell"><div class="detail-ohlc-label">Low</div><div class="detail-ohlc-val" style="color:var(--loss)">{currency}{l:,.2f}</div></div>'
+            f'  <div class="detail-ohlc-cell"><div class="detail-ohlc-label">Close</div><div class="detail-ohlc-val">{currency}{c:,.2f}</div></div>'
+            f'  <div class="detail-ohlc-cell"><div class="detail-ohlc-label">Chg vs Open</div>'
+            f'    <div class="detail-ohlc-val" style="color:{("var(--profit)" if c >= o else "var(--loss)") if o else "inherit"}">'
+            f'      {((c-o)/o*100):+.2f}%</div></div>' if o else ''
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # Key info grid
+    kv = []
+    if sig:
+        kv += [
+            ("Score", f"{sig.get('composite_score',0):.1f}/100"),
+            ("Entry", f"{currency}{sig.get('entry_price',0):,.2f}"),
+            ("Target", f"{currency}{sig.get('target_price',0):,.2f}"),
+            ("Stop", f"{currency}{sig.get('stop_loss_price',0):,.2f}"),
+            ("Strategy", sig.get("strategy_name") or "—"),
+        ]
+    if pos:
+        pnl = pos.get("unrealised_pnl") or 0
+        kv += [
+            ("Entry date", str(pos.get("entry_date") or "—")),
+            ("Shares", f"{pos.get('shares',0):,.0f}"),
+            ("Days held", str(pos.get("days_held") or 0)),
+            ("Unrealised P&L", f"{_pnl_sign(pnl, currency)} ({_pnl_pct(pos.get('unrealised_pnl_pct') or 0)})"),
+            ("Day P&L", f"{_pnl_sign(pos.get('day_pnl') or 0, currency)}"),
+        ]
+    if kv:
+        kv_html = '<div class="detail-kv">' + "".join(
+            f'<div class="detail-kv-item">{k}: <b>{v}</b></div>' for k, v in kv
+        ) + '</div>'
+        st.markdown(kv_html, unsafe_allow_html=True)
+
+    # Score breakdown
+    if sig:
+        scores = [
+            ("Sentiment", sig.get("sentiment_score") or 0),
+            ("Fundamental", sig.get("fundamental_score") or 0),
+            ("Technical", sig.get("technical_score") or 0),
+            ("Insider", sig.get("insider_score") or 0),
+        ]
+        sc_html = '<div class="detail-score-grid">'
+        for lbl, val in scores:
+            col = "var(--profit)" if val >= 65 else ("var(--loss)" if val < 40 else "var(--text-primary)")
+            sc_html += (f'<div class="detail-score-card">'
+                        f'  <div class="detail-score-label">{lbl}</div>'
+                        f'  <div class="detail-score-val" style="color:{col}">{val:.0f}</div>'
+                        f'</div>')
+        sc_html += '</div>'
+        st.markdown(sc_html, unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Mini chart
+    if ohlcv:
+        _dates  = [r.get("date") or r.get("Date") for r in ohlcv]
+        _closes = [r.get("close") or r.get("Close") or 0 for r in ohlcv]
+        _opens  = [r.get("open")  or r.get("Open")  or c for r, c in zip(ohlcv, _closes)]
+        _highs  = [r.get("high")  or r.get("High")  or c for r, c in zip(ohlcv, _closes)]
+        _lows   = [r.get("low")   or r.get("Low")   or c for r, c in zip(ohlcv, _closes)]
+
+        fig_d = _go2.Figure()
+        fig_d.add_trace(_go2.Candlestick(
+            x=_dates, open=_opens, high=_highs, low=_lows, close=_closes,
+            name="Price",
+            increasing_line_color="#00c48c", decreasing_line_color="#ff5a5a",
+            increasing_fillcolor="rgba(0,196,140,0.25)",
+            decreasing_fillcolor="rgba(255,90,90,0.25)",
+        ))
+        if sig:
+            for y, col, lbl in [
+                (sig.get("entry_price"), "#a0a0a6", "Entry"),
+                (sig.get("target_price"), "#00c48c", "Target"),
+                (sig.get("stop_loss_price"), "#ff5a5a", "Stop"),
+            ]:
+                if y:
+                    fig_d.add_shape(type="line", x0=0, x1=1, xref="paper",
+                                    y0=y, y1=y, line=dict(color=col, dash="dot", width=1.2))
+                    fig_d.add_annotation(x=1, xref="paper", y=y, yref="y",
+                                         text=f"<b>{lbl} {currency}{y:,.2f}</b>",
+                                         showarrow=False, font=dict(color=col, size=9),
+                                         xanchor="right", yanchor="middle",
+                                         bgcolor="rgba(18,18,23,0.8)", borderpad=2)
+        layout_d = _chart_base(h=260, title=f"{short} — 90-day price")
+        layout_d["xaxis"]["rangeslider"] = {"visible": False}
+        layout_d["yaxis"]["tickprefix"] = currency
+        layout_d["margin"] = dict(t=28, b=20, l=60, r=110)
+        fig_d.update_layout(**layout_d)
+        st.plotly_chart(fig_d, use_container_width=True, config={"displayModeBar": False})
+
+
+if st.session_state.sidebar_sel:
+    _render_detail_panel(
+        st.session_state.sidebar_sel,
+        st.session_state.sidebar_sel_src,
+        positions if "positions" in dir() else [],
+        currency if "currency" in dir() else "$",
+        exchange if "exchange" in dir() else "asx",
+    )
+    st.markdown('<div style="border-bottom:1px solid var(--border);margin:0 0 16px"></div>',
+                unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
