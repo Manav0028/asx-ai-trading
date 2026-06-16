@@ -1595,8 +1595,8 @@ if st.session_state.sidebar_sel:
 # MAIN CONTENT
 # ══════════════════════════════════════════════════════════════════════════════
 
-tab_dash, tab_holdings, tab_signals, tab_radar, tab_charts, tab_scanner, tab_history, tab_backtest = st.tabs([
-    "Dashboard", "Holdings", "Signals", "Radar", "Charts", "Scanner", "Trade History", "Backtest",
+tab_dash, tab_holdings, tab_signals, tab_radar, tab_charts, tab_scanner, tab_history, tab_backtest, tab_research = st.tabs([
+    "Dashboard", "Holdings", "Signals", "Radar", "Charts", "Scanner", "Trade History", "Backtest", "Research",
 ])
 
 
@@ -3097,3 +3097,300 @@ with tab_backtest:
             df_sa[sa_cols].sort_values(["validated", "rank_score"], ascending=False),
             use_container_width=True, hide_index=True,
         )
+
+
+# ── TAB 9: Research ───────────────────────────────────────────────────────────
+with tab_research:
+    import math
+    from datetime import timedelta as _td
+
+    st.markdown(
+        '<div class="kite-section">Research Dashboard</div>'
+        '<div style="color:var(--text-secondary);font-size:13px;margin-bottom:20px">'
+        'Auto-computed from live signals, holdings, and trade history. '
+        'Tracks the five profit-leakage hypotheses in real time.</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Load data ─────────────────────────────────────────────────────────────
+    _r_signals   = load_signals(exchange, _today(exchange), 200)
+    _r_positions = portfolio.get("positions", []) if "portfolio" in dir() else []
+    _r_trades    = load_trades(exchange, 365)
+    _r_radar     = get_strategy_radar(exchange)
+    _r_regime    = load_regime(exchange)
+
+    # ── SECTION 1 · Hypothesis Tracker ───────────────────────────────────────
+    st.markdown('<div class="kite-section" style="margin-top:4px">Hypothesis Tracker</div>', unsafe_allow_html=True)
+
+    # H1 — signal lag: do we have signals with high scores but no matching open position?
+    _actionable = [s for s in _r_signals if (s.get("composite_score") or 0) >= 70]
+    _pos_tickers = {p["ticker"] for p in _r_positions}
+    _h1_missed   = [s for s in _actionable if s["ticker"] not in _pos_tickers]
+    _h1_acted    = [s for s in _actionable if s["ticker"] in _pos_tickers]
+    _h1_conv     = round(len(_h1_acted) / max(len(_actionable), 1) * 100)
+    _h1_status   = "confirmed" if _h1_conv < 50 else ("watch" if _h1_conv < 80 else "clear")
+
+    # H2 — exit nudge: positions at/near target or stop
+    _h2_at_risk = []
+    for _p in _r_positions:
+        _cp  = _p.get("current_price") or 0
+        _tp  = _p.get("target_price") or 0
+        _sp  = _p.get("stop_loss_price") or 0
+        if _tp and _cp >= _tp * 0.97:
+            _h2_at_risk.append((_p["ticker"], "near target", _cp, _tp))
+        elif _sp and _cp <= _sp * 1.03:
+            _h2_at_risk.append((_p["ticker"], "near stop", _cp, _sp))
+    _h2_status = "confirmed" if _h2_at_risk else "watch"
+
+    # H3 — decision friction: how many radar signals are firing but not held?
+    _h3_firing_unheld = [r for r in _r_radar if r.get("firing") and r["ticker"] not in _pos_tickers]
+    _h3_status = "confirmed" if len(_h3_firing_unheld) >= 2 else "watch"
+
+    # H4 — score drift: positions whose current composite score < 60 (entered at ≥70)
+    _sig_by_ticker = {s["ticker"]: s for s in _r_signals}
+    _h4_drifted = []
+    for _p in _r_positions:
+        _cur_sig = _sig_by_ticker.get(_p["ticker"])
+        _cur_score = (_cur_sig or {}).get("composite_score") or 0
+        if _cur_score and _cur_score < 60:
+            _h4_drifted.append((_p["ticker"], _cur_score))
+    _h4_status = "confirmed" if _h4_drifted else "clear"
+
+    # H5 — regime blindness: signals firing in risk-off regime
+    _regime_ok = _r_regime.get("regime_ok", True)
+    _h5_fire_in_riskoff = _actionable if not _regime_ok else []
+    _h5_status = "confirmed" if _h5_fire_in_riskoff else "clear"
+
+    def _hyp_color(status):
+        return {"confirmed": "#ff5a5a", "watch": "#d4a017", "clear": "#00c48c"}.get(status, "#9090a0")
+
+    def _hyp_bg(status):
+        return {"confirmed": "rgba(255,90,90,0.1)", "watch": "rgba(212,160,23,0.1)", "clear": "rgba(0,196,140,0.08)"}.get(status, "")
+
+    _hyps = [
+        ("H1", "Signal Lag", _h1_status,
+         f"{len(_h1_missed)} high-score signals not acted on today ({_h1_conv}% conversion rate).",
+         "Entry price may have moved by the time you see the signal. Add push alerts at score ≥ 70."),
+        ("H2", "No Exit Nudge", _h2_status,
+         f"{len(_h2_at_risk)} holding(s) within 3% of target or stop right now." if _h2_at_risk else "No holdings near target or stop today.",
+         "Dashboard gives no in-row alert when a position hits its predicted level."),
+        ("H3", "Decision Friction", _h3_status,
+         f"{len(_h3_firing_unheld)} strategy radar signal(s) firing but not in portfolio.",
+         "Multiple steps (signal → inspector → decide) add latency before acting on live signals."),
+        ("H4", "Score Drift", _h4_status,
+         f"{len(_h4_drifted)} holding(s) now scoring < 60 — thesis may have weakened." if _h4_drifted else "All holdings maintain score ≥ 60.",
+         "Holdings tab has no live score column — deteriorating theses aren't visible at a glance."),
+        ("H5", "Regime Blindness", _h5_status,
+         f"{'Risk-OFF — ' + str(len(_h5_fire_in_riskoff)) + ' buy signals firing against regime.' if not _regime_ok else 'Regime is RISK-ON — signals are aligned.'}",
+         "Regime context is shown once at Dashboard top but absent from the Signal card view."),
+    ]
+
+    _hyp_cols = st.columns(5)
+    for _i, (_hid, _htitle, _hstatus, _hfact, _hrec) in enumerate(_hyps):
+        with _hyp_cols[_i]:
+            st.markdown(
+                f'<div style="background:var(--bg-secondary);border:1px solid var(--border);'
+                f'border-top:3px solid {_hyp_color(_hstatus)};border-radius:8px;padding:14px 12px">'
+                f'  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+                f'    <span style="font-size:11px;font-weight:700;color:var(--text-tertiary);letter-spacing:0.05em">{_hid}</span>'
+                f'    <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;'
+                f'    padding:2px 7px;border-radius:4px;background:{_hyp_bg(_hstatus)};color:{_hyp_color(_hstatus)}">'
+                f'    {_hstatus}</span></div>'
+                f'  <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:6px">{_htitle}</div>'
+                f'  <div style="font-size:12px;color:var(--text-secondary);line-height:1.5">{_hfact}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    # ── SECTION 2 · Signal → Action Diary ────────────────────────────────────
+    st.markdown('<div class="kite-section" style="margin-top:28px">Signal → Action Diary — Last 30 days</div>', unsafe_allow_html=True)
+
+    _diary_days = 30
+    _all_trades_365 = _r_trades
+    _recent_trades  = [t for t in _all_trades_365
+                       if t.get("entry_date") and
+                       (date.today() - (date.fromisoformat(str(t["entry_date"])[:10]))).days <= _diary_days]
+
+    _entered_tickers = {str(t["ticker"]) for t in _recent_trades}
+    _today_signals_all = load_signals(exchange, _today(exchange), 200)
+    _high_signals_today = [s for s in _today_signals_all if (s.get("composite_score") or 0) >= 60]
+
+    _diary_rows = []
+    for _s in sorted(_today_signals_all, key=lambda x: x.get("composite_score") or 0, reverse=True)[:30]:
+        _tk   = _s.get("ticker", "")
+        _sc   = _s.get("composite_score") or 0
+        _held = _tk in _pos_tickers
+        _ever_traded = _tk in _entered_tickers
+        if _sc < 55:
+            continue
+        _action = "Holding" if _held else ("Traded (closed)" if _ever_traded else "No action")
+        _act_col = {"Holding": "#00c48c", "Traded (closed)": "#6993ff", "No action": "#ff5a5a"}.get(_action, "#9090a0")
+        _diary_rows.append({
+            "Ticker": _tk,
+            "Score": f"{_sc:.0f}",
+            "Sentiment": f"{_s.get('sentiment_score') or 0:.0f}",
+            "Technical": f"{_s.get('technical_score') or 0:.0f}",
+            "Fundamental": f"{_s.get('fundamental_score') or 0:.0f}",
+            "Entry px": f"{currency}{_s.get('entry_price') or 0:.2f}" if _s.get("entry_price") else "—",
+            "Target px": f"{currency}{_s.get('target_price') or 0:.2f}" if _s.get("target_price") else "—",
+            "Action": _action,
+            "_act_col": _act_col,
+        })
+
+    if _diary_rows:
+        _acted   = sum(1 for r in _diary_rows if r["Action"] != "No action")
+        _missed  = sum(1 for r in _diary_rows if r["Action"] == "No action")
+        _conv_rt = round(_acted / max(len(_diary_rows), 1) * 100)
+
+        _m1, _m2, _m3 = st.columns(3)
+        with _m1:
+            st.markdown(
+                f'<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:14px 16px">'
+                f'  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);margin-bottom:6px">Signals ≥55 today</div>'
+                f'  <div style="font-size:2rem;font-weight:700;color:var(--text-primary);font-variant-numeric:tabular-nums">{len(_diary_rows)}</div>'
+                f'</div>', unsafe_allow_html=True)
+        with _m2:
+            st.markdown(
+                f'<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:14px 16px">'
+                f'  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);margin-bottom:6px">Acted on</div>'
+                f'  <div style="font-size:2rem;font-weight:700;color:var(--profit);font-variant-numeric:tabular-nums">{_acted}</div>'
+                f'</div>', unsafe_allow_html=True)
+        with _m3:
+            st.markdown(
+                f'<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:14px 16px">'
+                f'  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);margin-bottom:6px">Conversion rate</div>'
+                f'  <div style="font-size:2rem;font-weight:700;font-variant-numeric:tabular-nums;'
+                f'  color:{"var(--profit)" if _conv_rt >= 60 else "var(--loss)"}">{_conv_rt}%</div>'
+                f'</div>', unsafe_allow_html=True)
+
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+        _diary_table = '<table class="kite-table"><thead><tr>'
+        for _col in ["Ticker", "Score", "Sent", "Tech", "Fund", "Entry", "Target", "Action taken"]:
+            _diary_table += f'<th>{_col}</th>'
+        _diary_table += '</tr></thead><tbody>'
+        for _row in _diary_rows:
+            _diary_table += '<tr>'
+            _diary_table += f'<td><span class="ticker-link" style="font-family:var(--font-mono)">{_row["Ticker"]}</span></td>'
+            _sc_v = int(_row["Score"])
+            _sc_cl = "profit" if _sc_v >= 70 else ("warning" if _sc_v >= 60 else "loss")
+            _diary_table += f'<td><span class="score-badge {_sc_cl}">{_row["Score"]}</span></td>'
+            _diary_table += f'<td style="color:var(--text-secondary)">{_row["Sentiment"]}</td>'
+            _diary_table += f'<td style="color:var(--text-secondary)">{_row["Technical"]}</td>'
+            _diary_table += f'<td style="color:var(--text-secondary)">{_row["Fundamental"]}</td>'
+            _diary_table += f'<td style="font-family:var(--font-mono)">{_row["Entry px"]}</td>'
+            _diary_table += f'<td style="font-family:var(--font-mono)">{_row["Target px"]}</td>'
+            _diary_table += (
+                f'<td><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;'
+                f'background:{_row["_act_col"]}22;color:{_row["_act_col"]}">{_row["Action"]}</span></td>'
+            )
+            _diary_table += '</tr>'
+        _diary_table += '</tbody></table>'
+        st.markdown(_diary_table, unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="empty-state"><div class="empty-title">No signals today</div></div>', unsafe_allow_html=True)
+
+    # ── SECTION 3 · Exit Retrospective ───────────────────────────────────────
+    st.markdown('<div class="kite-section" style="margin-top:28px">Exit Retrospective — Last 365 days</div>', unsafe_allow_html=True)
+
+    _closed = [t for t in _r_trades if t.get("exit_date") and t.get("exit_price")]
+    if _closed:
+        _wins  = [t for t in _closed if (t.get("realised_pnl") or 0) > 0]
+        _loss  = [t for t in _closed if (t.get("realised_pnl") or 0) <= 0]
+        _total_real = sum(t.get("realised_pnl") or 0 for t in _closed)
+        _avg_win    = sum(t.get("realised_pnl") or 0 for t in _wins) / max(len(_wins), 1)
+        _avg_loss   = sum(t.get("realised_pnl") or 0 for t in _loss) / max(len(_loss), 1)
+        _pf         = abs(_avg_win / _avg_loss) if _avg_loss else 0
+        _wr         = round(len(_wins) / max(len(_closed), 1) * 100)
+
+        _e1, _e2, _e3, _e4 = st.columns(4)
+        for _col, _label, _val, _fmt, _color in [
+            (_e1, "Closed trades",  len(_closed),     str,    "var(--text-primary)"),
+            (_e2, "Win rate",       f"{_wr}%",         str,    "var(--profit)" if _wr >= 50 else "var(--loss)"),
+            (_e3, "Profit factor",  f"{_pf:.2f}x",     str,    "var(--profit)" if _pf >= 1 else "var(--loss)"),
+            (_e4, "Total realised", _pnl_sign(_total_real, currency), str, _pnl_class_var(_total_real)),
+        ]:
+            with _col:
+                st.markdown(
+                    f'<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:14px 16px">'
+                    f'  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);margin-bottom:6px">{_label}</div>'
+                    f'  <div style="font-size:1.8rem;font-weight:700;font-variant-numeric:tabular-nums;color:{_color}">{_val}</div>'
+                    f'</div>', unsafe_allow_html=True)
+
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+        _retro_table = '<table class="kite-table"><thead><tr>'
+        for _c in ["Ticker", "Entry date", "Exit date", "Days held", "Entry px", "Exit px", "Realised P&L", "Outcome"]:
+            _retro_table += f'<th>{_c}</th>'
+        _retro_table += '</tr></thead><tbody>'
+
+        for _t in _closed[:50]:
+            _rpnl  = _t.get("realised_pnl") or 0
+            _days  = 0
+            try:
+                _ed = date.fromisoformat(str(_t.get("entry_date", ""))[:10])
+                _xd = date.fromisoformat(str(_t.get("exit_date",  ""))[:10])
+                _days = (_xd - _ed).days
+            except Exception:
+                pass
+            _outcome = "Win" if _rpnl > 0 else "Loss"
+            _oc      = "var(--profit)" if _rpnl > 0 else "var(--loss)"
+            _retro_table += (
+                f'<tr>'
+                f'<td><span style="font-family:var(--font-mono);font-weight:600">{_t.get("ticker","")}</span></td>'
+                f'<td style="color:var(--text-secondary)">{str(_t.get("entry_date",""))[:10]}</td>'
+                f'<td style="color:var(--text-secondary)">{str(_t.get("exit_date",""))[:10]}</td>'
+                f'<td style="font-variant-numeric:tabular-nums">{_days}d</td>'
+                f'<td style="font-family:var(--font-mono)">{currency}{float(_t.get("entry_price") or 0):.2f}</td>'
+                f'<td style="font-family:var(--font-mono)">{currency}{float(_t.get("exit_price") or 0):.2f}</td>'
+                f'<td style="font-family:var(--font-mono);color:{_oc};font-weight:600">{_pnl_sign(_rpnl, currency)}</td>'
+                f'<td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;'
+                f'background:{_oc}22;color:{_oc}">{_outcome}</span></td>'
+                f'</tr>'
+            )
+        _retro_table += '</tbody></table>'
+        st.markdown(_retro_table, unsafe_allow_html=True)
+    else:
+        st.markdown(
+            '<div class="empty-state"><div class="empty-title">No closed trades yet</div>'
+            '<div class="empty-sub">Exit retrospective will populate as you close positions.</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── SECTION 4 · Score Drift Alert ────────────────────────────────────────
+    if _h4_drifted or _h2_at_risk:
+        st.markdown('<div class="kite-section" style="margin-top:28px">Live Alerts — Act Now</div>', unsafe_allow_html=True)
+
+        for _ticker, _score in _h4_drifted:
+            st.markdown(
+                f'<div style="background:rgba(255,90,90,0.08);border:1px solid rgba(255,90,90,0.3);'
+                f'border-radius:8px;padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">'
+                f'  <span style="font-size:18px">⚠️</span>'
+                f'  <div><b style="font-family:var(--font-mono);color:var(--text-primary)">{_ticker}</b>'
+                f'  <span style="color:var(--text-secondary);font-size:12px;margin-left:8px">'
+                f'  Score has dropped to <b style="color:var(--loss)">{_score:.0f}</b> — '
+                f'  thesis may have weakened. Consider reviewing the position.</span></div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        for _ticker, _kind, _cp, _level in _h2_at_risk:
+            _is_target = "target" in _kind
+            _col = "var(--profit)" if _is_target else "var(--loss)"
+            _icon = "🎯" if _is_target else "🛑"
+            st.markdown(
+                f'<div style="background:{"rgba(0,196,140,0.08)" if _is_target else "rgba(255,90,90,0.08)"};'
+                f'border:1px solid {"rgba(0,196,140,0.3)" if _is_target else "rgba(255,90,90,0.3)"};'
+                f'border-radius:8px;padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">'
+                f'  <span style="font-size:18px">{_icon}</span>'
+                f'  <div><b style="font-family:var(--font-mono);color:var(--text-primary)">{_ticker}</b>'
+                f'  <span style="color:var(--text-secondary);font-size:12px;margin-left:8px">'
+                f'  {_kind.title()}: price {currency}{_cp:.2f} vs level {currency}{_level:.2f}. '
+                f'  Review your exit plan.</span></div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+
+def _pnl_class_var(v):
+    return "var(--profit)" if v > 0 else ("var(--loss)" if v < 0 else "var(--text-secondary)")
