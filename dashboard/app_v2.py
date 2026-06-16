@@ -1530,7 +1530,6 @@ with tab_radar:
             _lows   = [r.get("low")   or r.get("Low")   or c for r, c in zip(_ohlcv, _closes)]
 
             _fig_pred = _go.Figure()
-            # Candlestick
             _fig_pred.add_trace(_go.Candlestick(
                 x=_dates, open=_opens, high=_highs, low=_lows, close=_closes,
                 name="Price",
@@ -1538,42 +1537,70 @@ with tab_radar:
                 increasing_fillcolor="rgba(0,196,140,0.25)",
                 decreasing_fillcolor="rgba(255,90,90,0.25)",
             ))
-            # Horizontal level lines
+
             _entry_v = sel.get("entry_price")
             _target_v = sel.get("target_price")
             _stop_v   = sel.get("stop_loss_price")
+
+            # Draw level lines without built-in annotations (avoids overlap)
+            def _hline(fig, y, color, dash, width=1.5):
+                fig.add_shape(type="line", x0=0, x1=1, xref="paper",
+                              y0=y, y1=y, line=dict(color=color, dash=dash, width=width))
+
             if _entry_v:
-                _fig_pred.add_hline(y=_entry_v,  line_color="#a0a0a6", line_dash="dash",
-                                    line_width=1, annotation_text=f"Entry {currency}{_entry_v:.2f}",
-                                    annotation_font_color="#a0a0a6", annotation_position="left")
+                _hline(_fig_pred, _entry_v, "#a0a0a6", "dash", 1)
             if _target_v:
-                _fig_pred.add_hline(y=_target_v, line_color="#00c48c", line_dash="dot",
-                                    line_width=1.5, annotation_text=f"Target {currency}{_target_v:.2f}",
-                                    annotation_font_color="#00c48c", annotation_position="left")
+                _hline(_fig_pred, _target_v, "#00c48c", "dot")
             if _stop_v:
-                _fig_pred.add_hline(y=_stop_v,   line_color="#ff5a5a", line_dash="dot",
-                                    line_width=1.5, annotation_text=f"Stop {currency}{_stop_v:.2f}",
-                                    annotation_font_color="#ff5a5a", annotation_position="left")
-            # Shade predicted zone (entry → target for long, entry → target for short)
-            if _entry_v and _target_v and _dates:
-                _zone_color = "rgba(0,196,140,0.06)" if direction == "long" else "rgba(255,90,90,0.06)"
+                _hline(_fig_pred, _stop_v, "#ff5a5a", "dot")
+
+            # Labels on the RIGHT side, staggered vertically so they never overlap
+            _labels = []
+            if _entry_v:
+                _labels.append((_entry_v, f"Entry {currency}{_entry_v:.2f}", "#a0a0a6"))
+            if _target_v:
+                _labels.append((_target_v, f"Target {currency}{_target_v:.2f}", "#00c48c"))
+            if _stop_v:
+                _labels.append((_stop_v, f"Stop {currency}{_stop_v:.2f}", "#ff5a5a"))
+
+            # Sort by y value, then nudge labels that are within 2% of each other
+            _labels.sort(key=lambda x: x[0])
+            _placed_y = []
+            for _lv, _lt, _lc in _labels:
+                _y_pos = _lv
+                for _py in _placed_y:
+                    if abs(_y_pos - _py) / max(abs(_py), 1) < 0.025:
+                        _y_pos = _py * 1.026
+                _placed_y.append(_y_pos)
+                _fig_pred.add_annotation(
+                    x=1, xref="paper", y=_y_pos, yref="y",
+                    text=f"<b>{_lt}</b>", showarrow=False,
+                    font=dict(color=_lc, size=10),
+                    xanchor="right", yanchor="middle",
+                    bgcolor="rgba(18,18,23,0.75)", borderpad=2,
+                )
+
+            # Shade predicted zone
+            if _entry_v and _target_v:
+                _zone_color = "rgba(0,196,140,0.07)" if direction == "long" else "rgba(255,90,90,0.07)"
                 _fig_pred.add_hrect(y0=min(_entry_v, _target_v), y1=max(_entry_v, _target_v),
                                     fillcolor=_zone_color, line_width=0)
 
-            # Direction arrow annotation at latest date
-            if _closes and _dates and _entry_v:
-                _arrow_y = _entry_v * (1.05 if direction == "long" else 0.95)
-                _arrow_text = "▲ Long target zone" if direction == "long" else "▼ Short target zone"
-                _arrow_color = "#00c48c" if direction == "long" else "#ff5a5a"
-                _fig_pred.add_annotation(
-                    x=_dates[-1], y=_arrow_y, text=_arrow_text,
-                    font=dict(color=_arrow_color, size=11), showarrow=False, xanchor="right",
-                )
+            # Y-axis zoom: show price range relevant to levels + current price, with 10% padding
+            _all_levels = [v for v in [_entry_v, _target_v, _stop_v] if v]
+            if _closes and _all_levels:
+                _recent_closes = _closes[-20:]  # last 20 bars of context
+                _y_min = min(min(_all_levels), min(_recent_closes)) * 0.93
+                _y_max = max(max(_all_levels), max(_recent_closes)) * 1.07
+            else:
+                _y_min, _y_max = None, None
 
-            _layout_pred = _chart_base(h=340, title="")
+            _layout_pred = _chart_base(h=380, title="")
             _layout_pred["xaxis"]["rangeslider"] = {"visible": False}
             _layout_pred["yaxis"]["tickprefix"] = currency
-            _layout_pred["margin"] = dict(t=20, b=30, l=70, r=10)
+            _layout_pred["margin"] = dict(t=20, b=30, l=70, r=130)
+            if _y_min and _y_max:
+                _layout_pred["yaxis"]["range"] = [_y_min, _y_max]
             _fig_pred.update_layout(**_layout_pred)
             st.plotly_chart(_fig_pred, use_container_width=True, config={"displayModeBar": False})
 

@@ -51,10 +51,12 @@ PAPER_SLIPPAGE = float(os.getenv("PAPER_SLIPPAGE", 0.001))     # 0.1%
 PORTFOLIO_CAPITAL = float(os.getenv("PORTFOLIO_CAPITAL", 100_000.0))
 
 # ── Signal weights (must sum to 1.0) ─────────────────────────────────────────
-WEIGHT_SENTIMENT = 0.30
-WEIGHT_FUNDAMENTAL = 0.25
-WEIGHT_TECHNICAL = 0.25
-WEIGHT_INSIDER = 0.20
+# Insider weight set to 0: ASX Form 604 / NSE insider data not reliably available.
+# Redistributed proportionally across remaining three dimensions.
+WEIGHT_SENTIMENT = 0.375
+WEIGHT_FUNDAMENTAL = 0.3125
+WEIGHT_TECHNICAL = 0.3125
+WEIGHT_INSIDER = 0.00
 
 # ── Exchange selection ────────────────────────────────────────────────────────
 # Set EXCHANGE=nse for NSE NIFTY 100; default is "asx" for ASX 200.
