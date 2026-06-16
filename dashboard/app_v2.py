@@ -834,6 +834,9 @@ def _pnl_sign(val: float, cur: str = "") -> str:
 def _pnl_pct(val: float) -> str:
     return f"{val:+.2f}%"
 
+def _pnl_class_var(v):
+    return "var(--profit)" if v > 0 else ("var(--loss)" if v < 0 else "var(--text-secondary)")
+
 def _tv_url(ticker: str) -> str:
     if ticker.endswith(".AX"): return f"https://www.tradingview.com/chart/?symbol=ASX:{ticker[:-3]}"
     if ticker.endswith(".NS"): return f"https://www.tradingview.com/chart/?symbol=NSE:{ticker[:-3]}"
@@ -3390,7 +3393,3 @@ with tab_research:
                 f'</div>',
                 unsafe_allow_html=True,
             )
-
-
-def _pnl_class_var(v):
-    return "var(--profit)" if v > 0 else ("var(--loss)" if v < 0 else "var(--text-secondary)")
