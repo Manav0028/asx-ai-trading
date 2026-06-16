@@ -43,34 +43,89 @@ from dashboard.data import (
 #   warning-amber: #ffb347
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
+    /* ── Surfaces ── */
     --bg-primary:    #121214;
     --bg-secondary:  #1a1a1e;
     --bg-tertiary:   #222226;
     --bg-hover:      #282830;
+    /* ── Borders ── */
     --border:        #2c2c30;
+    --border-strong: #3c3c42;
     --border-subtle: rgba(255,255,255,0.04);
+    /* ── Text ── */
     --text-primary:  #eaeaed;
     --text-secondary:#a0a0a6;
     --text-tertiary: #78787e;
+    /* ── Accent ── */
     --accent:        #6993ff;
     --accent-dim:    rgba(105,147,255,0.12);
+    /* ── Semantic ── */
     --profit:        #00c48c;
     --profit-dim:    rgba(0,196,140,0.10);
     --loss:          #ff5a5a;
     --loss-dim:      rgba(255,90,90,0.10);
     --warning:       #ffb347;
+    --warning-dim:   rgba(255,179,71,0.12);
+    --gold:          #d4a017;
+    --gold-dim:      rgba(212,160,23,0.15);
+    /* ── Categorical palette (allocation bars, charts) ── */
+    --cat-1:#6993ff; --cat-2:#00c48c; --cat-3:#ffb347; --cat-4:#ff5a5a;
+    --cat-5:#a78bfa; --cat-6:#22d3ee; --cat-7:#f472b6; --cat-8:#84cc16;
+    --cat-9:#fbbf24; --cat-10:#64748b; --cat-11:#e879f9; --cat-12:#818cf8;
+    --cat-13:#2dd4bf; --cat-14:#fb923c; --cat-15:#94a3b8; --cat-16:#38bdf8;
+    /* ── Radius ── */
     --radius-sm:     6px;
     --radius-md:     10px;
     --radius-lg:     14px;
+    --radius-pill:   999px;
+    /* ── Typography ── */
+    --font-sans:     'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono:     'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    --text-2xs:      0.72rem;
+    --text-xs:       0.78rem;
+    --text-sm:       0.85rem;
+    --text-base:     1rem;
+    --text-lg:       1.25rem;
+    --text-xl:       1.4rem;
+    --text-2xl:      2.2rem;
+    --weight-regular: 400;
+    --weight-medium:  500;
+    --weight-semibold:600;
+    --weight-bold:    700;
+    --tracking-label: 0.08em;
+    --tracking-chip:  0.06em;
+    --tracking-tight: -0.02em;
+    /* ── Motion ── */
+    --ease-out:      cubic-bezier(0.16, 1, 0.3, 1);
+    --dur-fast:      0.15s;
+    --dur-med:       0.2s;
+    --dur-slow:      0.4s;
+    /* ── Glows (live status only, no generic shadows) ── */
+    --glow-profit:   0 0 6px var(--profit);
+    --glow-firing:   0 0 0 1px var(--profit-dim);
+    --glow-nearmiss: 0 0 0 1px rgba(212,160,23,0.25);
+    --focus-ring:    0 0 0 2px var(--accent-dim);
 }
 
 * {
     box-sizing: border-box;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     -webkit-font-smoothing: antialiased;
+}
+
+/* ── DS utility classes (design system) ── */
+.ds-label {
+    font-size: var(--text-2xs); font-weight: var(--weight-semibold);
+    text-transform: uppercase; letter-spacing: var(--tracking-label);
+    color: var(--text-secondary);
+}
+.ds-num { font-variant-numeric: tabular-nums; }
+.ds-mono {
+    font-family: var(--font-mono) !important;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
 }
 
 html, body, [data-testid="stAppViewContainer"],
@@ -99,18 +154,18 @@ section[data-testid="stSidebar"] .stSelectbox label {
 }
 .summary-item { text-align: center; flex: 1; }
 .summary-item .label {
-    font-size: 0.75rem; color: var(--text-secondary);
-    text-transform: uppercase; letter-spacing: 0.08em;
-    margin-bottom: 6px; font-weight: 500;
+    font-size: var(--text-2xs); color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: var(--tracking-label);
+    margin-bottom: 6px; font-weight: var(--weight-semibold);
 }
 .summary-item .value {
-    font-size: 1.25rem; font-weight: 700; color: var(--text-primary);
+    font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--text-primary);
     font-variant-numeric: tabular-nums;
 }
 .summary-item .value.up { color: var(--profit); }
 .summary-item .value.down { color: var(--loss); }
 .summary-item .sub {
-    font-size: 0.75rem; margin-top: 4px;
+    font-size: var(--text-xs); margin-top: 4px;
     font-variant-numeric: tabular-nums;
 }
 .summary-item .sub.up { color: var(--profit); }
@@ -119,31 +174,33 @@ section[data-testid="stSidebar"] .stSelectbox label {
 /* ── Holdings table ───────────────────────────────────── */
 .kite-table {
     width: 100%; border-collapse: separate; border-spacing: 0;
-    font-size: 0.85rem;
+    font-size: var(--text-sm); font-family: var(--font-sans);
 }
 .kite-table thead th {
-    color: var(--text-secondary); font-size: 0.72rem; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-secondary); font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
+    text-transform: uppercase; letter-spacing: var(--tracking-label);
     padding: 12px 14px; border-bottom: 1px solid var(--border);
     text-align: right; position: sticky; top: 0;
-    background: var(--bg-primary);
+    background: var(--bg-primary); white-space: nowrap;
 }
 .kite-table thead th:first-child { text-align: left; }
 .kite-table tbody td {
     padding: 14px; border-bottom: 1px solid var(--border-subtle);
     color: var(--text-secondary); text-align: right;
     font-variant-numeric: tabular-nums;
-    transition: background 0.15s;
+    transition: background var(--dur-fast);
 }
 .kite-table tbody td:first-child {
-    text-align: left; font-weight: 600; color: var(--text-primary);
+    text-align: left; font-weight: var(--weight-semibold); color: var(--text-primary);
 }
 .kite-table tbody tr:hover td { background: var(--bg-hover); }
 .kite-table .up { color: var(--profit); }
 .kite-table .down { color: var(--loss); }
 .kite-table .ticker-link {
     color: var(--text-primary); text-decoration: none; font-weight: 600;
-    transition: color 0.15s;
+    font-family: var(--font-mono) !important; letter-spacing: -0.01em;
+    transition: color var(--dur-fast);
 }
 .kite-table .ticker-link:hover { color: var(--accent); }
 .kite-table .total-row td {
@@ -157,7 +214,7 @@ section[data-testid="stSidebar"] .stSelectbox label {
     overflow: hidden; margin: 20px 0 8px;
     background: var(--bg-tertiary);
 }
-.alloc-seg { transition: width 0.4s ease-out; min-width: 2px; }
+.alloc-seg { transition: width var(--dur-slow) var(--ease-out); min-width: 2px; }
 
 .alloc-legend {
     display: flex; flex-wrap: wrap; gap: 12px;
@@ -195,8 +252,9 @@ section[data-testid="stSidebar"] .stSelectbox label {
 .wl-ohlc { font-size: 0.66rem; color: var(--text-tertiary); letter-spacing: 0.02em; margin-top: 2px; }
 .wl-ohlc b { color: var(--text-secondary); }
 .wl-score-chip {
-    font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 4px;
-    background: rgba(105,147,255,0.15); color: #6993ff; min-width: 28px; text-align: center;
+    font-size: var(--text-2xs); font-weight: var(--weight-bold); padding: 2px 6px;
+    border-radius: var(--radius-sm); background: var(--accent-dim); color: var(--accent);
+    min-width: 28px; text-align: center; font-variant-numeric: tabular-nums;
 }
 .wl-score-chip.high { background: var(--profit-dim); color: var(--profit); }
 .wl-score-chip.low  { background: rgba(120,120,126,0.15); color: var(--text-tertiary); }
@@ -218,7 +276,7 @@ section[data-testid="stSidebar"] .stSelectbox label {
 /* ── Ticker detail panel (main area overlay) ──────────── */
 .detail-panel {
     background: var(--bg-secondary); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 20px 24px; margin-bottom: 20px;
+    border-radius: var(--radius-md); padding: 20px 24px; margin-bottom: 20px;
     position: relative;
 }
 .detail-panel-close {
@@ -228,7 +286,8 @@ section[data-testid="stSidebar"] .stSelectbox label {
     padding: 2px 8px; line-height: 1.4;
 }
 .detail-panel-ticker {
-    font-size: 1.4rem; font-weight: 700; color: var(--text-primary);
+    font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--text-primary);
+    font-family: var(--font-mono) !important; letter-spacing: -0.01em;
 }
 .detail-kv { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 10px 0; }
 .detail-kv-item { font-size: 0.78rem; color: var(--text-tertiary); }
@@ -251,33 +310,32 @@ section[data-testid="stSidebar"] .stSelectbox label {
 /* ── P&L hero ─────────────────────────────────────────── */
 .pnl-hero { padding: 24px 0; }
 .pnl-hero .big-num {
-    font-size: 2.2rem; font-weight: 700;
+    font-size: var(--text-2xl); font-weight: var(--weight-bold);
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em;
+    letter-spacing: var(--tracking-tight);
 }
 .pnl-hero .big-sub {
-    font-size: 0.85rem; color: var(--text-tertiary); margin-top: 4px;
+    font-size: var(--text-sm); color: var(--text-tertiary); margin-top: 4px;
     font-variant-numeric: tabular-nums;
 }
 .pnl-hero .side-stat {
-    font-size: 0.85rem; color: var(--text-secondary);
-    padding: 6px 0;
-    font-variant-numeric: tabular-nums;
+    font-size: var(--text-sm); color: var(--text-secondary);
+    padding: 6px 0; font-variant-numeric: tabular-nums;
 }
-.pnl-hero .side-stat b { color: var(--text-primary); font-weight: 600; }
+.pnl-hero .side-stat b { color: var(--text-primary); font-weight: var(--weight-semibold); }
 
 /* ── Section headers ──────────────────────────────────── */
 .kite-section {
-    font-size: 0.78rem; font-weight: 600; color: var(--text-secondary);
-    text-transform: uppercase; letter-spacing: 0.08em;
+    font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: var(--tracking-label);
     margin: 28px 0 14px; padding-bottom: 10px;
     border-bottom: 1px solid var(--border);
     display: flex; align-items: center; gap: 10px;
 }
 .kite-section .badge-count {
-    background: var(--bg-tertiary); padding: 2px 8px; border-radius: 4px;
-    font-size: 0.72rem; font-weight: 500; letter-spacing: 0;
-    text-transform: none; color: var(--text-tertiary);
+    background: var(--bg-tertiary); padding: 2px 8px; border-radius: var(--radius-sm);
+    font-size: var(--text-2xs); font-weight: var(--weight-medium); letter-spacing: 0;
+    text-transform: none; color: var(--text-tertiary); font-variant-numeric: tabular-nums;
 }
 
 /* ── Filter bar ──────────────────────────────────────── */
@@ -354,10 +412,10 @@ section[data-testid="stSidebar"] .stSelectbox label {
     border-radius: var(--radius-md);
     padding: 16px 20px;
     margin-bottom: 10px;
-    transition: border-color 0.2s, background 0.2s;
+    transition: border-color var(--dur-med), background var(--dur-med);
 }
 .sig-card:hover {
-    border-color: #3c3c42;
+    border-color: var(--border-strong);
     background: var(--bg-tertiary);
 }
 .sig-card .sig-header {
@@ -365,18 +423,19 @@ section[data-testid="stSidebar"] .stSelectbox label {
     margin-bottom: 10px;
 }
 .sig-card .sig-ticker {
-    font-weight: 700; color: var(--text-primary); font-size: 1rem;
-    text-decoration: none;
+    font-weight: 700; color: var(--text-primary); font-size: var(--text-base);
+    text-decoration: none; font-family: var(--font-mono) !important;
+    letter-spacing: -0.01em; transition: color var(--dur-fast);
 }
 .sig-card .sig-ticker:hover { color: var(--accent); }
 .sig-badge {
-    font-weight: 700; font-size: 0.82rem;
-    padding: 4px 10px; border-radius: 6px;
+    font-weight: 700; font-size: var(--text-xs);
+    padding: 4px 10px; border-radius: var(--radius-sm);
     font-variant-numeric: tabular-nums;
 }
 .sig-badge.high { background: var(--profit-dim); color: var(--profit); }
-.sig-badge.mid { background: rgba(255,179,71,0.12); color: var(--warning); }
-.sig-badge.low { background: var(--loss-dim); color: var(--loss); }
+.sig-badge.mid  { background: var(--warning-dim); color: var(--warning); }
+.sig-badge.low  { background: var(--loss-dim);    color: var(--loss); }
 .sig-levels {
     display: flex; gap: 16px; font-size: 0.78rem;
     color: var(--text-secondary); margin-top: 8px;
@@ -384,13 +443,17 @@ section[data-testid="stSidebar"] .stSelectbox label {
 }
 .sig-levels span { display: flex; align-items: center; gap: 4px; }
 .sig-subscores {
-    display: flex; gap: 14px; font-size: 0.72rem;
+    display: flex; gap: 10px; flex-wrap: wrap; font-size: var(--text-2xs);
     color: var(--text-tertiary); margin-top: 8px;
     font-variant-numeric: tabular-nums;
 }
 .sig-subscores .score-pill {
-    padding: 2px 8px; border-radius: 4px;
+    display: inline-flex; gap: 5px; align-items: baseline;
+    padding: 2px 8px; border-radius: var(--radius-sm);
     background: rgba(255,255,255,0.04);
+}
+.sig-subscores .score-pill b {
+    color: var(--text-secondary); font-weight: var(--weight-semibold);
 }
 
 /* ── Empty states ─────────────────────────────────────── */
@@ -424,73 +487,85 @@ section[data-testid="stSidebar"] .stSelectbox label {
 
 /* ── Strategy Radar ───────────────────────────────────── */
 .radar-card {
-    background: var(--card, #1c1c22); border: 1px solid var(--border, #2a2a31);
-    border-radius: 8px; padding: 14px 16px; margin-bottom: 10px;
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 10px;
+    transition: border-color var(--dur-med);
 }
-.radar-card.firing { border-color: var(--profit); box-shadow: 0 0 0 1px var(--profit-dim); }
-.radar-card.near-miss { border-color: #d4a017; box-shadow: 0 0 0 1px rgba(212, 160, 23, 0.25); }
+.radar-card.firing    { border-color: var(--profit); box-shadow: var(--glow-firing); }
+.radar-card.near-miss { border-color: var(--gold);   box-shadow: var(--glow-nearmiss); }
 .near-miss-chip {
     display: inline-flex; align-items: center; gap: 5px;
-    font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 4px;
-    background: rgba(212, 160, 23, 0.15); color: #d4a017;
+    font-size: var(--text-2xs); font-weight: var(--weight-semibold); padding: 2px 8px; border-radius: var(--radius-sm);
+    background: var(--gold-dim); color: var(--gold);
 }
 .radar-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
-.radar-ticker { font-size: 1rem; font-weight: 600; color: var(--text, #f4f4f6); text-decoration: none; }
+.radar-ticker {
+    font-size: var(--text-base); font-weight: var(--weight-semibold);
+    color: var(--text-primary); text-decoration: none;
+    font-family: var(--font-mono) !important; letter-spacing: -0.01em;
+    transition: color var(--dur-fast);
+}
 .radar-ticker:hover { color: var(--accent); }
 .dir-chip {
-    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
-    padding: 2px 8px; border-radius: 4px; text-transform: uppercase;
+    font-size: var(--text-2xs); font-weight: var(--weight-bold);
+    letter-spacing: var(--tracking-chip); padding: 2px 8px;
+    border-radius: var(--radius-sm); text-transform: uppercase;
 }
 .dir-chip.long  { background: var(--profit-dim); color: var(--profit); }
 .dir-chip.short { background: var(--loss-dim);   color: var(--loss); }
 .strat-chip {
-    font-size: 0.72rem; font-weight: 500; padding: 2px 8px; border-radius: 4px;
+    font-size: var(--text-xs); font-weight: var(--weight-medium);
+    padding: 2px 8px; border-radius: var(--radius-sm);
     background: var(--accent-dim); color: var(--accent);
 }
 .fire-chip {
     display: inline-flex; align-items: center; gap: 5px;
-    font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 4px;
+    font-size: var(--text-2xs); font-weight: var(--weight-semibold);
+    padding: 2px 8px; border-radius: var(--radius-sm);
     background: var(--profit-dim); color: var(--profit);
 }
-.fire-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--profit);
-            animation: radar-pulse 1.6s ease-out infinite; }
+.fire-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--profit);
+    animation: radar-pulse 1.6s ease-out infinite;
+}
 @keyframes radar-pulse {
     0%   { box-shadow: 0 0 0 0 var(--profit-dim); }
     70%  { box-shadow: 0 0 0 6px transparent; }
     100% { box-shadow: 0 0 0 0 transparent; }
 }
 @media (prefers-reduced-motion: reduce) { .fire-dot { animation: none; } }
-.radar-stats { display: flex; gap: 18px; font-size: 0.78rem; color: var(--text-dim, #78787e);
-               font-variant-numeric: tabular-nums; flex-wrap: wrap; }
-.radar-stats b { color: var(--text, #f4f4f6); font-weight: 600; }
-.radar-empty { padding: 28px; text-align: center; color: var(--text-dim, #78787e);
-               border: 1px dashed var(--border, #2a2a31); border-radius: 8px; font-size: 0.85rem; }
+.radar-stats {
+    display: flex; gap: 18px; font-size: var(--text-xs);
+    color: var(--text-tertiary); font-variant-numeric: tabular-nums; flex-wrap: wrap;
+}
+.radar-stats b { color: var(--text-primary); font-weight: var(--weight-semibold); }
+.radar-empty {
+    padding: 28px; text-align: center; color: var(--text-tertiary);
+    border: 1px dashed var(--border); border-radius: var(--radius-sm); font-size: var(--text-sm);
+}
 .radar-explain {
-    background: var(--card, #1c1c22); border: 1px solid var(--border, #2a2a31);
-    border-radius: 8px; padding: 14px 16px; margin-top: 10px; font-size: 0.82rem;
-    color: var(--text-dim, #78787e); line-height: 1.55;
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 14px 16px; margin-top: 10px;
+    font-size: var(--text-sm); color: var(--text-tertiary); line-height: 1.55;
 }
 .radar-explain h4 {
-    margin: 0 0 6px 0; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em;
-    text-transform: uppercase; color: var(--text, #f4f4f6);
+    margin: 0 0 6px 0; font-size: var(--text-2xs); font-weight: var(--weight-bold);
+    letter-spacing: var(--tracking-chip); text-transform: uppercase; color: var(--text-primary);
 }
 .radar-explain + .radar-explain { margin-top: 8px; }
-.radar-explain b { color: var(--text, #f4f4f6); }
-.gate-pass { color: var(--profit); font-weight: 600; }
-.gate-fail { color: var(--loss, #ff5a5a); font-weight: 600; }
+.radar-explain b { color: var(--text-primary); }
+.gate-pass { color: var(--profit); font-weight: var(--weight-semibold); }
+.gate-fail { color: var(--loss);   font-weight: var(--weight-semibold); }
 
 /* ── Regime badge ─────────────────────────────────────── */
 .regime-badge {
     display: inline-flex; align-items: center; gap: 6px;
-    padding: 4px 10px; border-radius: 6px; font-size: 0.78rem;
-    font-weight: 600;
+    padding: 4px 10px; border-radius: var(--radius-sm);
+    font-size: var(--text-xs); font-weight: var(--weight-semibold);
+    font-variant-numeric: tabular-nums;
 }
-.regime-badge.risk-on {
-    background: var(--profit-dim); color: var(--profit);
-}
-.regime-badge.risk-off {
-    background: var(--loss-dim); color: var(--loss);
-}
+.regime-badge.risk-on  { background: var(--profit-dim); color: var(--profit); }
+.regime-badge.risk-off { background: var(--loss-dim);   color: var(--loss); }
 
 /* ── Plotly ────────────────────────────────────────────── */
 .js-plotly-plot { border-radius: var(--radius-md); }
@@ -511,13 +586,13 @@ footer { visibility: hidden; }
     color: var(--text-secondary) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius-sm) !important;
-    font-weight: 500 !important;
-    transition: all 0.15s !important;
+    font-weight: var(--weight-medium) !important;
+    transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast) !important;
 }
 .stButton > button:hover {
     background: var(--bg-hover) !important;
     color: var(--text-primary) !important;
-    border-color: #3c3c42 !important;
+    border-color: var(--border-strong) !important;
 }
 
 /* ── Radio pill style ─────────────────────────────────── */
@@ -612,15 +687,15 @@ footer { visibility: hidden; }
     border-radius: var(--radius-md); padding: 18px 20px;
 }
 .pnl-card .pnl-label {
-    font-size: 0.72rem; font-weight: 600; color: var(--text-secondary);
-    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;
+    font-size: var(--text-2xs); font-weight: var(--weight-semibold); color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: var(--tracking-label); margin-bottom: 6px;
 }
 .pnl-card .pnl-value {
-    font-size: 1.9rem; font-weight: 700; font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em; line-height: 1;
+    font-size: var(--text-2xl); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums;
+    letter-spacing: var(--tracking-tight); line-height: 1.1;
 }
 .pnl-card .pnl-sub {
-    font-size: 0.78rem; margin-top: 5px;
+    font-size: var(--text-xs); margin-top: 5px;
     color: var(--text-tertiary); font-variant-numeric: tabular-nums;
 }
 .pnl-card .pnl-value.up  { color: var(--profit); }
@@ -1038,7 +1113,7 @@ with st.sidebar:
                 l = ohlc.get("low") or 0
                 c = ohlc.get("close") or sig.get("entry_price") or 0
                 dir_icon = "▲" if direction == "long" else "▼"
-                score_chip = "high" if score >= 70 else ("low" if score < 55 else "")
+                score_chip = "high" if score >= 70 else ("low" if score < 60 else "")
                 actionable = sz > 0
 
                 is_selected = st.session_state.sidebar_sel == t
@@ -1615,7 +1690,7 @@ with tab_signals:
                 is_bought_today   = t in bought_today
                 is_holding_before = t in holding_before
 
-                badge_cls = "high" if score >= 70 else ("mid" if score >= 55 else "low")
+                badge_cls = "high" if score >= 70 else ("mid" if score >= 60 else "low")
 
                 if direction == "long":
                     upside = ((target - entry) / entry * 100) if entry and target else 0
@@ -1687,10 +1762,10 @@ with tab_signals:
                     f'    <span style="color:{rr_color}">R:R <b>{rr_ratio:.1f}</b></span>'
                     f'  </div>'
                     f'  <div class="sig-subscores">'
-                    f'    <span class="score-pill">Sent {sent:.0f}</span>'
-                    f'    <span class="score-pill">Fund {fund:.0f}</span>'
-                    f'    <span class="score-pill">Tech {tech:.0f}</span>'
-                    f'    <span class="score-pill">Ins {ins:.0f}</span>'
+                    f'    <span class="score-pill">Sent <b>{sent:.0f}</b></span>'
+                    f'    <span class="score-pill">Fund <b>{fund:.0f}</b></span>'
+                    f'    <span class="score-pill">Tech <b>{tech:.0f}</b></span>'
+                    f'    <span class="score-pill">Ins <b>{ins:.0f}</b></span>'
                     f'  </div>'
                     f'</div>',
                     unsafe_allow_html=True,
