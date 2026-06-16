@@ -240,10 +240,16 @@ def _signals_local(exchange: str, signal_date: date, n: int) -> List[Dict]:
 # ── Portfolio (open positions) ─────────────────────────────────────────────────
 
 def _get_prev_closes(tickers: List[str]) -> Dict[str, float]:
-    """Get the previous trading day's close price for each ticker from the Price table."""
+    """
+    Get the previous trading day's close price for each ticker.
+    Primary: Supabase/local prices table (needs ≥2 rows per ticker).
+    Fallback: yfinance for any ticker where the DB only has 1 row or errors.
+    """
     result: Dict[str, float] = {}
     if not tickers:
         return result
+
+    # ── Try DB first ─────────────────────────────────────────────────────────
     try:
         if _use_supabase():
             for t in tickers:
@@ -251,12 +257,11 @@ def _get_prev_closes(tickers: List[str]) -> Dict[str, float]:
                     "ticker": f"eq.{t}",
                     "order": "date.desc",
                     "limit": 2,
-                    "select": "close",
+                    "select": "close,date",
                 })
                 if len(rows) >= 2:
                     result[t] = float(rows[1]["close"])
-                elif rows:
-                    result[t] = float(rows[0]["close"])
+                # 0 or 1 row → don't store; yfinance fallback will handle it
         else:
             from storage.database import get_session
             from storage.models import Price
@@ -271,10 +276,19 @@ def _get_prev_closes(tickers: List[str]) -> Dict[str, float]:
                     )
                     if len(rows) >= 2:
                         result[t] = float(rows[1].close)
-                    elif rows:
-                        result[t] = float(rows[0].close)
     except Exception:
         pass
+
+    # ── yfinance fallback for any ticker not resolved above ───────────────────
+    missing = [t for t in tickers if t not in result]
+    for t in missing:
+        try:
+            hist = get_price_history(t, days=5)
+            if len(hist) >= 2:
+                result[t] = float(hist[-2]["close"])  # second-to-last = prev close
+        except Exception:
+            pass
+
     return result
 
 
@@ -321,14 +335,12 @@ def get_portfolio(exchange: str, live: bool = False) -> Dict:
         p["is_live"]       = ticker in live_prices
 
         prev_close = prev_closes.get(ticker)
-        if prev_close is not None and prev_close != cp:
+        if prev_close is not None:
             p["day_pnl"]     = round((cp - prev_close) * shares, 2)
             p["day_pnl_pct"] = round((cp - prev_close) / prev_close * 100, 2) if prev_close else 0
         else:
-            # No prev-close available (price history missing) — show 0 rather than
-            # falling back to entry price which makes Day P&L equal Unrealised P&L.
-            p["day_pnl"]     = 0
-            p["day_pnl_pct"] = 0
+            p["day_pnl"]     = None  # no prev-close available
+            p["day_pnl_pct"] = None
 
     total_unrealised_pnl = sum(p.get("unrealised_pnl")   or 0 for p in positions)
     total_invested       = sum(p.get("invested")          or 0 for p in positions)
