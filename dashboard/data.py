@@ -340,7 +340,7 @@ def get_portfolio(exchange: str, live: bool = False) -> Dict:
     # so "Total P&L" reflects every day's results, not just open positions.
     realised_all_time, realised_today = _realised_pnl_totals(exchange)
     total_pnl     = total_unrealised_pnl + realised_all_time
-    total_day_pnl = open_day_pnl + realised_today
+    total_day_pnl = open_day_pnl  # unrealised intraday move only (current - prev close)
 
     return {
         "total_positions":      len(positions),
