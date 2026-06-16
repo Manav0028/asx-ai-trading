@@ -1520,6 +1520,59 @@ def _render_ticker_inspector(ticker: str, positions: list, currency: str, exchan
             unsafe_allow_html=True,
         )
 
+    # ── Strategy Prediction Chart ────────────────────────────────────────────
+    _pred_src = sig or radar
+    _pred_ep  = (_pred_src or {}).get("entry_price")
+    _pred_tp  = (_pred_src or {}).get("target_price")
+    _pred_sp  = (_pred_src or {}).get("stop_loss_price")
+
+    if ohlcv and (_pred_ep or _pred_tp or _pred_sp):
+        st.markdown(
+            '<div class="kite-section" style="margin-top:24px">Strategy Prediction vs Real-time Price</div>',
+            unsafe_allow_html=True,
+        )
+
+        _dates2  = [r.get("date") or r.get("Date") for r in ohlcv]
+        _closes2 = [r.get("close") or r.get("Close") or 0 for r in ohlcv]
+        _opens2  = [r.get("open")  or r.get("Open")  or c for r, c in zip(ohlcv, _closes2)]
+        _highs2  = [r.get("high")  or r.get("High")  or c for r, c in zip(ohlcv, _closes2)]
+        _lows2   = [r.get("low")   or r.get("Low")   or c for r, c in zip(ohlcv, _closes2)]
+        _vols2   = [r.get("volume") or r.get("Volume") or 0 for r in ohlcv]
+
+        _pred_levels = []
+        if _pred_ep: _pred_levels.append((_pred_ep, "Entry",  "#3c3c44", "#eaeaed"))
+        if _pred_tp: _pred_levels.append((_pred_tp, "Target", "#00c48c", "#ffffff"))
+        if _pred_sp: _pred_levels.append((_pred_sp, "Stop",   "#ff5a5a", "#ffffff"))
+
+        _pred_zone = None
+        if _pred_ep and _pred_tp:
+            _zc = "rgba(0,196,140,0.08)" if direction == "long" else "rgba(255,90,90,0.08)"
+            _pred_zone = (min(_pred_ep, _pred_tp), max(_pred_ep, _pred_tp), _zc)
+
+        _fig_pred = _build_candle_chart(
+            _dates2, _opens2, _highs2, _lows2, _closes2, volumes=_vols2,
+            levels=_pred_levels, zone=_pred_zone,
+            currency=currency, title="", h=400,
+        )
+        st.plotly_chart(_fig_pred, use_container_width=True, config={"displayModeBar": False})
+
+        # Direction verdict
+        if _closes2 and _pred_ep:
+            _latest = _closes2[-1]
+            if direction == "long":
+                _ok  = _latest > _pred_ep
+                _txt = (f"Price {currency}{_latest:.2f} is {'above' if _ok else 'below'} entry"
+                        f" — moving {'with' if _ok else 'against'} the long prediction.")
+            else:
+                _ok  = _latest < _pred_ep
+                _txt = (f"Price {currency}{_latest:.2f} is {'below' if _ok else 'above'} entry"
+                        f" — moving {'with' if _ok else 'against'} the short prediction.")
+            st.markdown(
+                f'<div style="font-size:0.85rem;color:{"var(--profit)" if _ok else "var(--loss)"};'
+                f'font-weight:500;padding:4px 0 16px">{_txt}</div>',
+                unsafe_allow_html=True,
+            )
+
     # ── Trade history ────────────────────────────────────────────────────────
     st.markdown(
         f'<div class="kite-section" style="margin-top:28px">Trade History'
