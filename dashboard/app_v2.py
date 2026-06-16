@@ -798,6 +798,128 @@ def _chart_base(h=300, title="", margin=(30, 20, 40, 10)):
     )
 
 
+def _build_candle_chart(
+    dates, opens, highs, lows, closes, volumes=None,
+    levels=None,   # list of (price, label, bg_color, text_color)
+    zone=None,     # (y0, y1, fill_color) for shaded prediction zone
+    currency="$", title="", h=400, y_range=None,
+):
+    """
+    Modern candlestick chart with:
+    - Volume subplot (25% height) with colour-coded bars
+    - 20-day EMA overlay
+    - Pill-badge level labels (solid background, high contrast)
+    - Auto-zoomed Y-axis
+    """
+    import plotly.graph_objects as _go_c
+    from plotly.subplots import make_subplots as _make_sub
+    import numpy as np
+
+    has_vol = bool(volumes and any(v for v in volumes))
+    row_heights = [0.75, 0.25] if has_vol else [1.0]
+    rows = 2 if has_vol else 1
+
+    fig = _make_sub(rows=rows, cols=1, shared_xaxes=True,
+                    vertical_spacing=0.02, row_heights=row_heights)
+
+    # ── Candlesticks ──────────────────────────────────────────────────────────
+    fig.add_trace(_go_c.Candlestick(
+        x=dates, open=opens, high=highs, low=lows, close=closes,
+        name="Price",
+        increasing_line_color="#00c48c", decreasing_line_color="#ff5a5a",
+        increasing_fillcolor="rgba(0,196,140,0.3)",
+        decreasing_fillcolor="rgba(255,90,90,0.3)",
+        line=dict(width=1),
+        whiskerwidth=0.6,
+    ), row=1, col=1)
+
+    # ── 20-day EMA ───────────────────────────────────────────────────────────
+    if len(closes) >= 5:
+        k = min(20, len(closes))
+        ema = []
+        mul = 2 / (k + 1)
+        prev = sum(closes[:k]) / k
+        ema = [None] * (k - 1) + [prev]
+        for c in closes[k:]:
+            prev = c * mul + prev * (1 - mul)
+            ema.append(prev)
+        fig.add_trace(_go_c.Scatter(
+            x=dates, y=ema, mode="lines", name=f"EMA{k}",
+            line=dict(color="#6993ff", width=1.5, dash="solid"),
+            opacity=0.8,
+        ), row=1, col=1)
+
+    # ── Volume bars ──────────────────────────────────────────────────────────
+    if has_vol:
+        vol_colors = [
+            "rgba(0,196,140,0.45)" if (closes[i] or 0) >= (opens[i] or 0) else "rgba(255,90,90,0.45)"
+            for i in range(len(dates))
+        ]
+        fig.add_trace(_go_c.Bar(
+            x=dates, y=volumes, name="Volume",
+            marker_color=vol_colors, showlegend=False,
+        ), row=2, col=1)
+
+    # ── Level lines + pill badges ─────────────────────────────────────────────
+    if levels:
+        # Sort by price and stagger overlapping labels
+        sorted_lvls = sorted(levels, key=lambda x: x[0])
+        placed = []
+        for price, label, bg, fg in sorted_lvls:
+            y_label = price
+            for py in placed:
+                if abs(y_label - py) / max(abs(py), 1) < 0.022:
+                    y_label = py * 1.023
+            placed.append(y_label)
+
+            # Dashed level line
+            fig.add_shape(
+                type="line", x0=0, x1=1, xref="paper", y0=price, y1=price,
+                line=dict(color=bg, width=1.5, dash="dot"), row=1, col=1,
+                yref="y1",
+            )
+            # Pill badge: solid background, high-contrast text
+            fig.add_annotation(
+                x=1.01, xref="paper", y=y_label, yref="y",
+                text=f"<b>{label}<br>{currency}{price:,.2f}</b>",
+                showarrow=False, align="left",
+                font=dict(color=fg, size=11, family="Inter"),
+                bgcolor=bg, bordercolor=bg, borderwidth=0,
+                borderpad=5, xanchor="left", yanchor="middle",
+            )
+
+    # ── Prediction zone ──────────────────────────────────────────────────────
+    if zone:
+        y0, y1, fill = zone
+        fig.add_hrect(y0=y0, y1=y1, fillcolor=fill, line_width=0, row=1, col=1)
+
+    # ── Y-axis zoom ───────────────────────────────────────────────────────────
+    if y_range is None and closes:
+        level_vals = [p for p, *_ in (levels or [])]
+        recent = closes[-30:]
+        all_vals = recent + level_vals
+        pad = (max(all_vals) - min(all_vals)) * 0.15 or max(all_vals) * 0.05
+        y_range = [min(all_vals) - pad, max(all_vals) + pad]
+
+    # ── Layout ────────────────────────────────────────────────────────────────
+    base = _chart_base(h=h, title=title, margin=(32, 20, 55, 10))
+    fig.update_layout(
+        **base,
+        xaxis_rangeslider_visible=False,
+        showlegend=False,
+        margin=dict(t=32, b=20, l=62, r=130),
+    )
+    fig.update_yaxes(tickprefix=currency, gridcolor="#1e1e22", zeroline=False, row=1, col=1)
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    if y_range:
+        fig.update_yaxes(range=y_range, row=1, col=1)
+    if has_vol:
+        fig.update_yaxes(showticklabels=False, gridcolor="#1e1e22", row=2, col=1)
+        fig.update_xaxes(showticklabels=True, row=2, col=1)
+
+    return fig
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1077,33 +1199,20 @@ def _render_detail_panel(ticker: str, src: str, positions: list, currency: str, 
         _highs  = [r.get("high")  or r.get("High")  or c for r, c in zip(ohlcv, _closes)]
         _lows   = [r.get("low")   or r.get("Low")   or c for r, c in zip(ohlcv, _closes)]
 
-        fig_d = _go2.Figure()
-        fig_d.add_trace(_go2.Candlestick(
-            x=_dates, open=_opens, high=_highs, low=_lows, close=_closes,
-            name="Price",
-            increasing_line_color="#00c48c", decreasing_line_color="#ff5a5a",
-            increasing_fillcolor="rgba(0,196,140,0.25)",
-            decreasing_fillcolor="rgba(255,90,90,0.25)",
-        ))
+        _lvls_d = []
         if sig:
-            for y, col, lbl in [
-                (sig.get("entry_price"), "#a0a0a6", "Entry"),
-                (sig.get("target_price"), "#00c48c", "Target"),
-                (sig.get("stop_loss_price"), "#ff5a5a", "Stop"),
-            ]:
-                if y:
-                    fig_d.add_shape(type="line", x0=0, x1=1, xref="paper",
-                                    y0=y, y1=y, line=dict(color=col, dash="dot", width=1.2))
-                    fig_d.add_annotation(x=1, xref="paper", y=y, yref="y",
-                                         text=f"<b>{lbl} {currency}{y:,.2f}</b>",
-                                         showarrow=False, font=dict(color=col, size=9),
-                                         xanchor="right", yanchor="middle",
-                                         bgcolor="rgba(18,18,23,0.8)", borderpad=2)
-        layout_d = _chart_base(h=260, title=f"{short} — 90-day price")
-        layout_d["xaxis"]["rangeslider"] = {"visible": False}
-        layout_d["yaxis"]["tickprefix"] = currency
-        layout_d["margin"] = dict(t=28, b=20, l=60, r=110)
-        fig_d.update_layout(**layout_d)
+            _ep = sig.get("entry_price")
+            _tp = sig.get("target_price")
+            _sp = sig.get("stop_loss_price")
+            if _ep: _lvls_d.append((_ep, "Entry",  "#3c3c44", "#eaeaed"))
+            if _tp: _lvls_d.append((_tp, "Target", "#00c48c", "#ffffff"))
+            if _sp: _lvls_d.append((_sp, "Stop",   "#ff5a5a", "#ffffff"))
+        _vols_d = [r.get("volume") or r.get("Volume") or 0 for r in ohlcv]
+        fig_d = _build_candle_chart(
+            _dates, _opens, _highs, _lows, _closes, volumes=_vols_d,
+            levels=_lvls_d, currency=currency,
+            title=f"{short} — 90-day price", h=320,
+        )
         st.plotly_chart(fig_d, use_container_width=True, config={"displayModeBar": False})
 
 
@@ -1859,80 +1968,27 @@ with tab_radar:
             _opens  = [r.get("open")  or r.get("Open")  or c for r, c in zip(_ohlcv, _closes)]
             _highs  = [r.get("high")  or r.get("High")  or c for r, c in zip(_ohlcv, _closes)]
             _lows   = [r.get("low")   or r.get("Low")   or c for r, c in zip(_ohlcv, _closes)]
+            _vols   = [r.get("volume") or r.get("Volume") or 0 for r in _ohlcv]
 
-            _fig_pred = _go.Figure()
-            _fig_pred.add_trace(_go.Candlestick(
-                x=_dates, open=_opens, high=_highs, low=_lows, close=_closes,
-                name="Price",
-                increasing_line_color="#00c48c", decreasing_line_color="#ff5a5a",
-                increasing_fillcolor="rgba(0,196,140,0.25)",
-                decreasing_fillcolor="rgba(255,90,90,0.25)",
-            ))
-
-            _entry_v = sel.get("entry_price")
+            _entry_v  = sel.get("entry_price")
             _target_v = sel.get("target_price")
             _stop_v   = sel.get("stop_loss_price")
 
-            # Draw level lines without built-in annotations (avoids overlap)
-            def _hline(fig, y, color, dash, width=1.5):
-                fig.add_shape(type="line", x0=0, x1=1, xref="paper",
-                              y0=y, y1=y, line=dict(color=color, dash=dash, width=width))
+            _pred_levels = []
+            if _entry_v:  _pred_levels.append((_entry_v,  "Entry",  "#3c3c44", "#eaeaed"))
+            if _target_v: _pred_levels.append((_target_v, "Target", "#00c48c", "#ffffff"))
+            if _stop_v:   _pred_levels.append((_stop_v,   "Stop",   "#ff5a5a", "#ffffff"))
 
-            if _entry_v:
-                _hline(_fig_pred, _entry_v, "#a0a0a6", "dash", 1)
-            if _target_v:
-                _hline(_fig_pred, _target_v, "#00c48c", "dot")
-            if _stop_v:
-                _hline(_fig_pred, _stop_v, "#ff5a5a", "dot")
-
-            # Labels on the RIGHT side, staggered vertically so they never overlap
-            _labels = []
-            if _entry_v:
-                _labels.append((_entry_v, f"Entry {currency}{_entry_v:.2f}", "#a0a0a6"))
-            if _target_v:
-                _labels.append((_target_v, f"Target {currency}{_target_v:.2f}", "#00c48c"))
-            if _stop_v:
-                _labels.append((_stop_v, f"Stop {currency}{_stop_v:.2f}", "#ff5a5a"))
-
-            # Sort by y value, then nudge labels that are within 2% of each other
-            _labels.sort(key=lambda x: x[0])
-            _placed_y = []
-            for _lv, _lt, _lc in _labels:
-                _y_pos = _lv
-                for _py in _placed_y:
-                    if abs(_y_pos - _py) / max(abs(_py), 1) < 0.025:
-                        _y_pos = _py * 1.026
-                _placed_y.append(_y_pos)
-                _fig_pred.add_annotation(
-                    x=1, xref="paper", y=_y_pos, yref="y",
-                    text=f"<b>{_lt}</b>", showarrow=False,
-                    font=dict(color=_lc, size=10),
-                    xanchor="right", yanchor="middle",
-                    bgcolor="rgba(18,18,23,0.75)", borderpad=2,
-                )
-
-            # Shade predicted zone
+            _pred_zone = None
             if _entry_v and _target_v:
-                _zone_color = "rgba(0,196,140,0.07)" if direction == "long" else "rgba(255,90,90,0.07)"
-                _fig_pred.add_hrect(y0=min(_entry_v, _target_v), y1=max(_entry_v, _target_v),
-                                    fillcolor=_zone_color, line_width=0)
+                _zc = "rgba(0,196,140,0.08)" if direction == "long" else "rgba(255,90,90,0.08)"
+                _pred_zone = (min(_entry_v, _target_v), max(_entry_v, _target_v), _zc)
 
-            # Y-axis zoom: show price range relevant to levels + current price, with 10% padding
-            _all_levels = [v for v in [_entry_v, _target_v, _stop_v] if v]
-            if _closes and _all_levels:
-                _recent_closes = _closes[-20:]  # last 20 bars of context
-                _y_min = min(min(_all_levels), min(_recent_closes)) * 0.93
-                _y_max = max(max(_all_levels), max(_recent_closes)) * 1.07
-            else:
-                _y_min, _y_max = None, None
-
-            _layout_pred = _chart_base(h=380, title="")
-            _layout_pred["xaxis"]["rangeslider"] = {"visible": False}
-            _layout_pred["yaxis"]["tickprefix"] = currency
-            _layout_pred["margin"] = dict(t=20, b=30, l=70, r=130)
-            if _y_min and _y_max:
-                _layout_pred["yaxis"]["range"] = [_y_min, _y_max]
-            _fig_pred.update_layout(**_layout_pred)
+            _fig_pred = _build_candle_chart(
+                _dates, _opens, _highs, _lows, _closes, volumes=_vols,
+                levels=_pred_levels, zone=_pred_zone,
+                currency=currency, title="", h=400,
+            )
             st.plotly_chart(_fig_pred, use_container_width=True, config={"displayModeBar": False})
 
             # Direction verdict vs latest price
