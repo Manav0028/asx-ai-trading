@@ -763,7 +763,7 @@ footer { visibility: hidden; }
 .sig-tooltip .tt-val { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* ── P&L hero two-up ──────────────────────────────────*/
-.pnl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 8px; }
+.pnl-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 8px; }
 .pnl-card {
     background: var(--bg-secondary); border: 1px solid var(--border);
     border-radius: var(--radius-md); padding: 18px 20px;
@@ -1606,37 +1606,43 @@ with tab_dash:
 
     total_invested = portfolio.get("total_invested", 0) or 0
     total_value = portfolio.get("total_current_value", 0) or 0
-    total_pnl = portfolio.get("total_unrealised_pnl", 0) or 0
+    unreal_pnl   = portfolio.get("total_unrealised_pnl", 0) or 0
+    realised_pnl = portfolio.get("total_realised_pnl", 0) or 0
+    total_pnl    = portfolio.get("total_pnl", 0) or 0
+    unreal_pct    = (unreal_pnl / total_invested * 100) if total_invested else 0
     total_pnl_pct = (total_pnl / total_invested * 100) if total_invested else 0
     regime = load_regime(exchange)
     pnl_cls = _pnl_class(total_pnl)
     regime_ok = regime.get("regime_ok")
 
-    day_pnl_dash  = portfolio.get("total_day_pnl", 0) or 0
-    day_pnl_dash_pct = (day_pnl_dash / total_value * 100) if total_value else 0
-
+    _pill = (
+        'style="margin-left:8px;font-size:var(--text-2xs);font-weight:500;'
+        'text-transform:none;letter-spacing:0;color:var(--text-tertiary);'
+        'background:var(--bg-tertiary);padding:2px 7px;border-radius:var(--radius-sm)"'
+    )
     st.markdown(
         f'<div class="pnl-grid">'
         f'  <div class="pnl-card">'
-        f'    <div class="pnl-label">Today\'s P&L'
-        f'      <span style="margin-left:8px;font-size:var(--text-2xs);font-weight:500;'
-        f'      text-transform:none;letter-spacing:0;color:var(--text-tertiary);'
-        f'      background:var(--bg-tertiary);padding:2px 7px;border-radius:var(--radius-sm)">'
-        f'      Unrealised only</span></div>'
-        f'    <div class="pnl-value {_pnl_class(day_pnl_dash)}">{_pnl_sign(day_pnl_dash, currency)}</div>'
-        f'    <div class="pnl-sub {_pnl_class(day_pnl_dash)}">{_pnl_pct(day_pnl_dash_pct)}'
-        f'      &nbsp;<span style="color:var(--text-tertiary);font-weight:400">vs prev close · open positions</span></div>'
+        f'    <div class="pnl-label">Unrealised P&L'
+        f'      <span {_pill}>Open positions</span></div>'
+        f'    <div class="pnl-value {_pnl_class(unreal_pnl)}">{_pnl_sign(unreal_pnl, currency)}</div>'
+        f'    <div class="pnl-sub {_pnl_class(unreal_pnl)}">{_pnl_pct(unreal_pct)}'
+        f'      &nbsp;<span style="color:var(--text-tertiary);font-weight:400">from entry · {len(positions)} holdings</span></div>'
+        f'  </div>'
+        f'  <div class="pnl-card">'
+        f'    <div class="pnl-label">Realised P&L'
+        f'      <span {_pill}>Closed trades</span></div>'
+        f'    <div class="pnl-value {_pnl_class(realised_pnl)}">{_pnl_sign(realised_pnl, currency)}</div>'
+        f'    <div class="pnl-sub {_pnl_class(realised_pnl)}">'
+        f'      <span style="color:var(--text-tertiary);font-weight:400">all-time · exited positions</span></div>'
         f'  </div>'
         f'  <div class="pnl-card">'
         f'    <div class="pnl-label">Total P&L'
-        f'      <span style="margin-left:8px;font-size:var(--text-2xs);font-weight:500;'
-        f'      text-transform:none;letter-spacing:0;color:var(--text-tertiary);'
-        f'      background:var(--bg-tertiary);padding:2px 7px;border-radius:var(--radius-sm)">'
-        f'      Unrealised + Realised</span></div>'
+        f'      <span {_pill}>Unrealised + Realised</span></div>'
         f'    <div class="pnl-value {pnl_cls}">{_pnl_sign(total_pnl, currency)}</div>'
         f'    <div class="pnl-sub {pnl_cls}">{_pnl_pct(total_pnl_pct)}'
         f'      &nbsp;<span style="color:var(--text-tertiary);font-weight:400">'
-        f'      {len(positions)} open positions + all closed trades</span></div>'
+        f'      {len(positions)} open + all closed trades</span></div>'
         f'  </div>'
         f'</div>',
         unsafe_allow_html=True,
@@ -1785,18 +1791,18 @@ with tab_holdings:
         st.markdown(
             f'<div class="hold-summary">'
             f'  <div class="hold-block">'
-            f'    <div class="hb-title">Today\'s P&L'
+            f'    <div class="hb-title">Unrealised P&L'
             f'      <span style="margin-left:6px;font-size:0.65rem;font-weight:500;font-style:italic;'
             f'      color:var(--text-tertiary);text-transform:none;letter-spacing:0">'
-            f'      Unrealised only — open positions vs prev close</span></div>'
-            f'    <div class="hb-row"><span class="hb-key">Intraday move</span>'
-            f'      <span class="hb-val {_pnl_class(_day_pnl)}">{_pnl_sign(_day_pnl, currency)} ({_pnl_pct(_day_pnl_pct)})</span></div>'
+            f'      Open positions · from entry</span></div>'
+            f'    <div class="hb-row"><span class="hb-key">Unrealised gain/loss</span>'
+            f'      <span class="hb-val {_pnl_class(_unrealised_pnl)}">{_pnl_sign(_unrealised_pnl, currency)} ({_pnl_pct(_unreal_pct)})</span></div>'
             f'    <div class="hb-row"><span class="hb-key">Positions shown</span>'
             f'      <span class="hb-val">{len(_pos)} of {len(positions)}</span></div>'
             f'    <div class="hb-row"><span class="hb-key">Current value</span>'
             f'      <span class="hb-val">{currency}{_total_value:,.2f}</span></div>'
-            f'    <div class="hb-row"><span class="hb-key">Total Unrealised</span>'
-            f'      <span class="hb-val {_pnl_class(_unrealised_pnl)}">{_pnl_sign(_unrealised_pnl, currency)} ({_pnl_pct(_unreal_pct)})</span></div>'
+            f'    <div class="hb-row"><span class="hb-key">Intraday move</span>'
+            f'      <span class="hb-val {_pnl_class(_day_pnl)}">{_pnl_sign(_day_pnl, currency)} ({_pnl_pct(_day_pnl_pct)})</span></div>'
             f'  </div>'
             f'  <div class="hold-block">'
             f'    <div class="hb-title">Total P&L'
