@@ -44,6 +44,7 @@ from dashboard.data import (
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
 
 :root {
     /* ── Surfaces ── */
@@ -1240,7 +1241,7 @@ def _render_detail_panel(ticker: str, src: str, positions: list, currency: str, 
             ("Shares", f"{pos.get('shares',0):,.0f}"),
             ("Days held", str(pos.get("days_held") or 0)),
             ("Unrealised P&L", f"{_pnl_sign(pnl, currency)} ({_pnl_pct(pos.get('unrealised_pnl_pct') or 0)})"),
-            ("Day P&L", f"{_pnl_sign(pos.get('day_pnl') or 0, currency)}"),
+            ("Day P&L", f"{_pnl_sign(pos.get('day_pnl') or 0, currency)} ({_pnl_pct(pos.get('day_pnl_pct') or 0)})" if pos.get('day_pnl') else "—"),
         ]
     if kv:
         kv_html = '<div class="detail-kv">' + "".join(

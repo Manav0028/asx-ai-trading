@@ -320,9 +320,15 @@ def get_portfolio(exchange: str, live: bool = False) -> Dict:
         p["current_value"] = round(cp * shares, 2)
         p["is_live"]       = ticker in live_prices
 
-        prev_close = prev_closes.get(ticker, entry)
-        p["day_pnl"] = round((cp - prev_close) * shares, 2)
-        p["day_pnl_pct"] = round((cp - prev_close) / prev_close * 100, 2) if prev_close else 0
+        prev_close = prev_closes.get(ticker)
+        if prev_close is not None and prev_close != cp:
+            p["day_pnl"]     = round((cp - prev_close) * shares, 2)
+            p["day_pnl_pct"] = round((cp - prev_close) / prev_close * 100, 2) if prev_close else 0
+        else:
+            # No prev-close available (price history missing) — show 0 rather than
+            # falling back to entry price which makes Day P&L equal Unrealised P&L.
+            p["day_pnl"]     = 0
+            p["day_pnl_pct"] = 0
 
     total_unrealised_pnl = sum(p.get("unrealised_pnl")   or 0 for p in positions)
     total_invested       = sum(p.get("invested")          or 0 for p in positions)
