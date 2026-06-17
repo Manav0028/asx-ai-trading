@@ -817,6 +817,156 @@ footer { visibility: hidden; }
     font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
     letter-spacing: 0.06em; color: var(--text-primary); margin: 0 0 8px;
 }
+
+/* ── Table scroll wrapper (mobile) ───────────────────*/
+.kite-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.kite-table-wrap .kite-table { min-width: 560px; }
+
+/* ══════════════════════════════════════════════════════
+   MOBILE RESPONSIVE — breakpoints: 768px and 420px
+   ══════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+    /* ── Container: reduce horizontal padding ── */
+    .main .block-container {
+        padding-left: 12px !important;
+        padding-right: 12px !important;
+        max-width: 100% !important;
+    }
+
+    /* ── Sidebar: full-width when open on mobile ── */
+    section[data-testid="stSidebar"] {
+        width: 100% !important;
+        min-width: 100% !important;
+    }
+
+    /* ── Tab bar: horizontal scroll, no wrap ── */
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        flex-wrap: nowrap !important;
+        scrollbar-width: none !important;
+    }
+    [data-testid="stTabs"] [data-baseweb="tab-list"]::-webkit-scrollbar { display: none; }
+    [data-testid="stTabs"] [data-baseweb="tab"] {
+        font-size: 0.75rem !important;
+        padding: 10px 14px !important;
+        white-space: nowrap !important;
+        min-height: 44px !important;
+    }
+
+    /* ── P&L grid: single column ── */
+    .pnl-grid {
+        grid-template-columns: 1fr !important;
+        gap: 10px !important;
+    }
+    .pnl-card .pnl-value { font-size: 1.7rem !important; }
+
+    /* ── Summary strip: 2-up on mobile ── */
+    .summary-strip {
+        flex-wrap: wrap !important;
+        gap: 16px 0 !important;
+        padding: 14px 0 !important;
+    }
+    .summary-item { flex: 1 1 50% !important; min-width: 130px !important; }
+    .summary-item .value { font-size: 1.1rem !important; }
+
+    /* ── Holdings split: single column ── */
+    .hold-summary { grid-template-columns: 1fr !important; }
+
+    /* ── Filter bar: wrap ── */
+    .filter-bar { flex-wrap: wrap !important; gap: 8px 8px !important; }
+
+    /* ── Inspector header: stack vertically ── */
+    .insp-header {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        gap: 12px !important;
+    }
+    .insp-ticker { font-size: 1.5rem !important; }
+    .insp-price  { font-size: 1.1rem !important; }
+
+    /* ── OHLC strip: 2×2 grid on mobile ── */
+    .insp-ohlc { flex-wrap: wrap !important; }
+    .insp-ohlc-cell {
+        flex: 1 1 50% !important;
+        border-right: none !important;
+        border-bottom: 1px solid var(--border) !important;
+    }
+    .insp-ohlc-cell:nth-child(odd)  { border-right: 1px solid var(--border) !important; }
+    .insp-ohlc-cell:last-child,
+    .insp-ohlc-cell:nth-last-child(2):nth-child(odd) { border-bottom: none !important; }
+
+    /* ── Score pills: 2 per row ── */
+    .insp-score-pill {
+        flex: 1 1 calc(50% - 5px) !important;
+        min-width: 80px !important;
+    }
+
+    /* ── Levels strip: wrap on very small screens ── */
+    .insp-levels { flex-wrap: wrap !important; }
+    .insp-level-cell { flex: 1 1 33% !important; }
+
+    /* ── Signal card: reduce padding ── */
+    .sig-card { padding: 12px 14px !important; }
+    .sig-levels { flex-wrap: wrap !important; gap: 6px 12px !important; }
+    .sig-subscores { gap: 6px !important; }
+
+    /* ── Radar stats: wrap ── */
+    .radar-stats { flex-wrap: wrap !important; gap: 8px !important; }
+    .radar-head  { flex-wrap: wrap !important; }
+
+    /* ── Alloc legend: wrap ── */
+    .alloc-legend { flex-wrap: wrap !important; gap: 8px !important; }
+
+    /* ── Empty state: compact ── */
+    .empty-state { padding: 40px 16px !important; }
+
+    /* ── Button: min touch target ── */
+    .stButton > button {
+        min-height: 44px !important;
+        font-size: 0.85rem !important;
+        padding: 8px 16px !important;
+    }
+
+    /* ── Select / dropdown: min touch height ── */
+    [data-baseweb="select"] { min-height: 44px !important; }
+    [data-baseweb="input"]  { min-height: 44px !important; }
+
+    /* ── Tooltip: show below card on mobile to avoid clipping ── */
+    .sig-tooltip {
+        top: 100% !important;
+        transform: translateX(-50%) translateY(8px) !important;
+    }
+
+    /* ── Metric value: slightly smaller ── */
+    [data-testid="stMetricValue"] { font-size: 1.15rem !important; }
+
+    /* ── kite-section: tighter margin ── */
+    .kite-section { margin: 16px 0 10px !important; }
+
+    /* ── Table scroll wrapper: enforce on mobile ── */
+    .kite-table-wrap { overflow-x: auto !important; }
+    .kite-table-wrap .kite-table { min-width: 560px !important; }
+}
+
+@media (max-width: 420px) {
+    .pnl-card .pnl-value { font-size: 1.4rem !important; }
+    .insp-ticker { font-size: 1.25rem !important; }
+    .summary-item { flex: 1 1 100% !important; }
+    .summary-item .value { font-size: 1.2rem !important; }
+    [data-testid="stTabs"] [data-baseweb="tab"] {
+        font-size: 0.68rem !important;
+        padding: 8px 10px !important;
+    }
+    .radar-head { flex-direction: column !important; align-items: flex-start !important; }
+    .insp-ohlc-cell { flex: 1 1 50% !important; }
+    .insp-level-cell { flex: 1 1 50% !important; }
+    .alloc-legend-item { font-size: 0.68rem !important; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1871,7 +2021,7 @@ with tab_holdings:
         </tr>'''
 
         table_html += '</tbody></table>'
-        st.markdown(table_html, unsafe_allow_html=True)
+        st.markdown('<div class="kite-table-wrap">' + table_html + '</div>', unsafe_allow_html=True)
 
         # Allocation bar + legend
         if _total_value > 0:
@@ -2905,7 +3055,7 @@ with tab_history:
                 <td>Total ({len(positions)})</td><td></td><td></td><td></td><td></td>
                 <td class="{_pnl_class(_u_total)}">{_pnl_sign(_u_total, currency)}</td><td></td><td></td>
             </tr></tbody></table>'''
-            st.markdown(_u_table, unsafe_allow_html=True)
+            st.markdown('<div class="kite-table-wrap">' + _u_table + '</div>', unsafe_allow_html=True)
     else:
         trades = load_trades(exchange, hist_days)
 
@@ -2998,7 +3148,7 @@ with tab_history:
                 </tr>'''
 
             table_html += '</tbody></table>'
-            st.markdown(table_html, unsafe_allow_html=True)
+            st.markdown('<div class="kite-table-wrap">' + table_html + '</div>', unsafe_allow_html=True)
 
             st.markdown('<div class="kite-section" style="margin-top:20px">Exit Reasons</div>',
                         unsafe_allow_html=True)
@@ -3289,7 +3439,7 @@ with tab_research:
             )
             _diary_table += '</tr>'
         _diary_table += '</tbody></table>'
-        st.markdown(_diary_table, unsafe_allow_html=True)
+        st.markdown('<div class="kite-table-wrap">' + _diary_table + '</div>', unsafe_allow_html=True)
     else:
         st.markdown('<div class="empty-state"><div class="empty-title">No signals today</div></div>', unsafe_allow_html=True)
 
@@ -3352,7 +3502,7 @@ with tab_research:
                 f'</tr>'
             )
         _retro_table += '</tbody></table>'
-        st.markdown(_retro_table, unsafe_allow_html=True)
+        st.markdown('<div class="kite-table-wrap">' + _retro_table + '</div>', unsafe_allow_html=True)
     else:
         st.markdown(
             '<div class="empty-state"><div class="empty-title">No closed trades yet</div>'
