@@ -27,7 +27,7 @@ class TrendFollow(Strategy):
         if i < 1:
             return None
         uptrend = ind["ema20"][i] > ind["ema50"][i]
-        strong = ind["adx"][i] >= 25
+        strong = ind["adx"][i] >= 20          # was 25 — let moderate trends qualify
         macd_turn = ind["macd_hist"][i] > 0 and ind["macd_hist"][i - 1] <= 0
         if uptrend and strong and macd_turn:
             conf = min(1.0, 0.6 + ind["adx"][i] / 100)
@@ -46,11 +46,11 @@ class MeanReversion(Strategy):
     max_hold_days = 15
 
     def fires(self, ind, i) -> Optional[Dict]:
-        ranging = ind["adx"][i] < 25
-        oversold = ind["rsi"][i] < 32
-        at_lower_band = ind["bb_pct"][i] < 0.15
+        ranging = ind["adx"][i] < 28          # was 25 — slightly wider range-bound threshold
+        oversold = ind["rsi"][i] < 36         # was 32 — catch shallower dips
+        at_lower_band = ind["bb_pct"][i] < 0.22  # was 0.15 — allow near lower band
         if ranging and oversold and at_lower_band:
-            conf = min(1.0, 0.5 + (32 - ind["rsi"][i]) / 40)
+            conf = min(1.0, 0.5 + (36 - ind["rsi"][i]) / 40)
             return {"confidence": round(conf, 2),
                     "reason": f"oversold in range (RSI {ind['rsi'][i]:.0f}, at lower band)"}
         return None
@@ -68,7 +68,7 @@ class Breakout(Strategy):
     def fires(self, ind, i) -> Optional[Dict]:
         new_high = ind["closes"][i] > ind["high_20"][i]
         vol_ratio = ind["volumes"][i] / (ind["vol_avg_20"][i] + 1e-9)
-        if new_high and vol_ratio >= 1.5:
+        if new_high and vol_ratio >= 1.25:        # was 1.5 — slightly elevated volume ok
             conf = min(1.0, 0.5 + vol_ratio / 6)
             return {"confidence": round(conf, 2),
                     "reason": f"20-day high breakout on {vol_ratio:.1f}x volume"}
@@ -86,10 +86,10 @@ class MomentumPullback(Strategy):
 
     def fires(self, ind, i) -> Optional[Dict]:
         uptrend = ind["ema20"][i] > ind["ema50"][i]
-        near_ema = abs(ind["closes"][i] - ind["ema20"][i]) / (ind["ema20"][i] + 1e-9) < 0.02
-        momentum_reset = ind["stoch_rsi"][i] < 25
+        near_ema = abs(ind["closes"][i] - ind["ema20"][i]) / (ind["ema20"][i] + 1e-9) < 0.04  # was 0.02
+        momentum_reset = ind["stoch_rsi"][i] < 35  # was 25 — catch earlier resets
         if uptrend and near_ema and momentum_reset:
-            conf = min(1.0, 0.55 + (25 - ind["stoch_rsi"][i]) / 60)
+            conf = min(1.0, 0.55 + (35 - ind["stoch_rsi"][i]) / 60)
             return {"confidence": round(conf, 2),
                     "reason": f"pullback to EMA20 in uptrend (StochRSI {ind['stoch_rsi'][i]:.0f})"}
         return None
@@ -130,7 +130,7 @@ class TimeSeriesMomentum(Strategy):
         if i < 260:
             return None
         mom = ind["mom_12_1"][i]
-        strong = mom > 0.10
+        strong = mom > 0.05            # was 0.10 — 5% annual momentum qualifies
         above_long = ind["closes"][i] > ind["sma200"][i]
         reclaim = ind["closes"][i] > ind["ema20"][i] >= ind["closes"][i - 1]
         if strong and above_long and reclaim:
@@ -153,12 +153,12 @@ class FiftyTwoWeekHigh(Strategy):
         if i < 260:
             return None
         hi = ind["high_252"][i]
-        near_now = ind["closes"][i] >= hi * 0.98
-        was_below = ind["closes"][i - 1] < ind["high_252"][i - 1] * 0.98
-        vol_ok = ind["volumes"][i] >= ind["vol_avg_20"][i]
+        near_now = ind["closes"][i] >= hi * 0.96   # was 0.98 — within 4% of 52w high
+        was_below = ind["closes"][i - 1] < ind["high_252"][i - 1] * 0.97
+        vol_ok = ind["volumes"][i] >= ind["vol_avg_20"][i] * 0.9  # near-average volume ok
         if near_now and was_below and vol_ok:
             dist = (hi - ind["closes"][i]) / (hi + 1e-9)
-            return {"confidence": round(min(1.0, 0.6 + (0.02 - dist) * 10), 2),
+            return {"confidence": round(min(1.0, 0.6 + (0.04 - dist) * 8), 2),
                     "reason": f"pushed within {dist * 100:.1f}% of 52-week high"}
         return None
 
@@ -177,9 +177,9 @@ class ConnorsRSI2(Strategy):
         if i < 200:
             return None
         above_long = ind["closes"][i] > ind["sma200"][i]
-        panic = ind["rsi2"][i] < 10
+        panic = ind["rsi2"][i] < 15        # was 10 — catch moderate short-term exhaustion
         if above_long and panic:
-            conf = min(1.0, 0.55 + (10 - ind["rsi2"][i]) / 25)
+            conf = min(1.0, 0.55 + (15 - ind["rsi2"][i]) / 25)
             return {"confidence": round(conf, 2),
                     "reason": f"RSI(2) panic dip ({ind['rsi2'][i]:.0f}) above 200-day MA"}
         return None
@@ -199,7 +199,7 @@ class TurtleBreakout(Strategy):
         if i < 60:
             return None
         new_high = ind["closes"][i] > ind["high_55"][i]
-        trending = ind["adx"][i] >= 20
+        trending = ind["adx"][i] >= 15        # was 20 — weaker trends allowed
         if new_high and trending:
             conf = min(1.0, 0.55 + ind["adx"][i] / 80)
             return {"confidence": round(conf, 2),

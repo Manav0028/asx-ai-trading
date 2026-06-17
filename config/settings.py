@@ -43,7 +43,7 @@ IBKR_PORT = int(os.getenv("IBKR_PORT", 7497))
 IBKR_CLIENT_ID = int(os.getenv("IBKR_CLIENT_ID", 1))
 
 # ── Trading parameters ────────────────────────────────────────────────────────
-SIGNAL_THRESHOLD = float(os.getenv("SIGNAL_THRESHOLD", 65.0))
+SIGNAL_THRESHOLD = float(os.getenv("SIGNAL_THRESHOLD", 62.0))
 MAX_POSITION_PCT = float(os.getenv("MAX_POSITION_PCT", 0.20))  # 20% max per position
 STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", 0.07))        # 7% stop-loss
 PAPER_BROKERAGE = float(os.getenv("PAPER_BROKERAGE", 9.95))

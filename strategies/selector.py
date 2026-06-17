@@ -155,41 +155,81 @@ def get_assignment(ticker: str) -> Optional[Dict]:
 
 def get_strategy_signal(ticker: str) -> Optional[Dict]:
     """
-    Evaluate the ticker's assigned strategy on the latest bar.
-    Returns None when no (fresh) assignment exists — callers fall back to
-    legacy composite-only behaviour. Otherwise:
-      {"strategy": name, "validated": bool, "fires": bool,
-       "stop_mult": float, "target_mult": float, "confidence": float, "reason": str}
+    Evaluate whether ANY validated strategy fires for this ticker today.
+
+    Priority order:
+      1. Assigned+validated strategy fires → use it (original behaviour)
+      2. Assigned+validated strategy silent → scan all strategies, take
+         the first alternative that (a) fires today AND (b) passes inline
+         backtest validation. This prevents a ticker being blocked simply
+         because its primary pattern isn't set up today when another edge is.
+      3. Assigned+unvalidated → block (no proven edge on this stock)
+      4. No assignment → return None (caller uses composite-only path)
     """
     assignment = get_assignment(ticker)
     if assignment is None:
         return None
 
-    strat = STRATEGY_BY_NAME.get(assignment["strategy_name"])
-    if strat is None:
+    primary_strat = STRATEGY_BY_NAME.get(assignment["strategy_name"])
+    if primary_strat is None:
         return None
 
-    result = {
-        "strategy": strat.name,
-        "direction": getattr(strat, "direction", "long"),
+    base_result = {
+        "strategy": primary_strat.name,
+        "direction": getattr(primary_strat, "direction", "long"),
         "validated": assignment["validated"],
         "fires": False,
-        "stop_mult": strat.stop_mult,
-        "target_mult": strat.target_mult,
-        "max_hold_days": strat.max_hold_days,
+        "stop_mult": primary_strat.stop_mult,
+        "target_mult": primary_strat.target_mult,
+        "max_hold_days": primary_strat.max_hold_days,
         "confidence": 0.0,
         "reason": "no entry condition today",
     }
     if not assignment["validated"]:
-        result["reason"] = "strategy not validated by backtest/forward test"
-        return result
+        base_result["reason"] = "strategy not validated by backtest/forward test"
+        return base_result
 
-    # 320 bars covers the 260-bar warmup the 12-month momentum strategies need
-    ohlcv = _load_ohlcv(ticker, days=320)
+    # 400 bars: enough for 260-bar warmup + 70/30 split validation
+    ohlcv = _load_ohlcv(ticker, days=400)
     if ohlcv is None:
-        return result
+        return base_result
 
-    fired = strat.evaluate_latest(precompute(ohlcv))
-    if fired:
-        result.update({"fires": True, **fired})
-    return result
+    ind = precompute(ohlcv)
+
+    # 1. Try the assigned strategy first
+    try:
+        fired = primary_strat.evaluate_latest(ind)
+        if fired:
+            base_result.update({"fires": True, **fired})
+            return base_result
+    except Exception as e:
+        logger.debug("Primary strategy evaluate failed for %s: %s", ticker, e)
+
+    # 2. Scan all alternatives — take first that fires AND passes inline validation
+    for alt in ALL_STRATEGIES:
+        if alt.name == primary_strat.name:
+            continue
+        try:
+            fired = alt.evaluate_latest(ind)
+            if not fired:
+                continue
+            result = run_strategy_backtest(alt, ind)
+            if is_validated(result):
+                logger.info(
+                    "%s: primary strategy silent; firing alternative %s (%s)",
+                    ticker, alt.name, fired.get("reason", ""),
+                )
+                return {
+                    "strategy": alt.name,
+                    "direction": getattr(alt, "direction", "long"),
+                    "validated": True,
+                    "fires": True,
+                    "stop_mult": alt.stop_mult,
+                    "target_mult": alt.target_mult,
+                    "max_hold_days": alt.max_hold_days,
+                    **fired,
+                }
+        except Exception as e:
+            logger.debug("Alt strategy %s failed for %s: %s", alt.name, ticker, e)
+
+    return base_result

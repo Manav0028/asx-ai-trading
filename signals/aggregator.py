@@ -25,9 +25,9 @@ from storage.models import Price, Signal
 logger = logging.getLogger(__name__)
 
 # Minimum component scores — prevents one great score masking weak areas
-MIN_SENTIMENT   = 35.0   # Not deeply negative news
-MIN_FUNDAMENTAL = 40.0   # Some basic financial health
-MIN_TECHNICAL   = 35.0   # Not in free-fall
+MIN_SENTIMENT   = 30.0   # Not deeply negative news (was 35)
+MIN_FUNDAMENTAL = 35.0   # Some basic financial health (was 40)
+MIN_TECHNICAL   = 28.0   # Not in free-fall (was 35)
 
 
 def _quality_check(sentiment: float, fundamental: float, technical: float, insider: float) -> tuple:

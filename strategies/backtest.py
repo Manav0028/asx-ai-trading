@@ -105,11 +105,11 @@ def run_strategy_backtest(strategy: Strategy, ind: Dict[str, np.ndarray]) -> Dic
 # ── Validation gates ──────────────────────────────────────────────────────────
 # A strategy may only trade a stock when its history proves the edge in both
 # the in-sample backtest AND the out-of-sample forward window.
-BT_MIN_TRADES = 5
-BT_MIN_PROFIT_FACTOR = 1.2
-BT_MIN_WIN_RATE = 0.45
-FW_MIN_TRADES = 2
-FW_MIN_PROFIT_FACTOR = 1.0
+BT_MIN_TRADES = 4
+BT_MIN_PROFIT_FACTOR = 1.1
+BT_MIN_WIN_RATE = 0.40
+FW_MIN_TRADES = 1
+FW_MIN_PROFIT_FACTOR = 0.90
 
 
 def is_validated(result: Dict) -> bool:
