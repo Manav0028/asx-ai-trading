@@ -103,27 +103,28 @@ def run_strategy_backtest(strategy: Strategy, ind: Dict[str, np.ndarray]) -> Dic
 
 
 # ── Validation gates ──────────────────────────────────────────────────────────
-# BT: strategy must show real edge in-sample (4 trades, PF≥1.1, WR≥40%).
-# FW: param-scan showed FW_MIN_TRADES=1 blocks 55% of valid BT strategies
-# because low-frequency strategies (turtle_55, high_52w) fire <1x in the
-# ~170-bar forward window. Setting FW_MIN_TRADES=0 accepts BT-validated
-# strategies that simply haven't triggered in the forward slice yet.
+# BT: strategy must prove edge in-sample (≥4 trades, PF≥1.1, WR≥40%).
+# FW: conditional — if the strategy fired in the forward window it must be
+#     profitable (PF≥1.0); if it never fired (low-frequency strategies like
+#     turtle_55 that trigger every few months) we don't penalise it.
+#     This avoids the previous bug where FW_MIN_TRADES=0 + FW_MIN_PF=0
+#     bypassed forward testing entirely.
 BT_MIN_TRADES = 4
 BT_MIN_PROFIT_FACTOR = 1.1
 BT_MIN_WIN_RATE = 0.40
-FW_MIN_TRADES = 0
-FW_MIN_PROFIT_FACTOR = 0.0
+FW_MIN_PROFIT_FACTOR = 1.0   # only enforced when forward trades exist
 
 
 def is_validated(result: Dict) -> bool:
     bt, fw = result["backtest"], result["forward"]
-    return (
-        bt["num_trades"] >= BT_MIN_TRADES
-        and bt["profit_factor"] >= BT_MIN_PROFIT_FACTOR
-        and bt["win_rate"] >= BT_MIN_WIN_RATE
-        and fw["num_trades"] >= FW_MIN_TRADES
-        and fw["profit_factor"] >= FW_MIN_PROFIT_FACTOR
-    )
+    if bt["num_trades"] < BT_MIN_TRADES:        return False
+    if bt["profit_factor"] < BT_MIN_PROFIT_FACTOR: return False
+    if bt["win_rate"] < BT_MIN_WIN_RATE:        return False
+    # Forward test: if the strategy fired, it must be profitable.
+    # Zero forward trades → strategy hasn't triggered yet; don't block it.
+    if fw["num_trades"] > 0 and fw["profit_factor"] < FW_MIN_PROFIT_FACTOR:
+        return False
+    return True
 
 
 def rank_score(result: Dict) -> float:

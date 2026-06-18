@@ -26,7 +26,7 @@ from strategies.library import ALL_STRATEGIES, STRATEGY_BY_NAME
 from strategies.backtest import (
     run_strategy_backtest, is_validated, rank_score,
     BT_MIN_TRADES, BT_MIN_PROFIT_FACTOR, BT_MIN_WIN_RATE,
-    FW_MIN_TRADES, FW_MIN_PROFIT_FACTOR,
+    FW_MIN_PROFIT_FACTOR,
 )
 
 # ── thresholds we want to compare ─────────────────────────────────────────────
@@ -39,7 +39,6 @@ ORIGINAL = dict(
     bt_min_trades=5,
     bt_min_pf=1.2,
     bt_min_wr=0.45,
-    fw_min_trades=2,
     fw_min_pf=1.0,
 )
 # CURRENT params (now deployed in code)
@@ -51,7 +50,6 @@ CURRENT = dict(
     bt_min_trades=BT_MIN_TRADES,
     bt_min_pf=BT_MIN_PROFIT_FACTOR,
     bt_min_wr=BT_MIN_WIN_RATE,
-    fw_min_trades=FW_MIN_TRADES,
     fw_min_pf=FW_MIN_PROFIT_FACTOR,
 )
 PROPOSED = CURRENT  # same — run the single comparison original vs current
@@ -88,13 +86,13 @@ def fetch_ohlcv(ticker: str, days: int = 720) -> Optional[Dict[str, np.ndarray]]
 
 def is_validated_custom(result: Dict, cfg: Dict) -> bool:
     bt, fw = result["backtest"], result["forward"]
-    return (
-        bt["num_trades"] >= cfg["bt_min_trades"]
-        and bt["profit_factor"] >= cfg["bt_min_pf"]
-        and bt["win_rate"] >= cfg["bt_min_wr"]
-        and fw["num_trades"] >= cfg["fw_min_trades"]
-        and fw["profit_factor"] >= cfg["fw_min_pf"]
-    )
+    if bt["num_trades"] < cfg["bt_min_trades"]:        return False
+    if bt["profit_factor"] < cfg["bt_min_pf"]:         return False
+    if bt["win_rate"] < cfg["bt_min_wr"]:              return False
+    # FW: if it fired in the forward window it must be profitable; 0 fires = ok
+    if fw["num_trades"] > 0 and fw["profit_factor"] < cfg["fw_min_pf"]:
+        return False
+    return True
 
 
 def evaluate_ticker(ticker: str, ohlcv: Dict, cfg: Dict, ind: Dict) -> Dict:
