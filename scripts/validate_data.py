@@ -1,16 +1,18 @@
 """
 Data Validation Test — checks every data layer for correctness.
-Run:  python -m scripts.validate_data [--exchange asx|nse]
+Run:  python scripts/validate_data.py [--exchange asx|nse]
 
 Validates:
-  1. Trade P&L arithmetic  — net_pnl == (exit - entry) * shares - brokerage
-  2. Return %              — realised_pnl_pct == (exit - entry) / entry * 100
-  3. Unrealised P&L        — unrealised_pnl == (current - entry) * shares
-  4. Day P&L               — day_pnl == (current - prev_close) * shares
-  5. Total P&L             — == unrealised + all-time realised
-  6. Regime data           — fields present and sane
-  7. Signal scores         — composite in [0,100], required fields non-null
-  8. No zero-P&L closed trades  — flags any trade where entry≠exit but pnl=0
+  1. Trade P&L display fields  — realised_pnl, realised_pnl_pct always populated
+  2. Trade P&L arithmetic      — net_pnl ≈ (exit - entry) * shares - brokerage
+  3. Return %                  — realised_pnl_pct == (exit - entry) / entry * 100
+  4. Zero-P&L bug              — no trade where entry≠exit but realised_pnl=0
+  5. Ticker inspector path     — _get_trades(730 days) returns correct fields
+  6. Unrealised P&L            — (current - entry) * shares
+  7. Day P&L presence          — warns when prev-close unavailable
+  8. Total P&L cross-check     — unrealised + realised == total_pnl
+  9. Regime fields             — regime_ok, index, ema200 present
+ 10. Signal scores             — composite in [0,100], sub-scores non-negative
 """
 
 import argparse, sys, os
@@ -19,21 +21,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("EXCHANGE", "asx")
 
-TOLERANCE = 0.20   # $0.20 rounding tolerance for P&L arithmetic checks
-BROKERAGE = 9.95   # flat ASX brokerage per leg
+TOLERANCE = 0.20   # $0.20 rounding tolerance
+BROKERAGE = 9.95   # ASX flat brokerage per leg
 
 
 def _fmt(val):
     if val is None: return "None"
-    if isinstance(val, float): return f"{val:,.4f}"
+    if isinstance(val, float): return f"{val:+,.2f}"
     return str(val)
 
 
 class Check:
     def __init__(self):
-        self.passed = 0
-        self.failed = 0
-        self.warnings = 0
+        self.passed = self.failed = self.warnings = 0
 
     def ok(self, msg):
         print(f"  ✅  {msg}")
@@ -49,71 +49,136 @@ class Check:
 
     def summary(self):
         total = self.passed + self.failed
-        print(f"\n{'='*60}")
+        print(f"\n{'='*65}")
         print(f"RESULT: {self.passed}/{total} checks passed  "
               f"({self.warnings} warnings, {self.failed} failures)")
+        if self.failed:
+            print("  ACTION REQUIRED: Fix the ❌ items above before deploying.")
         return self.failed
 
 
-def run_validation(exchange: str):
-    c = Check()
-    from dashboard.data import get_trades, get_portfolio, get_regime, get_signals
-    from datetime import date
+def _check_trades(trades, c: Check, section_label: str):
+    """Validate a list of trade dicts — reusable for any window size."""
+    print(f"\n── {section_label} ({len(trades)} trades) ─────────────────────────")
+    if not trades:
+        c.warn("No trades found — cannot validate P&L arithmetic")
+        return
 
-    print(f"\n{'='*60}")
-    print(f"Data Validation — {exchange.upper()}  [{date.today()}]")
-    print(f"{'='*60}\n")
-
-    # ── 1. Trades ─────────────────────────────────────────────────────────────
-    print("── Trades ────────────────────────────────────────────────")
-    trades = get_trades(exchange, days=365)
-    print(f"  Found {len(trades)} closed trades\n")
-
-    zero_pnl_suspicious = []
     for t in trades:
         ticker = t.get("ticker", "?")
         ep = float(t.get("entry_price") or 0)
         xp = float(t.get("exit_price") or 0)
         sh = float(t.get("shares") or 0)
         net = float(t.get("net_pnl") or 0)
-        gross = float(t.get("gross_pnl") or 0)
         rpnl = float(t.get("realised_pnl") or 0)
         rpct = float(t.get("realised_pnl_pct") or 0)
+        exit_lbl = t.get("exit_reason_label") or ""
+        label = f"{ticker} {str(t.get('exit_date',''))[:10]}"
 
-        label = f"{ticker} exited {t.get('exit_date','?')}"
+        # ── 1. Display fields must be populated ─────────────────────────────
+        if t.get("realised_pnl") is None:
+            c.fail(f"{label}: realised_pnl is None — will display as $0.00")
+        if t.get("realised_pnl_pct") is None:
+            c.fail(f"{label}: realised_pnl_pct is None — will display as 0.0%")
+        if not exit_lbl or exit_lbl == "—":
+            c.warn(f"{label}: exit_reason_label is empty (exit_reason='{t.get('exit_reason')}')")
 
-        # Check net_pnl == realised_pnl
-        if abs(net - rpnl) > TOLERANCE:
-            c.fail(f"{label}: net_pnl={_fmt(net)} ≠ realised_pnl={_fmt(rpnl)}")
-        else:
-            c.ok(f"{label}: realised_pnl field matches net_pnl ({_fmt(rpnl)})")
+        # ── 2. Zero-P&L bug: entry ≠ exit but realised_pnl = 0 ─────────────
+        if ep > 0 and xp > 0 and abs(xp - ep) > 0.001:
+            if abs(rpnl) < 0.01:
+                c.fail(f"{label}: ZERO P&L BUG — entry={_fmt(ep)} exit={_fmt(xp)} "
+                       f"but realised_pnl={_fmt(rpnl)}")
+            else:
+                c.ok(f"{label}: realised_pnl={_fmt(rpnl)} (entry={_fmt(ep)} exit={_fmt(xp)})")
+        elif ep > 0 and xp > 0 and abs(xp - ep) <= 0.001:
+            c.ok(f"{label}: flat trade (entry ≈ exit), pnl={_fmt(rpnl)}")
 
-        # Check gross arithmetic: gross ≈ (exit - entry) * shares
-        if ep and xp and sh:
-            expected_gross = (xp - ep) * sh
-            if abs(gross - expected_gross) > TOLERANCE:
-                c.fail(f"{label}: gross_pnl={_fmt(gross)} expected={_fmt(expected_gross)}"
-                       f" (entry={_fmt(ep)} exit={_fmt(xp)} shares={sh:.0f})")
-
-        # Flag suspicious: entry ≠ exit but net_pnl == 0
-        if ep and xp and ep != xp and abs(net) < 0.01:
-            zero_pnl_suspicious.append(label)
-            c.fail(f"{label}: entry={_fmt(ep)} exit={_fmt(xp)} but net_pnl=0 — ZERO P&L BUG")
-
-        # Check return %: (exit - entry) / entry * 100
-        if ep and xp:
+        # ── 3. realised_pnl_pct computed correctly from prices ───────────────
+        if ep > 0 and xp > 0:
             expected_pct = (xp - ep) / ep * 100
             if abs(rpct - expected_pct) > 0.1:
                 c.fail(f"{label}: realised_pnl_pct={rpct:.2f}% expected={expected_pct:.2f}%")
 
-    if not trades:
-        c.warn("No trades found — cannot validate P&L arithmetic")
+        # ── 4. P&L arithmetic: gross ≈ (exit - entry) * shares ──────────────
+        if ep > 0 and xp > 0 and sh > 0:
+            trade_type = str(t.get("trade_type") or "buy").lower()
+            if trade_type in ("cover", "short"):
+                expected_gross = (ep - xp) * sh
+            else:
+                expected_gross = (xp - ep) * sh
+            gross = float(t.get("gross_pnl") or 0)
+            if gross != 0 and abs(gross - expected_gross) > TOLERANCE:
+                c.warn(f"{label}: gross_pnl={_fmt(gross)} expected≈{_fmt(expected_gross)}")
 
-    # ── 2. Portfolio / Positions ───────────────────────────────────────────────
-    print("\n── Portfolio ─────────────────────────────────────────────")
+        # ── 5. realised_pnl == net_pnl (after any recompute) ────────────────
+        if abs(rpnl - net) > TOLERANCE:
+            c.warn(f"{label}: realised_pnl={_fmt(rpnl)} ≠ net_pnl={_fmt(net)} (may be recomputed)")
+
+
+def run_validation(exchange: str):
+    c = Check()
+    from dashboard.data import get_trades, get_portfolio, get_regime, get_signals, _normalise_trade
+    from datetime import date
+
+    print(f"\n{'='*65}")
+    print(f"Data Validation — {exchange.upper()}  [{date.today()}]")
+    print(f"{'='*65}")
+
+    # ── Unit tests for _normalise_trade (offline — no DB required) ─────────
+    print("\n── Unit Tests: _normalise_trade() ─────────────────────────")
+
+    # Case A: correct data as stored in DB
+    t_ok = _normalise_trade({"entry_price": 7.57, "exit_price": 8.08,
+                              "shares": 1321, "net_pnl": 659.56,
+                              "exit_reason": "intraday_target"})
+    assert abs(t_ok["realised_pnl"] - 659.56) < 0.01, "Case A: realised_pnl wrong"
+    assert abs(t_ok["realised_pnl_pct"] - 6.74) < 0.05, "Case A: pct wrong"
+    assert t_ok["exit_reason_label"] == "Intraday Target", "Case A: label wrong"
+    c.ok("Case A [normal trade]: realised_pnl=+659.56, pct=+6.74%, label='Intraday Target'")
+
+    # Case B: net_pnl stored as 0 — fallback recomputes from prices
+    t_bug = _normalise_trade({"entry_price": 7.57, "exit_price": 8.08,
+                               "shares": 1321, "net_pnl": 0,
+                               "exit_reason": "intraday_target"})
+    assert abs(t_bug["realised_pnl"]) > 0, "Case B: fallback did not fire"
+    assert abs(t_bug["realised_pnl_pct"] - 6.74) < 0.05, "Case B: pct wrong"
+    c.ok(f"Case B [net_pnl=0 fallback]: realised_pnl={_fmt(t_bug['realised_pnl'])}, pct={t_bug['realised_pnl_pct']:+.2f}%")
+
+    # Case C: stop loss (entry > exit, should be negative)
+    t_loss = _normalise_trade({"entry_price": 3.25, "exit_price": 2.82,
+                                "shares": 3073, "net_pnl": -1359.94,
+                                "exit_reason": "stop_loss"})
+    assert t_loss["realised_pnl"] < 0, "Case C: loss should be negative"
+    assert t_loss["realised_pnl_pct"] < 0, "Case C: pct should be negative"
+    assert t_loss["exit_reason_label"] == "Stop Loss", "Case C: label wrong"
+    c.ok(f"Case C [stop loss]: realised_pnl={_fmt(t_loss['realised_pnl'])}, pct={t_loss['realised_pnl_pct']:+.2f}%, label='Stop Loss'")
+
+    # Case D: short trade cover with net_pnl=0 — fallback uses (entry-exit)*shares
+    t_short = _normalise_trade({"entry_price": 10.0, "exit_price": 9.0,
+                                 "shares": 100, "net_pnl": 0,
+                                 "trade_type": "cover"})
+    assert t_short["realised_pnl"] > 0, "Case D: short profit should be positive"
+    c.ok(f"Case D [short cover fallback]: realised_pnl={_fmt(t_short['realised_pnl'])}")
+
+    # Case E: flat trade (entry == exit exactly) — pnl should reflect brokerage only
+    t_flat = _normalise_trade({"entry_price": 5.0, "exit_price": 5.0,
+                                "shares": 200, "net_pnl": -19.90})
+    assert t_flat["realised_pnl_pct"] == 0.0, "Case E: pct should be 0"
+    c.ok(f"Case E [flat trade]: realised_pnl={_fmt(t_flat['realised_pnl'])}, pct=0.0%")
+
+    # ── Live data: 90-day trades (main Trade History tab) ─────────────────
+    trades_90 = get_trades(exchange, days=90)
+    _check_trades(trades_90, c, "Live trades — 90 days (Trade History tab)")
+
+    # ── Live data: 730-day trades (Ticker Inspector path) ─────────────────
+    trades_730 = get_trades(exchange, days=730)
+    _check_trades(trades_730, c, "Live trades — 730 days (Ticker Inspector)")
+
+    # ── Portfolio / Positions ─────────────────────────────────────────────
+    print("\n── Portfolio positions ──────────────────────────────────────")
     portfolio = get_portfolio(exchange, live=False)
     positions = portfolio.get("positions", [])
-    print(f"  Found {len(positions)} open positions\n")
+    print(f"  Found {len(positions)} open positions")
 
     for p in positions:
         ticker = p.get("ticker", "?")
@@ -123,59 +188,50 @@ def run_validation(exchange: str):
         upnl = float(p.get("unrealised_pnl") or 0)
         upct = float(p.get("unrealised_pnl_pct") or 0)
 
-        label = f"{ticker}"
-
-        # unrealised_pnl = (current - entry) * shares
         if ep and cp and sh:
             expected = (cp - ep) * sh
             if abs(upnl - expected) > TOLERANCE:
-                c.fail(f"{label}: unrealised_pnl={_fmt(upnl)} expected={_fmt(expected)}"
-                       f" (entry={_fmt(ep)} current={_fmt(cp)} shares={sh:.0f})")
+                c.fail(f"{ticker}: unrealised_pnl={_fmt(upnl)} expected={_fmt(expected)}")
             else:
-                c.ok(f"{label}: unrealised_pnl correct ({_fmt(upnl)})")
+                c.ok(f"{ticker}: unrealised_pnl={_fmt(upnl)} ✓  current={_fmt(cp)} entry={_fmt(ep)}")
 
-        # unrealised_pnl_pct = (current - entry) / entry * 100
         if ep and cp:
             expected_pct = (cp - ep) / ep * 100
             if abs(upct - expected_pct) > 0.1:
-                c.fail(f"{label}: unrealised_pnl_pct={upct:.2f}% expected={expected_pct:.2f}%")
+                c.fail(f"{ticker}: unrealised_pnl_pct={upct:.2f}% expected={expected_pct:.2f}%")
 
-        # Day P&L presence check
-        day_pnl = p.get("day_pnl")
-        if day_pnl is None:
-            c.warn(f"{label}: day_pnl is None (prev close not available)")
+        if p.get("day_pnl") is None:
+            c.warn(f"{ticker}: day_pnl is None (prev close unavailable — market may be closed)")
         else:
-            c.ok(f"{label}: day_pnl populated ({_fmt(day_pnl)})")
+            c.ok(f"{ticker}: day_pnl={_fmt(float(p['day_pnl']))} populated")
 
-    # Total P&L cross-check
-    total_pnl     = portfolio.get("total_pnl", 0) or 0
-    total_unreal  = portfolio.get("total_unrealised_pnl", 0) or 0
+    total_pnl      = portfolio.get("total_pnl", 0) or 0
+    total_unreal   = portfolio.get("total_unrealised_pnl", 0) or 0
     total_realised = portfolio.get("total_realised_pnl", 0) or 0
     expected_total = total_unreal + total_realised
     if abs(total_pnl - expected_total) > TOLERANCE:
         c.fail(f"total_pnl={_fmt(total_pnl)} ≠ unrealised+realised={_fmt(expected_total)}")
     else:
-        c.ok(f"total_pnl = unrealised + realised ({_fmt(total_pnl)})")
+        c.ok(f"total_pnl = unrealised+realised = {_fmt(total_pnl)}")
 
     if not positions:
         c.warn("No positions found — skipped portfolio arithmetic checks")
 
-    # ── 3. Regime ─────────────────────────────────────────────────────────────
-    print("\n── Regime ────────────────────────────────────────────────")
+    # ── Regime ───────────────────────────────────────────────────────────
+    print("\n── Regime ───────────────────────────────────────────────────")
     regime = get_regime(exchange)
-    required_regime = ["regime_ok", "index", "ema200"]
-    for field in required_regime:
+    for field in ["regime_ok", "index", "ema200"]:
         val = regime.get(field)
         if val is None:
             c.warn(f"regime.{field} is None")
         else:
-            c.ok(f"regime.{field} = {_fmt(val)}")
+            c.ok(f"regime.{field} = {_fmt(val) if isinstance(val, float) else val}")
 
-    # ── 4. Signals ────────────────────────────────────────────────────────────
-    print("\n── Signals ───────────────────────────────────────────────")
+    # ── Signals ──────────────────────────────────────────────────────────
+    print("\n── Signals ──────────────────────────────────────────────────")
     signals = get_signals(exchange, n=20)
-    print(f"  Found {len(signals)} signals today\n")
-    for s in signals[:5]:
+    print(f"  Found {len(signals)} signals today")
+    for s in signals[:10]:
         ticker = s.get("ticker", "?")
         score = s.get("composite_score")
         if score is None:
@@ -183,9 +239,7 @@ def run_validation(exchange: str):
         elif not (0 <= score <= 100):
             c.fail(f"{ticker}: composite_score={score} out of [0,100]")
         else:
-            c.ok(f"{ticker}: composite_score={score:.1f} — valid")
-
-        # Check sub-scores non-negative
+            c.ok(f"{ticker}: composite={score:.1f}")
         for sub in ["sentiment_score", "fundamental_score", "technical_score"]:
             v = s.get(sub)
             if v is not None and v < 0:

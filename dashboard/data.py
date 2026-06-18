@@ -407,27 +407,34 @@ def _realised_pnl_totals(exchange: str) -> tuple:
 
 def _normalise_trade(t: Dict) -> Dict:
     """
-    Ensure every trade dict has computed display fields regardless of backend.
-    Adds: realised_pnl (= net_pnl), realised_pnl_pct (% return on entry price).
-    """
-    net = t.get("net_pnl") or 0.0
-    t["realised_pnl"] = round(net, 2)
+    Ensure every trade dict has correct display fields regardless of backend.
 
+    - realised_pnl      = net_pnl if non-zero, else recomputed from prices
+    - realised_pnl_pct  = (exit - entry) / entry * 100 (always from prices)
+    - exit_reason_label = human-readable exit reason string
+
+    The price-based recomputation guards against trades where net_pnl was
+    stored as 0 or NULL in the database (early paper trades had this bug).
+    """
     ep = float(t.get("entry_price") or 0)
     xp = float(t.get("exit_price") or 0)
-    if ep and xp:
-        t["realised_pnl_pct"] = round((xp - ep) / ep * 100, 2)
-    else:
-        t["realised_pnl_pct"] = 0.0
+    sh = float(t.get("shares") or 0)
+    net = float(t.get("net_pnl") or 0)
 
-    # Human-readable exit reason
+    # Fallback: recompute P&L from raw prices when net_pnl is missing/zero
+    # but entry, exit, and shares are all valid.
+    if abs(net) < 0.01 and ep > 0 and xp > 0 and sh > 0 and abs(xp - ep) > 0.0001:
+        trade_type = str(t.get("trade_type") or "buy").lower()
+        gross = (ep - xp) * sh if trade_type in ("cover", "short") else (xp - ep) * sh
+        net = round(gross - 2 * 9.95, 2)   # ASX flat brokerage both legs
+        t["net_pnl"] = net
+
+    t["realised_pnl"] = round(net, 2)
+    t["realised_pnl_pct"] = round((xp - ep) / ep * 100, 2) if ep > 0 and xp > 0 else 0.0
+
     raw_reason = str(t.get("exit_reason") or "")
     t["exit_reason_label"] = (
-        raw_reason.replace("_", " ").replace("stop loss", "Stop Loss")
-                  .replace("take profit", "Take Profit")
-                  .replace("max hold", "Time Limit")
-                  .strip().title()
-        if raw_reason else "—"
+        raw_reason.replace("_", " ").strip().title() if raw_reason else "—"
     )
     return t
 
