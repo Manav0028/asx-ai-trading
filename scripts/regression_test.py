@@ -57,7 +57,7 @@ CURRENT = dict(
 PROPOSED = CURRENT  # same — run the single comparison original vs current
 
 
-def fetch_ohlcv(ticker: str, days: int = 560) -> Optional[Dict[str, np.ndarray]]:
+def fetch_ohlcv(ticker: str, days: int = 720) -> Optional[Dict[str, np.ndarray]]:
     try:
         import yfinance as yf
         end = date.today()
