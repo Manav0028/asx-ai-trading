@@ -1736,13 +1736,14 @@ def _render_ticker_inspector(ticker: str, positions: list, currency: str, exchan
         rows_html = "".join(
             f'<tr>'
             f'  <td style="text-align:left;color:var(--text-secondary)">{str(t.get("exit_date",""))[:10]}</td>'
-            f'  <td style="color:var(--profit)" title="Profit">{_pnl_sign(t.get("realised_pnl") or 0, currency)}</td>'
-            f'  <td style="color:{"var(--profit)" if (t.get("realised_pnl_pct") or 0) >= 0 else "var(--loss)"}">'
+            f'  <td class="{_pnl_class(t.get("realised_pnl") or 0)}">{_pnl_sign(t.get("realised_pnl") or 0, currency)}</td>'
+            f'  <td class="{_pnl_class(t.get("realised_pnl_pct") or 0)}">'
             f'    {(t.get("realised_pnl_pct") or 0):+.1f}%</td>'
-            f'  <td>{t.get("shares","—")}</td>'
-            f'  <td>{currency}{t.get("entry_price", 0):,.2f}</td>'
-            f'  <td>{currency}{t.get("exit_price", 0):,.2f}</td>'
-            f'  <td style="text-align:left;color:var(--text-tertiary)">{_clean_reason(t.get("exit_reason"))}</td>'
+            f'  <td>{(t.get("shares") or 0):,.0f}</td>'
+            f'  <td style="font-family:var(--font-mono)">{currency}{float(t.get("entry_price") or 0):,.2f}</td>'
+            f'  <td style="font-family:var(--font-mono)">{currency}{float(t.get("exit_price") or 0):,.2f}</td>'
+            f'  <td style="text-align:left;color:var(--text-tertiary)">'
+            f'    {t.get("exit_reason_label") or _clean_reason(t.get("exit_reason"))}</td>'
             f'</tr>'
             for t in hist_trades
         )
@@ -1792,6 +1793,65 @@ with tab_dash:
     regime = load_regime(exchange)
     pnl_cls = _pnl_class(total_pnl)
     regime_ok = regime.get("regime_ok")
+
+    # ── Today's Summary — personal assistant card ────────────────────────────
+    _today_str = str(_today(exchange))
+    _dash_today_trades = [t for t in load_trades(exchange, 3) if str(t.get("exit_date",""))[:10] == _today_str]
+    _dash_today_signals = load_signals(exchange, _today(exchange), 200)
+    _regime_phrase = (
+        "Risk-On — conditions favour new entries" if regime_ok is True
+        else "Risk-Off — system is cautious about new buys" if regime_ok is False
+        else "Regime status unknown"
+    )
+    _mkt_phrase = "Market is currently open" if _market_open else "Market is closed right now"
+
+    _summary_bullets = []
+    if _dash_today_signals:
+        _above_thresh = [s for s in _dash_today_signals if (s.get("position_size_aud") or 0) > 0]
+        _summary_bullets.append(
+            f"<b>{len(_dash_today_signals)}</b> stocks scored today — "
+            f"<b>{len(_above_thresh)}</b> passed the quality gate for entry"
+        )
+    if positions:
+        _summary_bullets.append(
+            f"You have <b>{len(positions)}</b> open position{'s' if len(positions) != 1 else ''} "
+            f"worth <b>{currency}{total_value:,.0f}</b> "
+            f"(<span class='{_pnl_class(unreal_pnl)}'>{_pnl_sign(unreal_pnl, currency)} unrealised</span>)"
+        )
+    else:
+        _summary_bullets.append("No open positions — system is watching for entry signals")
+
+    if _dash_today_trades:
+        for _tt in _dash_today_trades:
+            _t_pnl  = _tt.get("realised_pnl") or 0
+            _t_sign = "gain" if _t_pnl >= 0 else "loss"
+            _t_why  = _tt.get("exit_reason_label") or "Exit"
+            _summary_bullets.append(
+                f"Closed <b>{_short(_tt.get('ticker',''))}</b> today via <b>{_t_why}</b> — "
+                f"realised <span class='{_pnl_class(_t_pnl)}'>{_pnl_sign(_t_pnl, currency)}</span> ({_t_pnl:+.1f}% return)"
+            )
+    else:
+        _summary_bullets.append("No trades closed today")
+
+    _summary_bullets.append(f"Market regime: <b>{_regime_phrase}</b>")
+
+    _bullets_html = "".join(f'<li style="margin-bottom:5px">{b}</li>' for b in _summary_bullets)
+    _today_label = datetime.now(ZoneInfo("Australia/Sydney" if exchange == "asx" else "Asia/Kolkata")).strftime("%A, %d %B %Y")
+    st.markdown(
+        f'<div style="background:linear-gradient(135deg,rgba(105,147,255,0.06) 0%,rgba(0,196,140,0.04) 100%);'
+        f'border:1px solid var(--border-strong);border-left:3px solid var(--accent);'
+        f'border-radius:var(--radius-md);padding:16px 20px;margin-bottom:20px">'
+        f'  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;'
+        f'color:var(--accent);margin-bottom:8px">Today\'s Summary &nbsp;·&nbsp; {_today_label}</div>'
+        f'  <div style="font-size:13px;color:var(--text-secondary);font-weight:500;margin-bottom:6px">'
+        f'    {_mkt_phrase} &nbsp;·&nbsp; {exchange.upper()}'
+        f'  </div>'
+        f'  <ul style="margin:8px 0 0;padding-left:18px;font-size:13px;color:var(--text-primary);line-height:1.7">'
+        f'    {_bullets_html}'
+        f'  </ul>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     _pill = (
         'style="margin-left:8px;font-size:var(--text-2xs);font-weight:500;'
@@ -3149,26 +3209,31 @@ with tab_history:
             st.markdown('<div class="kite-section">Trade Log</div>', unsafe_allow_html=True)
 
             table_html = '''<table class="kite-table"><thead><tr>
-                <th>Ticker</th><th>Entry</th><th>Exit</th><th>Shares</th>
-                <th>Entry Price</th><th>Exit Price</th><th>P&L</th><th>Reason</th>
+                <th>Ticker</th><th>Entry Date</th><th>Exit Date</th><th>Shares</th>
+                <th>Entry Price</th><th>Exit Price</th><th>Return %</th><th>Net P&L</th><th>Reason</th>
             </tr></thead><tbody>'''
 
             for t in trades:
                 ticker = t.get("ticker", "")
-                pnl = t.get("net_pnl", 0)
+                pnl = t.get("realised_pnl", 0) or t.get("net_pnl", 0) or 0
+                ret_pct = t.get("realised_pnl_pct", 0) or 0
                 cls = _pnl_class(pnl)
                 row_cls = "loss-row" if pnl < 0 else ""
                 tv = _tv_url(ticker)
-                reason = _clean_reason(t.get("exit_reason", ""))
+                reason = t.get("exit_reason_label") or _clean_reason(t.get("exit_reason", ""))
+                ep = t.get("entry_price", 0) or 0
+                xp = t.get("exit_price", 0) or 0
+                shares = t.get("shares", 0) or 0
 
                 table_html += f'''<tr class="{row_cls}">
                     <td><a href="{tv}" target="_blank" class="ticker-link">{_short(ticker)}</a></td>
-                    <td>{t.get("entry_date", "")}</td>
-                    <td>{t.get("exit_date", "")}</td>
-                    <td>{t.get("shares", 0):,.0f}</td>
-                    <td>{currency}{t.get("entry_price", 0):,.2f}</td>
-                    <td>{currency}{t.get("exit_price", 0):,.2f}</td>
-                    <td class="{cls}">{_pnl_sign(pnl, currency)}</td>
+                    <td style="color:var(--text-secondary)">{t.get("entry_date", "")}</td>
+                    <td style="color:var(--text-secondary)">{t.get("exit_date", "")}</td>
+                    <td style="font-variant-numeric:tabular-nums">{shares:,.0f}</td>
+                    <td style="font-family:var(--font-mono)">{currency}{ep:,.2f}</td>
+                    <td style="font-family:var(--font-mono)">{currency}{xp:,.2f}</td>
+                    <td class="{cls}" style="font-family:var(--font-mono)">{ret_pct:+.2f}%</td>
+                    <td class="{cls}" style="font-family:var(--font-mono);font-weight:600">{_pnl_sign(pnl, currency)}</td>
                     <td style="font-size:0.78rem;color:var(--text-secondary)">{reason}</td>
                 </tr>'''
 
@@ -3498,12 +3563,13 @@ with tab_research:
         st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
         _retro_table = '<table class="kite-table"><thead><tr>'
-        for _c in ["Ticker", "Entry date", "Exit date", "Days held", "Entry px", "Exit px", "Realised P&L", "Outcome"]:
+        for _c in ["Ticker", "Entry date", "Exit date", "Days held", "Entry px", "Exit px", "Return %", "Net P&L", "Outcome"]:
             _retro_table += f'<th>{_c}</th>'
         _retro_table += '</tr></thead><tbody>'
 
         for _t in _closed[:50]:
-            _rpnl  = _t.get("realised_pnl") or 0
+            _rpnl  = _t.get("realised_pnl") or _t.get("net_pnl") or 0
+            _rpct  = _t.get("realised_pnl_pct") or 0
             _days  = 0
             try:
                 _ed = date.fromisoformat(str(_t.get("entry_date", ""))[:10])
@@ -3521,6 +3587,7 @@ with tab_research:
                 f'<td style="font-variant-numeric:tabular-nums">{_days}d</td>'
                 f'<td style="font-family:var(--font-mono)">{currency}{float(_t.get("entry_price") or 0):.2f}</td>'
                 f'<td style="font-family:var(--font-mono)">{currency}{float(_t.get("exit_price") or 0):.2f}</td>'
+                f'<td style="font-family:var(--font-mono);color:{_oc}">{_rpct:+.2f}%</td>'
                 f'<td style="font-family:var(--font-mono);color:{_oc};font-weight:600">{_pnl_sign(_rpnl, currency)}</td>'
                 f'<td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;'
                 f'background:{_oc}22;color:{_oc}">{_outcome}</span></td>'

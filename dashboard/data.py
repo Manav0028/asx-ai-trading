@@ -405,12 +405,41 @@ def _realised_pnl_totals(exchange: str) -> tuple:
     return all_time, today
 
 
+def _normalise_trade(t: Dict) -> Dict:
+    """
+    Ensure every trade dict has computed display fields regardless of backend.
+    Adds: realised_pnl (= net_pnl), realised_pnl_pct (% return on entry price).
+    """
+    net = t.get("net_pnl") or 0.0
+    t["realised_pnl"] = round(net, 2)
+
+    ep = float(t.get("entry_price") or 0)
+    xp = float(t.get("exit_price") or 0)
+    if ep and xp:
+        t["realised_pnl_pct"] = round((xp - ep) / ep * 100, 2)
+    else:
+        t["realised_pnl_pct"] = 0.0
+
+    # Human-readable exit reason
+    raw_reason = str(t.get("exit_reason") or "")
+    t["exit_reason_label"] = (
+        raw_reason.replace("_", " ").replace("stop loss", "Stop Loss")
+                  .replace("take profit", "Take Profit")
+                  .replace("max hold", "Time Limit")
+                  .strip().title()
+        if raw_reason else "—"
+    )
+    return t
+
+
 def get_trades(exchange: str, days: int = 90) -> List[Dict]:
     """Closed trades for the exchange over the last N days, newest first."""
     cutoff = date.today() - timedelta(days=days)
     if _use_supabase():
-        return _trades_supabase(exchange, cutoff)
-    return _trades_local(exchange, cutoff)
+        rows = _trades_supabase(exchange, cutoff)
+    else:
+        rows = _trades_local(exchange, cutoff)
+    return [_normalise_trade(t) for t in rows]
 
 
 def _trades_supabase(exchange: str, cutoff: date) -> List[Dict]:
