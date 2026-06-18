@@ -42,16 +42,9 @@ from dashboard.data import (
 #   profit-green:  #00c48c   (softer green, less saturated)
 #   loss-red:      #ff5a5a   (softer red)
 #   warning-amber: #ffb347
-# Async font loading — preconnect + non-blocking <link> avoids render-blocking @import
-st.markdown("""
-<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'">
-<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"></noscript>
-""", unsafe_allow_html=True)
-
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
     /* ── Surfaces ── */
@@ -1296,18 +1289,6 @@ with st.sidebar:
     # Sort holdings by unrealised P&L% descending (best first)
     _pos_sorted = sorted(positions, key=lambda p: p.get("unrealised_pnl_pct") or 0, reverse=True)
 
-    # Load today's top signals for sidebar
-    from datetime import date as _date
-    _today_sig_date = _today(exchange)
-    _sb_signals = load_signals(exchange, _today_sig_date, 20)
-    _sb_signals_sorted = sorted(_sb_signals, key=lambda s: s.get("composite_score") or 0, reverse=True)
-
-    # Batch-fetch OHLC for all sidebar tickers in ONE call (avoids N individual yfinance requests)
-    _sb_tickers = tuple(dict.fromkeys(
-        [p["ticker"] for p in _pos_sorted] + [s.get("ticker","") for s in _sb_signals_sorted if s.get("ticker")]
-    ))
-    _sb_ohlc = fetch_batch_ohlc(_sb_tickers) if _sb_tickers else {}
-
     # ── HOLDINGS section ──────────────────────────────────────────────────────
     _hold_toggle = st.toggle(
         f"Holdings  ({len(_pos_sorted)})",
@@ -1317,6 +1298,10 @@ with st.sidebar:
     st.session_state.sb_hold_open = _hold_toggle
 
     if _hold_toggle:
+        # Lazy: only fetch OHLC when the section is actually open
+        _hold_tickers = tuple(p["ticker"] for p in _pos_sorted if p.get("ticker"))
+        _hold_ohlc = fetch_batch_ohlc(_hold_tickers) if _hold_tickers else {}
+
         if _pos_sorted:
             for p in _pos_sorted:
                 t = p["ticker"]
@@ -1324,7 +1309,7 @@ with st.sidebar:
                 pnl_pct = p.get("unrealised_pnl_pct") or 0
                 pnl = p.get("unrealised_pnl") or 0
                 cls = _pnl_class(pnl)
-                ohlc = _sb_ohlc.get(t, {})
+                ohlc = _hold_ohlc.get(t, {})
                 o = ohlc.get("open") or 0
                 h = ohlc.get("high") or 0
                 l = ohlc.get("low") or 0
@@ -1360,21 +1345,29 @@ with st.sidebar:
                 unsafe_allow_html=True)
 
     # ── SIGNALS section ───────────────────────────────────────────────────────
+    # Count signals without fetching full data (use cached portfolio count or 0)
+    _today_sig_date = _today(exchange)
     _sig_toggle = st.toggle(
-        f"Signals  ({len(_sb_signals_sorted)})",
+        "Signals",
         value=st.session_state.sb_sig_open,
         key="sb_sig_toggle",
     )
     st.session_state.sb_sig_open = _sig_toggle
 
     if _sig_toggle:
+        # Lazy: only fetch signals + OHLC when this section is open
+        _sb_signals = load_signals(exchange, _today_sig_date, 20)
+        _sb_signals_sorted = sorted(_sb_signals, key=lambda s: s.get("composite_score") or 0, reverse=True)
+        _sig_tickers = tuple(s.get("ticker","") for s in _sb_signals_sorted if s.get("ticker"))
+        _sig_ohlc = fetch_batch_ohlc(_sig_tickers) if _sig_tickers else {}
+
         if _sb_signals_sorted:
             for sig in _sb_signals_sorted:
                 t = sig.get("ticker", "")
                 score = sig.get("composite_score") or 0
                 direction = sig.get("direction") or "long"
                 sz = sig.get("position_size_aud") or 0
-                ohlc = _sb_ohlc.get(t, {})
+                ohlc = _sig_ohlc.get(t, {})
                 o = ohlc.get("open") or 0
                 h = ohlc.get("high") or 0
                 l = ohlc.get("low") or 0
