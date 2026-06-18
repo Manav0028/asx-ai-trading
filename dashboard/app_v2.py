@@ -25,7 +25,8 @@ from dashboard.data import (
     get_signals, get_portfolio, get_trades, get_regime,
     get_cumulative_pnl, get_score_history, get_backtest_results,
     get_todays_scores, is_market_open, market_status, _use_supabase,
-    get_price_history, get_multi_close, ticker_tv_url, ticker_yahoo_url,
+    get_price_history, get_multi_close, get_multi_today_ohlc,
+    ticker_tv_url, ticker_yahoo_url,
 )
 
 # ── CSS: Professional dark fintech theme ─────────────────────────────────────
@@ -41,10 +42,16 @@ from dashboard.data import (
 #   profit-green:  #00c48c   (softer green, less saturated)
 #   loss-red:      #ff5a5a   (softer red)
 #   warning-amber: #ffb347
+# Async font loading — preconnect + non-blocking <link> avoids render-blocking @import
+st.markdown("""
+<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"></noscript>
+""", unsafe_allow_html=True)
+
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
 
 :root {
     /* ── Surfaces ── */
@@ -1025,9 +1032,23 @@ except ImportError:
 
 
 # ── Cached loaders ────────────────────────────────────────────────────────────
-@st.cache_data(ttl=30)
 def load_portfolio(exch, live=False):
+    # Refresh every 30s while market is open; every 5 min when closed
+    ttl = 30 if live else 300
+    return _load_portfolio_cached(exch, live, ttl)
+
+@st.cache_data(ttl=30)
+def _load_portfolio_cached_fast(exch, live):
     return get_portfolio(exch, live=live)
+
+@st.cache_data(ttl=300)
+def _load_portfolio_cached_slow(exch, live):
+    return get_portfolio(exch, live=live)
+
+def _load_portfolio_cached(exch, live, ttl):
+    if ttl <= 30:
+        return _load_portfolio_cached_fast(exch, live)
+    return _load_portfolio_cached_slow(exch, live)
 
 @st.cache_data(ttl=300)
 def load_regime(exch):
@@ -1060,6 +1081,11 @@ def fetch_ohlcv(ticker, days=60):
 @st.cache_data(ttl=300)
 def fetch_sparklines(tickers, days=20):
     return get_multi_close(list(tickers), days)
+
+@st.cache_data(ttl=120)
+def fetch_batch_ohlc(tickers: tuple) -> dict:
+    """Batch fetch today's OHLC for multiple tickers in one yfinance call."""
+    return get_multi_today_ohlc(list(tickers))
 
 @st.cache_data(ttl=120)
 def fetch_today_ohlc(ticker: str) -> dict:
@@ -1276,6 +1302,12 @@ with st.sidebar:
     _sb_signals = load_signals(exchange, _today_sig_date, 20)
     _sb_signals_sorted = sorted(_sb_signals, key=lambda s: s.get("composite_score") or 0, reverse=True)
 
+    # Batch-fetch OHLC for all sidebar tickers in ONE call (avoids N individual yfinance requests)
+    _sb_tickers = tuple(dict.fromkeys(
+        [p["ticker"] for p in _pos_sorted] + [s.get("ticker","") for s in _sb_signals_sorted if s.get("ticker")]
+    ))
+    _sb_ohlc = fetch_batch_ohlc(_sb_tickers) if _sb_tickers else {}
+
     # ── HOLDINGS section ──────────────────────────────────────────────────────
     _hold_toggle = st.toggle(
         f"Holdings  ({len(_pos_sorted)})",
@@ -1292,7 +1324,7 @@ with st.sidebar:
                 pnl_pct = p.get("unrealised_pnl_pct") or 0
                 pnl = p.get("unrealised_pnl") or 0
                 cls = _pnl_class(pnl)
-                ohlc = fetch_today_ohlc(t)
+                ohlc = _sb_ohlc.get(t, {})
                 o = ohlc.get("open") or 0
                 h = ohlc.get("high") or 0
                 l = ohlc.get("low") or 0
@@ -1342,7 +1374,7 @@ with st.sidebar:
                 score = sig.get("composite_score") or 0
                 direction = sig.get("direction") or "long"
                 sz = sig.get("position_size_aud") or 0
-                ohlc = fetch_today_ohlc(t)
+                ohlc = _sb_ohlc.get(t, {})
                 o = ohlc.get("open") or 0
                 h = ohlc.get("high") or 0
                 l = ohlc.get("low") or 0

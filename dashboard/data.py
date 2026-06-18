@@ -691,6 +691,47 @@ def get_price_history(ticker: str, days: int = 60) -> List[Dict]:
         return []
 
 
+def get_multi_today_ohlc(tickers: List[str]) -> Dict[str, Dict]:
+    """
+    Batch fetch today's OHLC for multiple tickers in a single yfinance call.
+    Returns {ticker: {open, high, low, close}} — much faster than N individual calls.
+    """
+    if not tickers:
+        return {}
+    try:
+        import yfinance as yf
+        raw = yf.download(tickers, period="3d", interval="1d",
+                          progress=False, auto_adjust=True)
+        if raw.empty:
+            return {}
+        raw, is_multi = _flatten_yf(raw)
+        result: Dict[str, Dict] = {}
+        if not is_multi:
+            t = tickers[0]
+            if len(raw) == 0:
+                return {}
+            row = raw.iloc[-1]
+            result[t] = {
+                "open":  float(row.get("Open", 0) or 0),
+                "high":  float(row.get("High", 0) or 0),
+                "low":   float(row.get("Low", 0) or 0),
+                "close": float(row.get("Close", 0) or 0),
+            }
+        else:
+            for t in tickers:
+                try:
+                    o = float(raw["Open"][t].dropna().iloc[-1])
+                    h = float(raw["High"][t].dropna().iloc[-1])
+                    l = float(raw["Low"][t].dropna().iloc[-1])
+                    c = float(raw["Close"][t].dropna().iloc[-1])
+                    result[t] = {"open": o, "high": h, "low": l, "close": c}
+                except Exception:
+                    pass
+        return result
+    except Exception:
+        return {}
+
+
 def get_multi_close(tickers: List[str], days: int = 20) -> Dict[str, List[Dict]]:
     """
     Batch fetch daily close prices for multiple tickers (sparklines).
