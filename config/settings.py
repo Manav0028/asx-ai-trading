@@ -24,6 +24,11 @@ REDIS_TTL_SECONDS = 3600
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 
+# Secondary (clean) Supabase instance — set SUPABASE_URL_B / SUPABASE_KEY_B
+# to enable dual-write + dashboard comparison.  Leave blank to disable.
+SUPABASE_URL_B = os.getenv("SUPABASE_URL_B", "")
+SUPABASE_KEY_B = os.getenv("SUPABASE_KEY_B", "")
+
 # ── AI / LLM ──────────────────────────────────────────────────────────────────
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")

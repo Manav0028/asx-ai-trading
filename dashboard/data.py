@@ -99,9 +99,19 @@ def _use_supabase() -> bool:
     return bool(os.getenv("SUPABASE_URL", ""))
 
 
-def _sb_config():
-    """Return (url, key) for Supabase REST calls."""
+def _sb_config(db: str = "primary"):
+    """Return (url, key) for the requested Supabase instance."""
+    if db == "new":
+        url = os.getenv("SUPABASE_URL_B", "").rstrip("/")
+        key = os.getenv("SUPABASE_KEY_B", "")
+        if url and key:
+            return url, key
     return os.getenv("SUPABASE_URL", "").rstrip("/"), os.getenv("SUPABASE_KEY", "")
+
+
+def _use_supabase_b() -> bool:
+    """True when the secondary (clean) Supabase instance is configured."""
+    return bool(os.getenv("SUPABASE_URL_B", ""))
 
 
 def _sb_headers(key: str) -> dict:
@@ -112,10 +122,12 @@ def _sb_headers(key: str) -> dict:
     }
 
 
-def _sb_get(table: str, params: dict) -> list:
+def _sb_get(table: str, params: dict, db: str = "primary") -> list:
     """GET rows from a Supabase table using PostgREST query params."""
     import requests
-    url, key = _sb_config()
+    url, key = _sb_config(db)
+    if not url:
+        return []
     resp = requests.get(
         f"{url}/rest/v1/{table}",
         headers=_sb_headers(key),
@@ -192,18 +204,20 @@ def _trade_row_to_dict(r) -> Dict:
 
 # ── Signals ───────────────────────────────────────────────────────────────────
 
-def get_signals(exchange: str, signal_date: date = None, n: int = 10) -> List[Dict]:
+def get_signals(exchange: str, signal_date: date = None, n: int = 10,
+                db: str = "primary") -> List[Dict]:
     """
     Top-N signals for the exchange on the given date.
     Falls back up to 3 days back to handle weekends / holidays.
     """
     signal_date = signal_date or date.today()
     if _use_supabase():
-        return _signals_supabase(exchange, signal_date, n)
+        return _signals_supabase(exchange, signal_date, n, db=db)
     return _signals_local(exchange, signal_date, n)
 
 
-def _signals_supabase(exchange: str, signal_date: date, n: int) -> List[Dict]:
+def _signals_supabase(exchange: str, signal_date: date, n: int,
+                      db: str = "primary") -> List[Dict]:
     for attempt in range(3):
         d = signal_date - timedelta(days=attempt)
         rows = _sb_get("signals", {
@@ -212,7 +226,7 @@ def _signals_supabase(exchange: str, signal_date: date, n: int) -> List[Dict]:
             "order": "composite_score.desc",
             "limit": n,
             "select": "*",
-        })
+        }, db=db)
         if rows:
             return rows
     return []
@@ -278,14 +292,15 @@ def _get_prev_closes(tickers: List[str]) -> Dict[str, float]:
     return result
 
 
-def get_portfolio(exchange: str, live: bool = False) -> Dict:
+def get_portfolio(exchange: str, live: bool = False,
+                  db: str = "primary") -> Dict:
     """
     Returns watchlist summary for the given exchange.
     When live=True AND the market is open, overlays real-time prices
     from yfinance on top of the Supabase/PG base data.
     """
     if _use_supabase():
-        positions = _portfolio_supabase(exchange)
+        positions = _portfolio_supabase(exchange, db=db)
     else:
         positions = _portfolio_local(exchange)
 
@@ -336,7 +351,7 @@ def get_portfolio(exchange: str, live: bool = False) -> Dict:
 
     # Cumulative realised P&L from all closed trades, plus today's realised P&L,
     # so "Total P&L" reflects every day's results, not just open positions.
-    realised_all_time, realised_today = _realised_pnl_totals(exchange)
+    realised_all_time, realised_today = _realised_pnl_totals(exchange, db=db)
     total_pnl     = total_unrealised_pnl + realised_all_time
     total_day_pnl = open_day_pnl  # unrealised intraday move only (current - prev close)
 
@@ -355,13 +370,13 @@ def get_portfolio(exchange: str, live: bool = False) -> Dict:
     }
 
 
-def _portfolio_supabase(exchange: str) -> List[Dict]:
+def _portfolio_supabase(exchange: str, db: str = "primary") -> List[Dict]:
     return _sb_get("watchlist", {
         "exchange":     f"eq.{exchange}",
         "is_active":    "eq.true",
         "order":        "unrealised_pnl_pct.desc",
-        "select":       "*",          # includes trading_mode column
-    })
+        "select":       "*",
+    }, db=db)
 
 
 def _portfolio_local(exchange: str) -> List[Dict]:
@@ -380,13 +395,13 @@ def _portfolio_local(exchange: str) -> List[Dict]:
 
 # ── Closed Trades ─────────────────────────────────────────────────────────────
 
-def _realised_pnl_totals(exchange: str) -> tuple:
+def _realised_pnl_totals(exchange: str, db: str = "primary") -> tuple:
     """Returns (all_time_realised_pnl, today_realised_pnl) from closed trades."""
     if _use_supabase():
         rows = _sb_get("trades", {
             "exchange": f"eq.{exchange}",
             "select": "net_pnl,exit_date",
-        })
+        }, db=db)
     else:
         from storage.database import get_session
         from storage.models import Trade
@@ -439,23 +454,23 @@ def _normalise_trade(t: Dict) -> Dict:
     return t
 
 
-def get_trades(exchange: str, days: int = 90) -> List[Dict]:
+def get_trades(exchange: str, days: int = 90, db: str = "primary") -> List[Dict]:
     """Closed trades for the exchange over the last N days, newest first."""
     cutoff = date.today() - timedelta(days=days)
     if _use_supabase():
-        rows = _trades_supabase(exchange, cutoff)
+        rows = _trades_supabase(exchange, cutoff, db=db)
     else:
         rows = _trades_local(exchange, cutoff)
     return [_normalise_trade(t) for t in rows]
 
 
-def _trades_supabase(exchange: str, cutoff: date) -> List[Dict]:
+def _trades_supabase(exchange: str, cutoff: date, db: str = "primary") -> List[Dict]:
     return _sb_get("trades", {
         "exchange": f"eq.{exchange}",
         "exit_date": f"gte.{cutoff}",
         "order": "exit_date.desc",
         "select": "*",
-    })
+    }, db=db)
 
 
 def _trades_local(exchange: str, cutoff: date) -> List[Dict]:
@@ -478,20 +493,20 @@ def _trades_local(exchange: str, cutoff: date) -> List[Dict]:
 
 # ── Market Regime ─────────────────────────────────────────────────────────────
 
-def get_regime(exchange: str) -> Dict:
+def get_regime(exchange: str, db: str = "primary") -> Dict:
     """
     Returns regime dict: {regime_ok, index, index_name, ema200, pct_above}
     Supabase path reads from the 'regime' table (synced by scheduler).
     Local PG path calls get_regime_summary() directly.
     """
     if _use_supabase():
-        return _regime_supabase(exchange)
+        return _regime_supabase(exchange, db=db)
     return _regime_local(exchange)
 
 
-def _regime_supabase(exchange: str) -> Dict:
+def _regime_supabase(exchange: str, db: str = "primary") -> Dict:
     try:
-        rows = _sb_get("regime", {"exchange": f"eq.{exchange}", "select": "*"})
+        rows = _sb_get("regime", {"exchange": f"eq.{exchange}", "select": "*"}, db=db)
         if rows:
             row = rows[0]
             return {
@@ -524,13 +539,14 @@ def _regime_local(exchange: str) -> Dict:
 
 # ── Cumulative P&L time series ─────────────────────────────────────────────────
 
-def get_cumulative_pnl(exchange: str, days: int = 90) -> List[Dict]:
+def get_cumulative_pnl(exchange: str, days: int = 90,
+                       db: str = "primary") -> List[Dict]:
     """
     Daily and cumulative net P&L from closed trades.
     Returns: [{date, daily_pnl, cumulative_pnl}] sorted ascending by date.
     Computed from get_trades() output — no extra DB query.
     """
-    trades = get_trades(exchange, days=days)
+    trades = get_trades(exchange, days=days, db=db)
     if not trades:
         return []
 
@@ -554,21 +570,23 @@ def get_cumulative_pnl(exchange: str, days: int = 90) -> List[Dict]:
 
 # ── Score history for a single ticker ────────────────────────────────────────
 
-def get_score_history(ticker: str, days: int = 30) -> List[Dict]:
+def get_score_history(ticker: str, days: int = 30,
+                      db: str = "primary") -> List[Dict]:
     """Composite + component score history for one ticker over last N days."""
     cutoff = date.today() - timedelta(days=days)
     if _use_supabase():
-        return _score_history_supabase(ticker, cutoff)
+        return _score_history_supabase(ticker, cutoff, db=db)
     return _score_history_local(ticker, cutoff)
 
 
-def _score_history_supabase(ticker: str, cutoff: date) -> List[Dict]:
+def _score_history_supabase(ticker: str, cutoff: date,
+                             db: str = "primary") -> List[Dict]:
     return _sb_get("signals", {
         "ticker": f"eq.{ticker}",
         "date": f"gte.{cutoff}",
         "order": "date.asc",
         "select": "date,composite_score,sentiment_score,fundamental_score,technical_score,insider_score",
-    })
+    }, db=db)
 
 
 def _score_history_local(ticker: str, cutoff: date) -> List[Dict]:
@@ -596,7 +614,8 @@ def _score_history_local(ticker: str, cutoff: date) -> List[Dict]:
 
 # ── Backtest results ──────────────────────────────────────────────────────────
 
-def get_todays_scores(tickers: List[str], exchange: str) -> Dict[str, float]:
+def get_todays_scores(tickers: List[str], exchange: str,
+                      db: str = "primary") -> Dict[str, float]:
     """
     Bulk-fetch today's composite score for a list of tickers.
     Used by the Positions page to show signal strength at time of check.
@@ -617,7 +636,7 @@ def get_todays_scores(tickers: List[str], exchange: str) -> Dict[str, float]:
             "ticker": f"in.({ticker_csv})",
             "date": f"eq.{today_str}",
             "select": "ticker,composite_score",
-        })
+        }, db=db)
         return {r["ticker"]: r["composite_score"] for r in rows if r.get("composite_score")}
     else:
         try:
@@ -636,25 +655,25 @@ def get_todays_scores(tickers: List[str], exchange: str) -> Dict[str, float]:
             return {}
 
 
-def get_backtest_results(exchange: str) -> Dict:
+def get_backtest_results(exchange: str, db: str = "primary") -> Dict:
     """
     Most recent backtest results for the exchange.
     Supabase: read from backtest_cache table (written by Sunday scheduler).
     Local PG: return {} — backtest is too slow to run on-demand in the dashboard.
     """
     if _use_supabase():
-        return _backtest_supabase(exchange)
+        return _backtest_supabase(exchange, db=db)
     return {}
 
 
-def _backtest_supabase(exchange: str) -> Dict:
+def _backtest_supabase(exchange: str, db: str = "primary") -> Dict:
     try:
         rows = _sb_get("backtest_cache", {
             "exchange": f"eq.{exchange}",
             "order": "computed_at.desc",
             "limit": 1,
             "select": "results_json,computed_at",
-        })
+        }, db=db)
         if rows:
             raw = rows[0]["results_json"]
             return json.loads(raw) if isinstance(raw, str) else raw
@@ -789,19 +808,19 @@ def get_multi_close(tickers: List[str], days: int = 20) -> Dict[str, List[Dict]]
         return {}
 
 
-def get_strategy_assignments(exchange: str) -> List[Dict]:
+def get_strategy_assignments(exchange: str, db: str = "primary") -> List[Dict]:
     """Per-stock strategy assignments — written by the weekly selection job."""
     if _use_supabase():
-        return _strategy_assignments_supabase(exchange)
+        return _strategy_assignments_supabase(exchange, db=db)
     return _strategy_assignments_local(exchange)
 
 
-def _strategy_assignments_supabase(exchange: str) -> List[Dict]:
+def _strategy_assignments_supabase(exchange: str, db: str = "primary") -> List[Dict]:
     rows = _sb_get("strategy_assignments", {
         "exchange": f"eq.{exchange}",
         "order": "validated.desc,rank_score.desc",
         "select": "*",
-    })
+    }, db=db)
     for r in rows:
         r["direction"] = r.get("direction") or "long"
     return rows
@@ -841,26 +860,26 @@ def _strategy_assignments_local(exchange: str) -> List[Dict]:
         return []
 
 
-def get_strategy_radar(exchange: str) -> List[Dict]:
+def get_strategy_radar(exchange: str, db: str = "primary") -> List[Dict]:
     """Live Strategy Radar: every assignment joined with today's signal so the
     dashboard can show which validated strategies are firing right now."""
     if _use_supabase():
-        return _strategy_radar_supabase(exchange)
+        return _strategy_radar_supabase(exchange, db=db)
     return _strategy_radar_local(exchange)
 
 
-def _strategy_radar_supabase(exchange: str) -> List[Dict]:
+def _strategy_radar_supabase(exchange: str, db: str = "primary") -> List[Dict]:
     try:
         assignments = _sb_get("strategy_assignments", {
             "exchange": f"eq.{exchange}",
             "select": "*",
-        })
+        }, db=db)
         today_str = str(date.today())
         sig_rows = _sb_get("signals", {
             "exchange": f"eq.{exchange}",
             "date": f"eq.{today_str}",
             "select": "*",
-        })
+        }, db=db)
         sig_by_ticker = {s["ticker"]: s for s in sig_rows}
         out = []
         for a in assignments:

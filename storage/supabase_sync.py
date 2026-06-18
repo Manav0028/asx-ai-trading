@@ -29,12 +29,23 @@ logger = logging.getLogger(__name__)
 
 # ── REST client helpers ───────────────────────────────────────────────────────
 
-def _get_config():
-    """Return (url, key) from env, or (None, None) if not configured."""
+def _get_config(db: str = "primary"):
+    """Return (url, key) for the requested DB instance, or (None, None)."""
+    if db == "new":
+        url = os.environ.get("SUPABASE_URL_B", "")
+        key = os.environ.get("SUPABASE_KEY_B", "")
+        if not url or not key:
+            try:
+                from config.settings import SUPABASE_URL_B, SUPABASE_KEY_B
+                url = url or SUPABASE_URL_B
+                key = key or SUPABASE_KEY_B
+            except Exception:
+                pass
+        return (url.rstrip("/"), key) if url and key else (None, None)
+
+    # primary
     url = os.environ.get("SUPABASE_URL", "")
     key = os.environ.get("SUPABASE_KEY", "")
-
-    # Fall back to config.settings (loads dotenv) if not set in env directly
     if not url or not key:
         try:
             from config.settings import SUPABASE_URL, SUPABASE_KEY
@@ -42,10 +53,15 @@ def _get_config():
             key = key or SUPABASE_KEY
         except Exception:
             pass
+    return (url.rstrip("/"), key) if url and key else (None, None)
 
-    if url and key:
-        return url.rstrip("/"), key
-    return None, None
+
+def _all_db_configs():
+    """Yield (url, key, label) for every configured Supabase instance."""
+    for label in ("primary", "new"):
+        url, key = _get_config(label)
+        if url:
+            yield url, key, label
 
 
 def _headers(key: str) -> dict:
@@ -100,11 +116,7 @@ def _ticker_suffix(exchange_id: str) -> str:
 # ── Public sync functions ─────────────────────────────────────────────────────
 
 def sync_signals_to_supabase(signal_date: date = None) -> bool:
-    """Upsert today's signals for the active exchange to Supabase."""
-    url, key = _get_config()
-    if not url:
-        return False
-
+    """Upsert today's signals to all configured Supabase instances."""
     signal_date = signal_date or date.today()
     exchange_id = _get_exchange_id()
     suffix = _ticker_suffix(exchange_id)
@@ -145,9 +157,12 @@ def sync_signals_to_supabase(signal_date: date = None) -> bool:
             logger.info("No signals to sync for %s on %s", exchange_id.upper(), signal_date)
             return True
 
-        ok = _upsert(url, key, "signals", payload)
-        if ok:
-            logger.info("Synced %d signals to Supabase (%s)", len(payload), exchange_id.upper())
+        ok = False
+        for url, key, label in _all_db_configs():
+            result = _upsert(url, key, "signals", payload)
+            if result:
+                logger.info("Synced %d signals → %s DB (%s)", len(payload), label, exchange_id.upper())
+            ok = ok or result
         return ok
 
     except Exception as e:
@@ -156,11 +171,7 @@ def sync_signals_to_supabase(signal_date: date = None) -> bool:
 
 
 def sync_regime_to_supabase() -> bool:
-    """Upsert current regime status to Supabase 'regime' table."""
-    url, key = _get_config()
-    if not url:
-        return False
-
+    """Upsert current regime status to all configured Supabase instances."""
     exchange_id = _get_exchange_id()
 
     try:
@@ -178,13 +189,13 @@ def sync_regime_to_supabase() -> bool:
             }
         ]
 
-        ok = _upsert(url, key, "regime", payload)
-        if ok:
-            logger.info(
-                "Synced regime to Supabase (%s): %s",
-                exchange_id.upper(),
-                "RISK-ON" if regime.get("regime_ok") else "RISK-OFF",
-            )
+        ok = False
+        for url, key, label in _all_db_configs():
+            result = _upsert(url, key, "regime", payload)
+            if result:
+                logger.info("Synced regime → %s DB (%s): %s", label, exchange_id.upper(),
+                            "RISK-ON" if regime.get("regime_ok") else "RISK-OFF")
+            ok = ok or result
         return ok
 
     except Exception as e:
@@ -193,11 +204,7 @@ def sync_regime_to_supabase() -> bool:
 
 
 def sync_watchlist_to_supabase() -> bool:
-    """Replace active watchlist positions for the active exchange in Supabase."""
-    url, key = _get_config()
-    if not url:
-        return False
-
+    """Replace active watchlist positions in all configured Supabase instances."""
     exchange_id = _get_exchange_id()
     suffix = _ticker_suffix(exchange_id)
 
@@ -205,7 +212,6 @@ def sync_watchlist_to_supabase() -> bool:
         from storage.database import get_session
         from storage.models import WatchlistItem
 
-        # Build payload inside the session to avoid detached-instance errors
         with get_session() as session:
             items = (
                 session.query(WatchlistItem)
@@ -238,23 +244,23 @@ def sync_watchlist_to_supabase() -> bool:
                 for i in items
             ]
 
-        # Delete all rows for this exchange, then re-insert active ones
-        _delete(url, key, "watchlist", {"exchange": exchange_id})
-
-        if not payload:
-            logger.info("Watchlist empty for %s — cleared Supabase rows", exchange_id.upper())
-            return True
-
-        # Try with trading_mode first; fall back without it if column not yet migrated
-        ok = _upsert(url, key, "watchlist", payload)
-        if not ok:
-            payload_no_mode = [{k: v for k, v in row.items() if k != "trading_mode"} for row in payload]
-            ok = _upsert(url, key, "watchlist", payload_no_mode)
-            if ok:
-                logger.warning("Synced watchlist WITHOUT trading_mode — run ALTER TABLE migration in Supabase SQL Editor")
-
-        if ok:
-            logger.info("Synced %d positions to Supabase (%s)", len(payload), exchange_id.upper())
+        ok = False
+        for url, key, label in _all_db_configs():
+            _delete(url, key, "watchlist", {"exchange": exchange_id})
+            if not payload:
+                logger.info("Watchlist empty for %s — cleared %s DB", exchange_id.upper(), label)
+                ok = True
+                continue
+            result = _upsert(url, key, "watchlist", payload)
+            if not result:
+                # Fallback: strip trading_mode for older schemas
+                payload_nm = [{k: v for k, v in row.items() if k != "trading_mode"} for row in payload]
+                result = _upsert(url, key, "watchlist", payload_nm)
+                if result:
+                    logger.warning("Synced watchlist → %s DB without trading_mode column", label)
+            if result:
+                logger.info("Synced %d positions → %s DB (%s)", len(payload), label, exchange_id.upper())
+            ok = ok or result
         return ok
 
     except Exception as e:
@@ -263,11 +269,7 @@ def sync_watchlist_to_supabase() -> bool:
 
 
 def sync_trades_to_supabase(days: int = 90) -> bool:
-    """Upsert closed trades from the last N days for the active exchange."""
-    url, key = _get_config()
-    if not url:
-        return False
-
+    """Upsert closed trades from the last N days to all configured Supabase instances."""
     exchange_id = _get_exchange_id()
     suffix = _ticker_suffix(exchange_id)
     cutoff = date.today() - timedelta(days=days)
@@ -310,9 +312,12 @@ def sync_trades_to_supabase(days: int = 90) -> bool:
             logger.info("No closed trades to sync for %s", exchange_id.upper())
             return True
 
-        ok = _upsert(url, key, "trades", payload)
-        if ok:
-            logger.info("Synced %d trades to Supabase (%s)", len(payload), exchange_id.upper())
+        ok = False
+        for url, key, label in _all_db_configs():
+            result = _upsert(url, key, "trades", payload)
+            if result:
+                logger.info("Synced %d trades → %s DB (%s)", len(payload), label, exchange_id.upper())
+            ok = ok or result
         return ok
 
     except Exception as e:
@@ -321,12 +326,7 @@ def sync_trades_to_supabase(days: int = 90) -> bool:
 
 
 def sync_strategy_assignments_to_supabase() -> bool:
-    """Upsert per-stock strategy assignments for the active exchange to Supabase.
-    Powers the Radar tab on the Streamlit Cloud (Supabase-backed) dashboard."""
-    url, key = _get_config()
-    if not url:
-        return False
-
+    """Upsert per-stock strategy assignments for the active exchange to all configured Supabase instances."""
     exchange_id = _get_exchange_id()
     suffix = _ticker_suffix(exchange_id)
 
@@ -363,9 +363,12 @@ def sync_strategy_assignments_to_supabase() -> bool:
             logger.info("No strategy assignments to sync for %s", exchange_id.upper())
             return True
 
-        ok = _upsert(url, key, "strategy_assignments", payload)
-        if ok:
-            logger.info("Synced %d strategy assignments to Supabase (%s)", len(payload), exchange_id.upper())
+        ok = False
+        for url, key, label in _all_db_configs():
+            result = _upsert(url, key, "strategy_assignments", payload)
+            if result:
+                logger.info("Synced %d strategy assignments → %s DB (%s)", len(payload), label, exchange_id.upper())
+            ok = ok or result
         return ok
 
     except Exception as e:
@@ -374,11 +377,7 @@ def sync_strategy_assignments_to_supabase() -> bool:
 
 
 def sync_backtest_to_supabase(results: dict) -> bool:
-    """Store walk-forward backtest results as a JSON snapshot in Supabase."""
-    url, key = _get_config()
-    if not url:
-        return False
-
+    """Store walk-forward backtest results as a JSON snapshot in all configured Supabase instances."""
     exchange_id = _get_exchange_id()
 
     try:
@@ -388,22 +387,25 @@ def sync_backtest_to_supabase(results: dict) -> bool:
                 "results_json": json.dumps(results),
             }
         ]
-        # Use insert (not upsert) — each Sunday creates a new snapshot
         import requests
-        headers = _headers(key)
-        headers["Prefer"] = "return=minimal"  # override to insert, not upsert
-        resp = requests.post(
-            f"{url}/rest/v1/backtest_cache",
-            headers=headers,
-            data=json.dumps(payload),
-            timeout=30,
-        )
-        ok = resp.status_code in (200, 201)
-        if ok:
-            logger.info("Synced backtest results to Supabase (%s): %d tickers",
-                        exchange_id.upper(), len(results))
-        else:
-            logger.warning("Backtest sync failed: %s %s", resp.status_code, resp.text[:200])
+
+        ok = False
+        for url, key, label in _all_db_configs():
+            headers = _headers(key)
+            headers["Prefer"] = "return=minimal"
+            resp = requests.post(
+                f"{url}/rest/v1/backtest_cache",
+                headers=headers,
+                data=json.dumps(payload),
+                timeout=30,
+            )
+            result = resp.status_code in (200, 201)
+            if result:
+                logger.info("Synced backtest results → %s DB (%s): %d tickers",
+                            label, exchange_id.upper(), len(results))
+            else:
+                logger.warning("Backtest sync failed on %s DB: %s %s", label, resp.status_code, resp.text[:200])
+            ok = ok or result
         return ok
 
     except Exception as e:

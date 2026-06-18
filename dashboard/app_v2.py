@@ -1025,47 +1025,47 @@ except ImportError:
 
 
 # ── Cached loaders ────────────────────────────────────────────────────────────
-def load_portfolio(exch, live=False):
+def load_portfolio(exch, live=False, db="primary"):
     # Refresh every 30s while market is open; every 5 min when closed
     ttl = 30 if live else 300
-    return _load_portfolio_cached(exch, live, ttl)
+    return _load_portfolio_cached(exch, live, ttl, db)
 
 @st.cache_data(ttl=30)
-def _load_portfolio_cached_fast(exch, live):
-    return get_portfolio(exch, live=live)
+def _load_portfolio_cached_fast(exch, live, db="primary"):
+    return get_portfolio(exch, live=live, db=db)
 
 @st.cache_data(ttl=300)
-def _load_portfolio_cached_slow(exch, live):
-    return get_portfolio(exch, live=live)
+def _load_portfolio_cached_slow(exch, live, db="primary"):
+    return get_portfolio(exch, live=live, db=db)
 
-def _load_portfolio_cached(exch, live, ttl):
+def _load_portfolio_cached(exch, live, ttl, db="primary"):
     if ttl <= 30:
-        return _load_portfolio_cached_fast(exch, live)
-    return _load_portfolio_cached_slow(exch, live)
+        return _load_portfolio_cached_fast(exch, live, db)
+    return _load_portfolio_cached_slow(exch, live, db)
 
 @st.cache_data(ttl=300)
-def load_regime(exch):
-    return get_regime(exch)
+def load_regime(exch, db="primary"):
+    return get_regime(exch, db=db)
 
 @st.cache_data(ttl=300)
-def load_signals(exch, sig_date, n):
-    return get_signals(exch, signal_date=sig_date, n=n)
+def load_signals(exch, sig_date, n, db="primary"):
+    return get_signals(exch, signal_date=sig_date, n=n, db=db)
 
 @st.cache_data(ttl=300)
-def load_trades(exch, days):
-    return get_trades(exch, days=days)
+def load_trades(exch, days, db="primary"):
+    return get_trades(exch, days=days, db=db)
 
 @st.cache_data(ttl=300)
-def load_pnl(exch, days):
-    return get_cumulative_pnl(exch, days=days)
+def load_pnl(exch, days, db="primary"):
+    return get_cumulative_pnl(exch, days=days, db=db)
 
 @st.cache_data(ttl=3600)
-def load_backtest(exch):
-    return get_backtest_results(exch)
+def load_backtest(exch, db="primary"):
+    return get_backtest_results(exch, db=db)
 
 @st.cache_data(ttl=300)
-def load_score_history(ticker, days):
-    return get_score_history(ticker, days=days)
+def load_score_history(ticker, days, db="primary"):
+    return get_score_history(ticker, days=days, db=db)
 
 @st.cache_data(ttl=300)
 def fetch_ohlcv(ticker, days=60):
@@ -1108,6 +1108,8 @@ if "sb_hold_open" not in st.session_state:
     st.session_state.sb_hold_open = True
 if "sb_sig_open" not in st.session_state:
     st.session_state.sb_sig_open = True
+if "active_db" not in st.session_state:
+    st.session_state.active_db = "primary"
 
 
 # ── Chart base ────────────────────────────────────────────────────────────────
@@ -1265,6 +1267,22 @@ with st.sidebar:
     )
     currency = "$" if exchange == "asx" else "₹"
 
+    # DB switcher — only shown when secondary DB is configured
+    from dashboard.data import _use_supabase_b as _has_db_b
+    if _has_db_b():
+        _db_choice = st.radio(
+            "Data Source",
+            ["primary", "new"],
+            format_func=lambda x: "Primary DB (History)" if x == "primary" else "New DB (Clean)",
+            horizontal=True,
+            index=0 if st.session_state.active_db == "primary" else 1,
+            key="db_source_radio",
+        )
+        if _db_choice != st.session_state.active_db:
+            st.session_state.active_db = _db_choice
+            st.rerun()
+    active_db = st.session_state.active_db
+
     mkt = market_status(exchange)
     _market_open = mkt["open"]
     dot_cls = "open" if _market_open else "closed"
@@ -1283,7 +1301,7 @@ with st.sidebar:
     st.markdown('<div style="border-bottom:1px solid var(--border);margin:0 0 10px"></div>',
                 unsafe_allow_html=True)
 
-    portfolio = load_portfolio(exchange, live=_market_open)
+    portfolio = load_portfolio(exchange, live=_market_open, db=active_db)
     positions = portfolio.get("positions", [])
 
     # Sort holdings by unrealised P&L% descending (best first)
@@ -1356,7 +1374,7 @@ with st.sidebar:
 
     if _sig_toggle:
         # Lazy: only fetch signals + OHLC when this section is open
-        _sb_signals = load_signals(exchange, _today_sig_date, 20)
+        _sb_signals = load_signals(exchange, _today_sig_date, 20, db=active_db)
         _sb_signals_sorted = sorted(_sb_signals, key=lambda s: s.get("composite_score") or 0, reverse=True)
         _sig_tickers = tuple(s.get("ticker","") for s in _sb_signals_sorted if s.get("ticker"))
         _sig_ohlc = fetch_batch_ohlc(_sig_tickers) if _sig_tickers else {}
@@ -1428,7 +1446,7 @@ with st.sidebar:
 # TICKER INSPECTOR — full-screen overlay replacing all tabs when a ticker is selected
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _render_ticker_inspector(ticker: str, positions: list, currency: str, exchange: str):
+def _render_ticker_inspector(ticker: str, positions: list, currency: str, exchange: str, db: str = "primary"):
     """
     Full-screen stock inspector shown instead of the normal tabs.
     Gathers data from all tabs (signal, position, radar, trade history) for one ticker.
@@ -1437,13 +1455,13 @@ def _render_ticker_inspector(ticker: str, positions: list, currency: str, exchan
 
     # ── Data gathering ───────────────────────────────────────────────────────
     pos     = next((p for p in positions if p["ticker"] == ticker), None)
-    all_sig = load_signals(exchange, _today(exchange), 200)
+    all_sig = load_signals(exchange, _today(exchange), 200, db=db)
     sig     = next((s for s in all_sig if s.get("ticker") == ticker), None)
 
-    all_radar = _get_radar(exchange)
+    all_radar = _get_radar(exchange, db=db)
     radar     = next((r for r in all_radar if r["ticker"] == ticker), None)
 
-    all_trades = _get_trades(exchange, days=730)
+    all_trades = _get_trades(exchange, days=730, db=db)
     hist_trades = [t for t in all_trades if t.get("ticker") == ticker]
 
     ohlc  = fetch_today_ohlc(ticker)
@@ -1766,6 +1784,7 @@ if st.session_state.sidebar_sel:
         positions if "positions" in dir() else [],
         currency if "currency" in dir() else "$",
         exchange if "exchange" in dir() else "asx",
+        db=active_db if "active_db" in dir() else "primary",
     )
     st.stop()  # Nothing else renders — inspector replaces all tabs
 
@@ -1790,14 +1809,14 @@ with tab_dash:
     total_pnl    = portfolio.get("total_pnl", 0) or 0
     unreal_pct    = (unreal_pnl / total_invested * 100) if total_invested else 0
     total_pnl_pct = (total_pnl / total_invested * 100) if total_invested else 0
-    regime = load_regime(exchange)
+    regime = load_regime(exchange, db=active_db)
     pnl_cls = _pnl_class(total_pnl)
     regime_ok = regime.get("regime_ok")
 
     # ── Today's Summary — personal assistant card ────────────────────────────
     _today_str = str(_today(exchange))
-    _dash_today_trades = [t for t in load_trades(exchange, 3) if str(t.get("exit_date",""))[:10] == _today_str]
-    _dash_today_signals = load_signals(exchange, _today(exchange), 200)
+    _dash_today_trades = [t for t in load_trades(exchange, 3, db=active_db) if str(t.get("exit_date",""))[:10] == _today_str]
+    _dash_today_signals = load_signals(exchange, _today(exchange), 200, db=active_db)
     _regime_phrase = (
         "Risk-On — conditions favour new entries" if regime_ok is True
         else "Risk-Off — system is cautious about new buys" if regime_ok is False
@@ -1940,7 +1959,7 @@ with tab_dash:
     dash_days = _period_map[dash_period]
     st.markdown(f'<div class="kite-section">Realized P&L — last {dash_days} days</div>', unsafe_allow_html=True)
 
-    pnl_data = load_pnl(exchange, dash_days)
+    pnl_data = load_pnl(exchange, dash_days, db=active_db)
     if pnl_data:
         import plotly.graph_objects as go
         dates = [r.get("date") or r.get("exit_date") for r in pnl_data]
@@ -2165,7 +2184,7 @@ with tab_signals:
         sig_sort = st.selectbox("Sort by", ["Score ↓", "Score ↑", "R:R ↓", "Upside ↓", "Entry price ↓", "Entry price ↑"],
                                 key="sig_sort")
 
-    signals = load_signals(exchange, sig_date, sig_count)
+    signals = load_signals(exchange, sig_date, sig_count, db=active_db)
 
     # Direction filter
     if sig_dir_filter == "Long":
@@ -2338,7 +2357,7 @@ with tab_signals:
 with tab_radar:
     from dashboard.data import get_strategy_radar, ticker_tv_url as _tv
 
-    radar = get_strategy_radar(exchange)
+    radar = get_strategy_radar(exchange, db=active_db)
     firing = [r for r in radar if r["firing"]]
     near_misses = [r for r in radar if r["near_miss"]]
     validated_r = [r for r in radar if r["validated"]]
@@ -3142,7 +3161,7 @@ with tab_history:
             </tr></tbody></table>'''
             st.markdown('<div class="kite-table-wrap">' + _u_table + '</div>', unsafe_allow_html=True)
     else:
-        trades = load_trades(exchange, hist_days)
+        trades = load_trades(exchange, hist_days, db=active_db)
 
         # Apply date and outcome filters
         if hist_date_from:
@@ -3181,7 +3200,7 @@ with tab_history:
             c4.metric("Avg Win / Loss", f"{currency}{avg_win:+,.0f} / {currency}{avg_loss:+,.0f}")
             c5.metric("Profit Factor", f"{profit_factor:.2f}")
 
-            pnl_data = load_pnl(exchange, hist_days)
+            pnl_data = load_pnl(exchange, hist_days, db=active_db)
             if pnl_data:
                 import plotly.graph_objects as go
                 dates = [r.get("date") or r.get("exit_date") for r in pnl_data]
@@ -3261,7 +3280,7 @@ with tab_history:
 
 # ── TAB 7: Backtest ───────────────────────────────────────────────────────────
 with tab_backtest:
-    bt = load_backtest(exchange)
+    bt = load_backtest(exchange, db=active_db)
     results = bt.get("results", []) if bt else []
 
     if not results:
@@ -3311,7 +3330,7 @@ with tab_backtest:
 
     # ── Per-stock strategy assignments ────────────────────────────────────────
     from dashboard.data import get_strategy_assignments
-    assignments = get_strategy_assignments(exchange)
+    assignments = get_strategy_assignments(exchange, db=active_db)
     if assignments:
         import pandas as pd
         validated_n = sum(1 for a in assignments if a.get("validated"))
@@ -3356,11 +3375,11 @@ with tab_research:
     )
 
     # ── Load data ─────────────────────────────────────────────────────────────
-    _r_signals   = load_signals(exchange, _today(exchange), 200)
+    _r_signals   = load_signals(exchange, _today(exchange), 200, db=active_db)
     _r_positions = portfolio.get("positions", []) if "portfolio" in dir() else []
-    _r_trades    = load_trades(exchange, 365)
-    _r_radar     = get_strategy_radar(exchange)
-    _r_regime    = load_regime(exchange)
+    _r_trades    = load_trades(exchange, 365, db=active_db)
+    _r_radar     = get_strategy_radar(exchange, db=active_db)
+    _r_regime    = load_regime(exchange, db=active_db)
 
     # ── SECTION 1 · Hypothesis Tracker ───────────────────────────────────────
     st.markdown('<div class="kite-section" style="margin-top:4px">Hypothesis Tracker</div>', unsafe_allow_html=True)
@@ -3455,7 +3474,7 @@ with tab_research:
                        (date.today() - (date.fromisoformat(str(t["entry_date"])[:10]))).days <= _diary_days]
 
     _entered_tickers = {str(t["ticker"]) for t in _recent_trades}
-    _today_signals_all = load_signals(exchange, _today(exchange), 200)
+    _today_signals_all = load_signals(exchange, _today(exchange), 200, db=active_db)
     _high_signals_today = [s for s in _today_signals_all if (s.get("composite_score") or 0) >= 60]
 
     _diary_rows = []
