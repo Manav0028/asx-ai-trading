@@ -3260,20 +3260,21 @@ with tab_history:
             st.markdown('<div class="kite-section" style="margin-top:20px">Exit Reasons</div>',
                         unsafe_allow_html=True)
             import plotly.graph_objects as go
-        from collections import Counter
-        reasons = Counter(t.get("exit_reason", "unknown") for t in trades)
-        fig = go.Figure(go.Pie(
-            labels=list(reasons.keys()),
-            values=list(reasons.values()),
-            hole=0.65,
-            marker=dict(colors=_ALLOC_COLORS[:len(reasons)], line=dict(color="#121214", width=2)),
-            textinfo="label+percent",
-            textfont=dict(size=11, color="#a0a0a6"),
-        ))
-        layout = _chart_base(h=280)
-        layout["showlegend"] = False
-        fig.update_layout(**layout)
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            from collections import Counter
+            reasons = Counter(t.get("exit_reason", "unknown") for t in trades)
+            if reasons:
+                fig = go.Figure(go.Pie(
+                    labels=list(reasons.keys()),
+                    values=list(reasons.values()),
+                    hole=0.65,
+                    marker=dict(colors=_ALLOC_COLORS[:len(reasons)], line=dict(color="#121214", width=2)),
+                    textinfo="label+percent",
+                    textfont=dict(size=11, color="#a0a0a6"),
+                ))
+                layout = _chart_base(h=280)
+                layout["showlegend"] = False
+                fig.update_layout(**layout)
+                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 
 # ── TAB 7: Backtest ───────────────────────────────────────────────────────────
