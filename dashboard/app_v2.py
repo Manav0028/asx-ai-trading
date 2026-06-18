@@ -1916,7 +1916,7 @@ with tab_dash:
             f'    <div class="side-stat">Win / Loss &nbsp; <b>{portfolio.get("winners",0)}W / {portfolio.get("losers",0)}L</b></div>'
             f'    <div class="side-stat">Regime &nbsp; '
             f'      <span class="regime-badge {regime_cls}">{regime_text}'
-            f'      ({regime.get("pct_above", 0):+.1f}%)</span>'
+            f'      ({regime.get("pct_above") or 0:+.1f}%)</span>'
             f'    </div>'
             f'  </div>'
             f'</div>',
