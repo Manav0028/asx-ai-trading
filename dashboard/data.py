@@ -242,52 +242,38 @@ def _signals_local(exchange: str, signal_date: date, n: int) -> List[Dict]:
 def _get_prev_closes(tickers: List[str]) -> Dict[str, float]:
     """
     Get the previous trading day's close price for each ticker.
-    Primary: Supabase/local prices table (needs ≥2 rows per ticker).
-    Fallback: yfinance for any ticker where the DB only has 1 row or errors.
+    Uses a single batch yfinance download for all tickers — much faster and
+    more reliable than N individual calls that can timeout inside the cache context.
     """
     result: Dict[str, float] = {}
     if not tickers:
         return result
 
-    # ── Try DB first ─────────────────────────────────────────────────────────
+    # ── Batch yfinance: one call for all tickers ──────────────────────────────
     try:
-        if _use_supabase():
-            for t in tickers:
-                rows = _sb_get("prices", {
-                    "ticker": f"eq.{t}",
-                    "order": "date.desc",
-                    "limit": 2,
-                    "select": "close,date",
-                })
-                if len(rows) >= 2:
-                    result[t] = float(rows[1]["close"])
-                # 0 or 1 row → don't store; yfinance fallback will handle it
-        else:
-            from storage.database import get_session
-            from storage.models import Price
-            with get_session() as session:
+        import yfinance as yf
+        raw = yf.download(
+            tickers, period="5d", interval="1d",
+            progress=False, auto_adjust=True,
+        )
+        if not raw.empty:
+            raw, is_multi = _flatten_yf(raw)
+            if not is_multi:
+                # Single ticker
+                closes = raw["Close"].dropna()
+                if len(closes) >= 2:
+                    result[tickers[0]] = float(closes.iloc[-2])
+            else:
+                closes = raw["Close"]
                 for t in tickers:
-                    rows = (
-                        session.query(Price.close)
-                        .filter(Price.ticker == t)
-                        .order_by(Price.date.desc())
-                        .limit(2)
-                        .all()
-                    )
-                    if len(rows) >= 2:
-                        result[t] = float(rows[1].close)
+                    try:
+                        col = closes[t].dropna()
+                        if len(col) >= 2:
+                            result[t] = float(col.iloc[-2])
+                    except Exception:
+                        pass
     except Exception:
         pass
-
-    # ── yfinance fallback for any ticker not resolved above ───────────────────
-    missing = [t for t in tickers if t not in result]
-    for t in missing:
-        try:
-            hist = get_price_history(t, days=5)
-            if len(hist) >= 2:
-                result[t] = float(hist[-2]["close"])  # second-to-last = prev close
-        except Exception:
-            pass
 
     return result
 
