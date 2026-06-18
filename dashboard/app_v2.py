@@ -1267,20 +1267,18 @@ with st.sidebar:
     )
     currency = "$" if exchange == "asx" else "₹"
 
-    # DB switcher — only shown when secondary DB is configured
-    from dashboard.data import _use_supabase_b as _has_db_b
-    if _has_db_b():
-        _db_choice = st.radio(
-            "Data Source",
-            ["primary", "new"],
-            format_func=lambda x: "Primary DB (History)" if x == "primary" else "New DB (Clean)",
-            horizontal=True,
-            index=0 if st.session_state.active_db == "primary" else 1,
-            key="db_source_radio",
-        )
-        if _db_choice != st.session_state.active_db:
-            st.session_state.active_db = _db_choice
-            st.rerun()
+    # DB switcher — always visible; New DB requires SUPABASE_URL_B to be set
+    _db_choice = st.radio(
+        "Data Source",
+        ["primary", "new"],
+        format_func=lambda x: "Primary DB" if x == "primary" else "New DB (Clean)",
+        horizontal=True,
+        index=0 if st.session_state.active_db == "primary" else 1,
+        key="db_source_radio",
+    )
+    if _db_choice != st.session_state.active_db:
+        st.session_state.active_db = _db_choice
+        st.rerun()
     active_db = st.session_state.active_db
 
     mkt = market_status(exchange)
