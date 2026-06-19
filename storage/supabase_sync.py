@@ -27,6 +27,10 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Positions/trades entered before this date are not synced to the new DB.
+# Treat the new DB as a fresh account starting from this date.
+NEW_DB_EPOCH = date(2026, 6, 19)
+
 # ── REST client helpers ───────────────────────────────────────────────────────
 
 def _get_config(db: str = "primary"):
@@ -246,20 +250,25 @@ def sync_watchlist_to_supabase() -> bool:
 
         ok = False
         for url, key, label in _all_db_configs():
+            # New DB is a fresh account — exclude positions opened before the epoch
+            rows = payload
+            if label == "new":
+                rows = [r for r in payload if (r.get("entry_date") or "") >= str(NEW_DB_EPOCH)]
+
             _delete(url, key, "watchlist", {"exchange": exchange_id})
-            if not payload:
+            if not rows:
                 logger.info("Watchlist empty for %s — cleared %s DB", exchange_id.upper(), label)
                 ok = True
                 continue
-            result = _upsert(url, key, "watchlist", payload)
+            result = _upsert(url, key, "watchlist", rows)
             if not result:
                 # Fallback: strip trading_mode for older schemas
-                payload_nm = [{k: v for k, v in row.items() if k != "trading_mode"} for row in payload]
-                result = _upsert(url, key, "watchlist", payload_nm)
+                rows_nm = [{k: v for k, v in row.items() if k != "trading_mode"} for row in rows]
+                result = _upsert(url, key, "watchlist", rows_nm)
                 if result:
                     logger.warning("Synced watchlist → %s DB without trading_mode column", label)
             if result:
-                logger.info("Synced %d positions → %s DB (%s)", len(payload), label, exchange_id.upper())
+                logger.info("Synced %d positions → %s DB (%s)", len(rows), label, exchange_id.upper())
             ok = ok or result
         return ok
 
@@ -314,9 +323,17 @@ def sync_trades_to_supabase(days: int = 90) -> bool:
 
         ok = False
         for url, key, label in _all_db_configs():
-            result = _upsert(url, key, "trades", payload)
+            # New DB is a fresh account — only include trades entered on or after epoch
+            rows = payload
+            if label == "new":
+                rows = [r for r in payload if (r.get("entry_date") or "") >= str(NEW_DB_EPOCH)]
+            if not rows:
+                logger.info("No new-epoch trades to sync for %s → %s DB", exchange_id.upper(), label)
+                ok = True
+                continue
+            result = _upsert(url, key, "trades", rows)
             if result:
-                logger.info("Synced %d trades → %s DB (%s)", len(payload), label, exchange_id.upper())
+                logger.info("Synced %d trades → %s DB (%s)", len(rows), label, exchange_id.upper())
             ok = ok or result
         return ok
 
