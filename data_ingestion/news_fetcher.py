@@ -8,12 +8,15 @@ from typing import List
 from urllib.parse import quote_plus
 
 import feedparser
+import requests
 
 from config import get_active_exchange
 from storage.database import get_session
 from storage.models import NewsItem
 
 logger = logging.getLogger(__name__)
+
+_FETCH_TIMEOUT = 8   # seconds per ticker before giving up
 
 GNEWS_RSS = "https://news.google.com/rss/search?q={query}&hl={hl}&gl={gl}&ceid={ceid}"
 
@@ -42,7 +45,9 @@ def fetch_news(tickers: List[str] = None, max_per_ticker: int = 10) -> int:
     for ticker in tickers:
         url = _gnews_url(ticker)
         try:
-            feed = feedparser.parse(url)
+            resp = requests.get(url, timeout=_FETCH_TIMEOUT, headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            feed = feedparser.parse(resp.content)
             with get_session() as session:
                 for entry in feed.entries[:max_per_ticker]:
                     headline = entry.get("title", "").strip()
