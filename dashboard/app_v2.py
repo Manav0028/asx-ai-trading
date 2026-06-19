@@ -1109,7 +1109,7 @@ if "sb_hold_open" not in st.session_state:
 if "sb_sig_open" not in st.session_state:
     st.session_state.sb_sig_open = True
 if "active_db" not in st.session_state:
-    st.session_state.active_db = "primary"
+    st.session_state.active_db = "new"
 
 
 # ── Chart base ────────────────────────────────────────────────────────────────
@@ -1782,7 +1782,7 @@ if st.session_state.sidebar_sel:
         positions if "positions" in dir() else [],
         currency if "currency" in dir() else "$",
         exchange if "exchange" in dir() else "asx",
-        db=active_db if "active_db" in dir() else "primary",
+        db=active_db,
     )
     st.stop()  # Nothing else renders — inspector replaces all tabs
 
@@ -2041,7 +2041,7 @@ with tab_holdings:
         _unreal_pct      = (_unrealised_pnl / _total_invested * 100) if _total_invested else 0
 
         from dashboard.data import _realised_pnl_totals as _rpt
-        _real_all, _real_today = _rpt(exchange)
+        _real_all, _real_today = _rpt(exchange, db=active_db)
 
         st.markdown(
             f'<div class="hold-summary">'

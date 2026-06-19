@@ -393,13 +393,17 @@ def job_rescan_and_trade():
         len(results), len(above),
     )
 
-    # Step 3: sync fresh signals + regime to Supabase
-    from storage.supabase_sync import sync_signals_to_supabase, sync_regime_to_supabase, sync_strategy_assignments_to_supabase
+    # Step 3: sync fresh signals + regime to Supabase (both DBs)
+    from storage.supabase_sync import (
+        sync_signals_to_supabase, sync_regime_to_supabase,
+        sync_strategy_assignments_to_supabase, sync_trades_to_supabase,
+    )
     sync_signals_to_supabase()
     sync_regime_to_supabase()
     sync_strategy_assignments_to_supabase()
+    sync_trades_to_supabase()   # keep closed-trade history current in both DBs
 
-    # Step 4: place orders based on freshly scored signals
+    # Step 4: place orders; job_place_orders also calls sync_watchlist_to_supabase
     job_place_orders()
     logger.info("=== Rescan-and-trade complete ===")
 
