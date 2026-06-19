@@ -478,7 +478,7 @@ def build_scheduler() -> BlockingScheduler:
     scheduler.add_job(job_technical_regime,         CronTrigger(hour=ph + 1,  minute=15,      day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_signal_scan,              CronTrigger(hour=ph + 1,  minute=20,      day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_daily_report,             CronTrigger(hour=ph + 1,  minute=30,      day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_place_orders,             CronTrigger(hour=orders_h, minute=orders_m, day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_rescan_and_trade,          CronTrigger(hour=orders_h, minute=orders_m, day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_intraday_check,           CronTrigger(minute="*/30", day_of_week="mon-fri",                timezone=tz))
     scheduler.add_job(job_market_close,             CronTrigger(hour=mc_h,    minute=mc_m,    day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_news_refresh,             CronTrigger(minute=0,     hour="*/2",                            timezone=tz))
