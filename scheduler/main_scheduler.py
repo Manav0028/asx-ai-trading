@@ -464,12 +464,15 @@ def build_scheduler() -> BlockingScheduler:
     mo_h, mo_m = exchange.market_open      # market open
     mc_h, mc_m = exchange.market_close     # market close
 
-    # Orders ~45 min after market open
-    orders_h = mo_h
-    orders_m = mo_m + 45
-    if orders_m >= 60:
-        orders_h += 1
-        orders_m -= 60
+    # job_rescan_and_trade must fire AFTER both:
+    #   (a) the pre-market pipeline finishes (signal_scan at ph+1:20, report at ph+1:30)
+    #   (b) market has been open long enough for prices to be liquid
+    # Use the later of (pipeline done + 20 min buffer) and (market open + 45 min).
+    pipeline_done_min = (ph + 1) * 60 + 50   # ph+1:50 — 20 min after signal_scan
+    market_open_min   = mo_h * 60 + mo_m + 45
+    rescan_total_min  = max(pipeline_done_min, market_open_min)
+    rescan_h = rescan_total_min // 60
+    rescan_m = rescan_total_min % 60
 
     scheduler.add_job(job_fetch_prices,            CronTrigger(hour=ph,      minute=0,       day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_fetch_announcements,      CronTrigger(hour=ph,      minute=20,      day_of_week="mon-fri", timezone=tz))
@@ -478,7 +481,7 @@ def build_scheduler() -> BlockingScheduler:
     scheduler.add_job(job_technical_regime,         CronTrigger(hour=ph + 1,  minute=15,      day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_signal_scan,              CronTrigger(hour=ph + 1,  minute=20,      day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_daily_report,             CronTrigger(hour=ph + 1,  minute=30,      day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_rescan_and_trade,          CronTrigger(hour=orders_h, minute=orders_m, day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_rescan_and_trade,         CronTrigger(hour=rescan_h, minute=rescan_m, day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_intraday_check,           CronTrigger(minute="*/30", day_of_week="mon-fri",                timezone=tz))
     scheduler.add_job(job_market_close,             CronTrigger(hour=mc_h,    minute=mc_m,    day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_news_refresh,             CronTrigger(minute=0,     hour="*/2",                            timezone=tz))
@@ -486,8 +489,8 @@ def build_scheduler() -> BlockingScheduler:
     scheduler.add_job(job_weekly_sunday,            CronTrigger(day_of_week="sun", hour=8, minute=0,                 timezone=tz))
 
     logger.info(
-        "Scheduler built for %s (%s) — pipeline starts %02d:00, market %02d:%02d–%02d:%02d",
-        exchange.name, tz, ph, mo_h, mo_m, mc_h, mc_m,
+        "Scheduler built for %s (%s) — pipeline starts %02d:00, market %02d:%02d–%02d:%02d, rescan+trade %02d:%02d",
+        exchange.name, tz, ph, mo_h, mo_m, mc_h, mc_m, rescan_h, rescan_m,
     )
     return scheduler
 
