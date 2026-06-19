@@ -367,6 +367,43 @@ def _check_held_position_news():
                 alerted.add(ticker)
 
 
+def job_rescan_and_trade():
+    """
+    On-demand pipeline: validate strategies → rescore all tickers → place orders.
+    Fixes stale position_size_aud=0 that occurs when signals were stored before
+    strategy validation completed. Safe to run any time market is open.
+    """
+    logger.info("=== Rescan-and-trade: validate → rescore → place orders ===")
+
+    # Step 1: validate strategies so position sizes are computed correctly
+    from strategies.selector import run_strategy_selection
+    sel = run_strategy_selection(_tickers())
+    logger.info(
+        "Strategy validation: %d total, %d validated, %d skipped",
+        sel["total"], sel["validated"], sel["skipped"],
+    )
+
+    # Step 2: rescore all tickers — position_size_aud now reflects validated state
+    from signals.aggregator import run_full_scan
+    from config.settings import SIGNAL_THRESHOLD
+    results = run_full_scan(_tickers())
+    above = [r for r in results if r.get("position_size_aud", 0) > 0]
+    logger.info(
+        "Signal rescan: %d scored, %d with position size (actionable)",
+        len(results), len(above),
+    )
+
+    # Step 3: sync fresh signals + regime to Supabase
+    from storage.supabase_sync import sync_signals_to_supabase, sync_regime_to_supabase, sync_strategy_assignments_to_supabase
+    sync_signals_to_supabase()
+    sync_regime_to_supabase()
+    sync_strategy_assignments_to_supabase()
+
+    # Step 4: place orders based on freshly scored signals
+    job_place_orders()
+    logger.info("=== Rescan-and-trade complete ===")
+
+
 def job_strategy_selection():
     """
     Weekly per-stock strategy selection. Backtests all 5 strategies on each
