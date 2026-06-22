@@ -468,15 +468,26 @@ def build_scheduler() -> BlockingScheduler:
     mo_h, mo_m = exchange.market_open      # market open
     mc_h, mc_m = exchange.market_close     # market close
 
-    # job_rescan_and_trade must fire AFTER both:
-    #   (a) the pre-market pipeline finishes (signal_scan at ph+1:20, report at ph+1:30)
-    #   (b) market has been open long enough for prices to be liquid
-    # Use the later of (pipeline done + 20 min buffer) and (market open + 45 min).
-    pipeline_done_min = (ph + 1) * 60 + 50   # ph+1:50 — 20 min after signal_scan
-    market_open_min   = mo_h * 60 + mo_m + 45
-    rescan_total_min  = max(pipeline_done_min, market_open_min)
-    rescan_h = rescan_total_min // 60
-    rescan_m = rescan_total_min % 60
+    # job_rescan_and_trade runs periodically throughout the session so the system
+    # can pick up new entry signals as the day progresses.
+    #
+    # First run: the later of (pipeline done + 20 min buffer) and (market open + 45 min).
+    # Subsequent runs: every RESCAN_INTERVAL_MIN minutes.
+    # Last run: no later than market_close - RESCAN_CUTOFF_MIN (avoid late-day entries).
+    RESCAN_INTERVAL_MIN = 90
+    RESCAN_CUTOFF_MIN   = 60   # don't start a new rescan within 60 min of close
+
+    pipeline_done_min  = (ph + 1) * 60 + 50   # ph+1:50 — 20 min after signal_scan
+    market_open_min    = mo_h * 60 + mo_m + 45
+    first_rescan_min   = max(pipeline_done_min, market_open_min)
+    market_close_min   = mc_h * 60 + mc_m
+    cutoff_min         = market_close_min - RESCAN_CUTOFF_MIN
+
+    rescan_times = []
+    t = first_rescan_min
+    while t <= cutoff_min:
+        rescan_times.append((t // 60, t % 60))
+        t += RESCAN_INTERVAL_MIN
 
     scheduler.add_job(job_fetch_prices,            CronTrigger(hour=ph,      minute=0,       day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_fetch_announcements,      CronTrigger(hour=ph,      minute=20,      day_of_week="mon-fri", timezone=tz))
@@ -485,16 +496,18 @@ def build_scheduler() -> BlockingScheduler:
     scheduler.add_job(job_technical_regime,         CronTrigger(hour=ph + 1,  minute=15,      day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_signal_scan,              CronTrigger(hour=ph + 1,  minute=20,      day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_daily_report,             CronTrigger(hour=ph + 1,  minute=30,      day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_rescan_and_trade,         CronTrigger(hour=rescan_h, minute=rescan_m, day_of_week="mon-fri", timezone=tz))
+    for rh, rm in rescan_times:
+        scheduler.add_job(job_rescan_and_trade,     CronTrigger(hour=rh,      minute=rm,      day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_intraday_check,           CronTrigger(minute="*/30", day_of_week="mon-fri",                timezone=tz))
     scheduler.add_job(job_market_close,             CronTrigger(hour=mc_h,    minute=mc_m,    day_of_week="mon-fri", timezone=tz))
     scheduler.add_job(job_news_refresh,             CronTrigger(minute=0,     hour="*/2",                            timezone=tz))
     scheduler.add_job(job_strategy_selection,       CronTrigger(day_of_week="sun", hour=7, minute=0,                 timezone=tz))
     scheduler.add_job(job_weekly_sunday,            CronTrigger(day_of_week="sun", hour=8, minute=0,                 timezone=tz))
 
+    times_str = ", ".join(f"{h:02d}:{m:02d}" for h, m in rescan_times)
     logger.info(
-        "Scheduler built for %s (%s) — pipeline starts %02d:00, market %02d:%02d–%02d:%02d, rescan+trade %02d:%02d",
-        exchange.name, tz, ph, mo_h, mo_m, mc_h, mc_m, rescan_h, rescan_m,
+        "Scheduler built for %s (%s) — pipeline starts %02d:00, market %02d:%02d–%02d:%02d, rescan+trade at: %s",
+        exchange.name, tz, ph, mo_h, mo_m, mc_h, mc_m, times_str,
     )
     return scheduler
 
