@@ -147,6 +147,49 @@ def update_watchlist_prices() -> List[Dict]:
     return updated
 
 
+def update_watchlist_prices_live(live_prices: Dict[str, float]) -> List[Dict]:
+    """
+    Update watchlist P&L using a pre-fetched live-price dict (avoids a second
+    yfinance round-trip). Also computes day_pnl vs yesterday's close from the
+    local Price table.  Called by job_intraday_check every 30 min.
+    """
+    from storage.models import Price
+    updated = []
+    with get_session() as session:
+        items = session.query(WatchlistItem).filter(WatchlistItem.is_active == True).all()
+        for item in items:
+            current = live_prices.get(item.ticker)
+            if current is None:
+                continue
+
+            # Yesterday's close from the Price table for day P&L
+            prev_row = (
+                session.query(Price.close)
+                .filter(Price.ticker == item.ticker, Price.date < date.today())
+                .order_by(Price.date.desc())
+                .first()
+            )
+            prev_close = prev_row[0] if prev_row else item.entry_price
+
+            sign = -1 if (getattr(item, "direction", None) or "long") == "short" else 1
+            item.current_price      = current
+            item.unrealised_pnl     = round(sign * (current - item.entry_price) * item.shares, 2)
+            item.unrealised_pnl_pct = round(sign * (current - item.entry_price) / item.entry_price * 100, 2)
+            item.days_held          = (date.today() - item.entry_date).days
+            day_pnl                 = round(sign * (current - prev_close) * item.shares, 2)
+
+            updated.append({
+                "ticker":             item.ticker,
+                "current_price":      current,
+                "prev_close":         prev_close,
+                "day_pnl":            day_pnl,
+                "unrealised_pnl":     item.unrealised_pnl,
+                "unrealised_pnl_pct": item.unrealised_pnl_pct,
+                "days_held":          item.days_held,
+            })
+    return updated
+
+
 def remove_from_watchlist(ticker: str, reason: str = "manual",
                           trading_mode: str = None) -> None:
     mode = trading_mode or _current_trading_mode()

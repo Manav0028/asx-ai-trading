@@ -249,9 +249,18 @@ def job_intraday_check():
 
     from execution.stop_loss import intraday_evaluate_exits
     stops, targets = intraday_evaluate_exits(live_prices)
+
+    # Update watchlist P&L with live prices and sync to Supabase so the
+    # dashboard shows real-time values rather than stale end-of-day figures.
+    from signals.watchlist import update_watchlist_prices_live
+    updated = update_watchlist_prices_live(live_prices)
+    if updated:
+        from storage.supabase_sync import sync_watchlist_to_supabase
+        sync_watchlist_to_supabase()
+
     logger.info(
-        "Intraday check done — %d stop(s), %d target(s), prices checked: %d",
-        len(stops), len(targets), len(live_prices),
+        "Intraday check done — %d stop(s), %d target(s), %d prices updated",
+        len(stops), len(targets), len(updated),
     )
 
 

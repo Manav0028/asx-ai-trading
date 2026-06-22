@@ -216,6 +216,8 @@ def sync_watchlist_to_supabase() -> bool:
         from storage.database import get_session
         from storage.models import WatchlistItem
 
+        from storage.models import Price
+
         with get_session() as session:
             items = (
                 session.query(WatchlistItem)
@@ -225,28 +227,44 @@ def sync_watchlist_to_supabase() -> bool:
                 )
                 .all()
             )
-            payload = [
-                {
-                    "ticker": i.ticker,
-                    "exchange": exchange_id,
-                    "trading_mode": i.trading_mode or "paper",
-                    "entry_date": str(i.entry_date) if i.entry_date else None,
-                    "entry_price": i.entry_price,
-                    "current_price": i.current_price,
-                    "target_price": i.target_price,
-                    "stop_loss_price": i.stop_loss_price,
-                    "shares": i.shares,
+
+            # Fetch yesterday's close for each position to compute day P&L
+            def _prev_close(ticker: str) -> float:
+                row = (
+                    session.query(Price.close)
+                    .filter(Price.ticker == ticker, Price.date < date.today())
+                    .order_by(Price.date.desc())
+                    .first()
+                )
+                return row[0] if row else None
+
+            payload = []
+            for i in items:
+                current   = i.current_price or i.entry_price
+                prev      = _prev_close(i.ticker)
+                sign      = -1 if (getattr(i, "direction", None) or "long") == "short" else 1
+                day_pnl   = round(sign * (current - prev) * (i.shares or 0), 2) if prev else None
+                payload.append({
+                    "ticker":           i.ticker,
+                    "exchange":         exchange_id,
+                    "trading_mode":     i.trading_mode or "paper",
+                    "entry_date":       str(i.entry_date) if i.entry_date else None,
+                    "entry_price":      i.entry_price,
+                    "current_price":    current,
+                    "prev_close":       prev,
+                    "day_pnl":          day_pnl,
+                    "target_price":     i.target_price,
+                    "stop_loss_price":  i.stop_loss_price,
+                    "shares":           i.shares,
                     "position_size_aud": i.position_size_aud,
-                    "unrealised_pnl": i.unrealised_pnl,
+                    "unrealised_pnl":   i.unrealised_pnl,
                     "unrealised_pnl_pct": i.unrealised_pnl_pct,
-                    "days_held": i.days_held,
-                    "signal_score": i.signal_score,
-                    "is_active": True,
-                    "strategy_name": getattr(i, "strategy_name", None),
-                    "direction": getattr(i, "direction", None) or "long",
-                }
-                for i in items
-            ]
+                    "days_held":        i.days_held,
+                    "signal_score":     i.signal_score,
+                    "is_active":        True,
+                    "strategy_name":    getattr(i, "strategy_name", None),
+                    "direction":        getattr(i, "direction", None) or "long",
+                })
 
         ok = False
         for url, key, label in _all_db_configs():
