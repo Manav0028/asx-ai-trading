@@ -33,6 +33,11 @@ def _simulate_fill(price: float, side: str) -> float:
     return price * (1 + slip) if side == "buy" else price * (1 - slip)
 
 
+def _current_mode() -> str:
+    from signals.watchlist import _current_trading_mode
+    return _current_trading_mode()
+
+
 def _record_trade(
     ticker: str,
     trade_type: str,
@@ -43,14 +48,16 @@ def _record_trade(
     exit_date: Optional[date],
     exit_reason: str,
     signal_score: float,
+    mode: str = None,
 ) -> None:
+    mode = mode or _current_mode()
     gross = (exit_price - entry_price) * shares if exit_price else 0.0
     net = gross - PAPER_BROKERAGE * (2 if exit_price else 1)
     with get_session() as session:
         session.add(Trade(
             ticker=ticker,
             trade_type=trade_type,
-            mode="paper",
+            mode=mode,
             entry_date=entry_date,
             exit_date=exit_date,
             entry_price=entry_price,
@@ -186,6 +193,7 @@ def execute_sell(ticker: str, reason: str = "manual",
         exit_date=date.today(),
         exit_reason=reason,
         signal_score=position["signal_score"],
+        mode=pos_trading_mode,
     )
 
     logger.info(
