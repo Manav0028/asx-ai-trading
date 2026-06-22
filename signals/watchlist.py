@@ -66,18 +66,32 @@ def add_to_watchlist(
     mode = trading_mode or _current_trading_mode()
 
     with get_session() as session:
-        # Only block duplicate if same mode is already active
+        # Check for any existing row (active or closed) — the table has UNIQUE(ticker).
         existing = (
             session.query(WatchlistItem)
-            .filter(
-                WatchlistItem.ticker == ticker,
-                WatchlistItem.trading_mode == mode,
-                WatchlistItem.is_active == True,
-            )
+            .filter(WatchlistItem.ticker == ticker)
             .first()
         )
         if existing:
-            logger.info("%s already in %s watchlist", ticker, mode)
+            if existing.is_active:
+                logger.info("%s already in %s watchlist (active)", ticker, existing.trading_mode)
+                return existing
+            # Reopen closed position with fresh entry data
+            existing.entry_date         = date.today()
+            existing.entry_price        = entry_price
+            existing.target_price       = target_price
+            existing.stop_loss_price    = stop_loss_price
+            existing.shares             = shares
+            existing.position_size_aud  = position_size_aud
+            existing.current_price      = entry_price
+            existing.unrealised_pnl     = 0.0
+            existing.unrealised_pnl_pct = 0.0
+            existing.days_held          = 0
+            existing.signal_score       = signal_score
+            existing.trading_mode       = mode
+            existing.direction          = direction
+            existing.is_active          = True
+            logger.info("Reopened %s in %s watchlist at $%.3f", ticker, mode, entry_price)
             return existing
 
         item = WatchlistItem(

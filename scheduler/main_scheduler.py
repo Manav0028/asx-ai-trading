@@ -408,6 +408,59 @@ def job_rescan_and_trade():
     logger.info("=== Rescan-and-trade complete ===")
 
 
+def job_intraday_rescan():
+    """
+    Lightweight intraday pipeline — runs every 90 min during market hours to
+    pick up new entry signals as prices develop throughout the day.
+
+    Skips strategy validation (backtest) and sentiment/fundamental refresh
+    because those don't change intraday. Only refreshes what actually changes:
+      1. Prices  → update Price table with latest OHLCV
+      2. Technicals + regime  → recompute RSI/MACD/BB/EMA with new prices
+      3. Signal aggregation   → update Signal table (reuses cached sentiment/fundamental)
+      4. Place orders         → enter any newly actionable signals
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    exchange = get_active_exchange()
+    tz       = exchange.timezone
+    now      = datetime.now(ZoneInfo(tz))
+    oh, om   = exchange.market_open
+    ch, cm   = exchange.market_close
+    open_t   = now.replace(hour=oh, minute=om, second=0, microsecond=0)
+    close_t  = now.replace(hour=ch, minute=cm, second=0, microsecond=0)
+
+    if not (open_t <= now <= close_t):
+        logger.debug("Intraday rescan skipped — outside market hours")
+        return
+
+    logger.info("=== Intraday rescan: prices → technicals → signals → orders ===")
+
+    # Step 1: refresh prices
+    job_fetch_prices()
+
+    # Step 2: recompute technicals and regime with new prices
+    job_technical_regime()
+
+    # Step 3: re-aggregate signals (sentiment/fundamental reused from DB cache)
+    from signals.aggregator import run_full_scan
+    results = run_full_scan(_tickers())
+    above = [r for r in results if r.get("position_size_aud", 0) > 0]
+    logger.info(
+        "Intraday signal update: %d scored, %d actionable",
+        len(results), len(above),
+    )
+
+    # Step 4: sync updated signals to Supabase and place orders
+    from storage.supabase_sync import sync_signals_to_supabase, sync_regime_to_supabase
+    sync_signals_to_supabase()
+    sync_regime_to_supabase()
+
+    job_place_orders()
+    logger.info("=== Intraday rescan complete ===")
+
+
 def job_strategy_selection():
     """
     Weekly per-stock strategy selection. Backtests all 5 strategies on each
@@ -468,46 +521,49 @@ def build_scheduler() -> BlockingScheduler:
     mo_h, mo_m = exchange.market_open      # market open
     mc_h, mc_m = exchange.market_close     # market close
 
-    # job_rescan_and_trade runs periodically throughout the session so the system
-    # can pick up new entry signals as the day progresses.
-    #
-    # First run: the later of (pipeline done + 20 min buffer) and (market open + 45 min).
-    # Subsequent runs: every RESCAN_INTERVAL_MIN minutes.
-    # Last run: no later than market_close - RESCAN_CUTOFF_MIN (avoid late-day entries).
+    # Morning rescan-and-trade: once, after the pre-market pipeline + market open.
+    # Runs strategy validation (backtest) + full rescore + orders.
+    # Intraday rescan: lightweight (prices + technicals + signals + orders, no backtest),
+    # runs every 90 min from (first_rescan + 90 min) until 60 min before close.
     RESCAN_INTERVAL_MIN = 90
-    RESCAN_CUTOFF_MIN   = 60   # don't start a new rescan within 60 min of close
+    RESCAN_CUTOFF_MIN   = 60
 
-    pipeline_done_min  = (ph + 1) * 60 + 50   # ph+1:50 — 20 min after signal_scan
-    market_open_min    = mo_h * 60 + mo_m + 45
-    first_rescan_min   = max(pipeline_done_min, market_open_min)
-    market_close_min   = mc_h * 60 + mc_m
-    cutoff_min         = market_close_min - RESCAN_CUTOFF_MIN
+    pipeline_done_min = (ph + 1) * 60 + 50   # ph+1:50 — 20 min after signal_scan
+    market_open_min   = mo_h * 60 + mo_m + 45
+    first_rescan_min  = max(pipeline_done_min, market_open_min)
+    market_close_min  = mc_h * 60 + mc_m
+    cutoff_min        = market_close_min - RESCAN_CUTOFF_MIN
 
-    rescan_times = []
-    t = first_rescan_min
+    intraday_times = []
+    t = first_rescan_min + RESCAN_INTERVAL_MIN
     while t <= cutoff_min:
-        rescan_times.append((t // 60, t % 60))
+        intraday_times.append((t // 60, t % 60))
         t += RESCAN_INTERVAL_MIN
 
-    scheduler.add_job(job_fetch_prices,            CronTrigger(hour=ph,      minute=0,       day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_fetch_announcements,      CronTrigger(hour=ph,      minute=20,      day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_fetch_insider_trades,     CronTrigger(hour=ph,      minute=40,      day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_ai_sentiment_fundamental, CronTrigger(hour=ph + 1,  minute=0,       day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_technical_regime,         CronTrigger(hour=ph + 1,  minute=15,      day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_signal_scan,              CronTrigger(hour=ph + 1,  minute=20,      day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_daily_report,             CronTrigger(hour=ph + 1,  minute=30,      day_of_week="mon-fri", timezone=tz))
-    for rh, rm in rescan_times:
-        scheduler.add_job(job_rescan_and_trade,     CronTrigger(hour=rh,      minute=rm,      day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_intraday_check,           CronTrigger(minute="*/30", day_of_week="mon-fri",                timezone=tz))
-    scheduler.add_job(job_market_close,             CronTrigger(hour=mc_h,    minute=mc_m,    day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_news_refresh,             CronTrigger(minute=0,     hour="*/2",                            timezone=tz))
-    scheduler.add_job(job_strategy_selection,       CronTrigger(day_of_week="sun", hour=7, minute=0,                 timezone=tz))
-    scheduler.add_job(job_weekly_sunday,            CronTrigger(day_of_week="sun", hour=8, minute=0,                 timezone=tz))
+    rescan_h = first_rescan_min // 60
+    rescan_m = first_rescan_min % 60
 
-    times_str = ", ".join(f"{h:02d}:{m:02d}" for h, m in rescan_times)
+    scheduler.add_job(job_fetch_prices,            CronTrigger(hour=ph,       minute=0,       day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_fetch_announcements,      CronTrigger(hour=ph,       minute=20,      day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_fetch_insider_trades,     CronTrigger(hour=ph,       minute=40,      day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_ai_sentiment_fundamental, CronTrigger(hour=ph + 1,   minute=0,       day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_technical_regime,         CronTrigger(hour=ph + 1,   minute=15,      day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_signal_scan,              CronTrigger(hour=ph + 1,   minute=20,      day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_daily_report,             CronTrigger(hour=ph + 1,   minute=30,      day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_rescan_and_trade,         CronTrigger(hour=rescan_h, minute=rescan_m, day_of_week="mon-fri", timezone=tz))
+    for ih, im in intraday_times:
+        scheduler.add_job(job_intraday_rescan,      CronTrigger(hour=ih,       minute=im,      day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_intraday_check,           CronTrigger(minute="*/30", day_of_week="mon-fri",                 timezone=tz))
+    scheduler.add_job(job_market_close,             CronTrigger(hour=mc_h,     minute=mc_m,    day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_news_refresh,             CronTrigger(minute=0,      hour="*/2",                            timezone=tz))
+    scheduler.add_job(job_strategy_selection,       CronTrigger(day_of_week="sun", hour=7, minute=0,                  timezone=tz))
+    scheduler.add_job(job_weekly_sunday,            CronTrigger(day_of_week="sun", hour=8, minute=0,                  timezone=tz))
+
+    intraday_str = ", ".join(f"{h:02d}:{m:02d}" for h, m in intraday_times) or "none"
     logger.info(
-        "Scheduler built for %s (%s) — pipeline starts %02d:00, market %02d:%02d–%02d:%02d, rescan+trade at: %s",
-        exchange.name, tz, ph, mo_h, mo_m, mc_h, mc_m, times_str,
+        "Scheduler built for %s (%s) — pipeline starts %02d:00, market %02d:%02d–%02d:%02d, "
+        "rescan+trade %02d:%02d, intraday rescan at: %s",
+        exchange.name, tz, ph, mo_h, mo_m, mc_h, mc_m, rescan_h, rescan_m, intraday_str,
     )
     return scheduler
 
