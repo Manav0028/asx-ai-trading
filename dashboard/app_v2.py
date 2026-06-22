@@ -763,7 +763,7 @@ footer { visibility: hidden; }
 .sig-tooltip .tt-val { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* ── P&L hero two-up ──────────────────────────────────*/
-.pnl-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 8px; }
+.pnl-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; margin-bottom: 8px; }
 .pnl-card {
     background: var(--bg-secondary); border: 1px solid var(--border);
     border-radius: var(--radius-md); padding: 18px 20px;
@@ -1058,6 +1058,19 @@ def load_trades(exch, days, db="primary"):
 @st.cache_data(ttl=300)
 def load_pnl(exch, days, db="primary"):
     return get_cumulative_pnl(exch, days=days, db=db)
+
+@st.cache_data(ttl=300)
+def load_daily_pnl(exch, days=60, db="primary"):
+    from dashboard.data import _sb_get
+    from datetime import date, timedelta
+    cutoff = str(date.today() - timedelta(days=days))
+    rows = _sb_get("daily_pnl", {
+        "exchange": f"eq.{exch}",
+        "date":     f"gte.{cutoff}",
+        "order":    "date.asc",
+        "select":   "date,day_pnl,realised_today,total_day_pnl,portfolio_value",
+    }, db=db)
+    return rows or []
 
 @st.cache_data(ttl=3600)
 def load_backtest(exch, db="primary"):
@@ -1875,29 +1888,47 @@ with tab_dash:
         'text-transform:none;letter-spacing:0;color:var(--text-tertiary);'
         'background:var(--bg-tertiary);padding:2px 7px;border-radius:var(--radius-sm)"'
     )
+
+    # Today's P&L = intraday open-position move + any trades closed today
+    _today_open_pnl    = portfolio.get("total_day_pnl", 0) or 0
+    _today_realised    = portfolio.get("today_realised_pnl", 0) or 0
+    _today_total       = _today_open_pnl + _today_realised
+    _today_pct         = (_today_total / total_invested * 100) if total_invested else 0
+
     st.markdown(
         f'<div class="pnl-grid">'
+        # ── Card 1: Today ──────────────────────────────────────────────────────
+        f'  <div class="pnl-card" style="border-left:3px solid var(--accent)">'
+        f'    <div class="pnl-label">Today\'s P&L'
+        f'      <span {_pill}>vs yesterday\'s close</span></div>'
+        f'    <div class="pnl-value {_pnl_class(_today_total)}">{_pnl_sign(_today_total, currency)}</div>'
+        f'    <div class="pnl-sub {_pnl_class(_today_total)}">{_pnl_pct(_today_pct)}'
+        f'      &nbsp;<span style="color:var(--text-tertiary);font-weight:400">intraday move</span></div>'
+        f'  </div>'
+        # ── Card 2: Unrealised (from entry) ───────────────────────────────────
         f'  <div class="pnl-card">'
         f'    <div class="pnl-label">Unrealised P&L'
-        f'      <span {_pill}>Open positions</span></div>'
+        f'      <span {_pill}>from entry price</span></div>'
         f'    <div class="pnl-value {_pnl_class(unreal_pnl)}">{_pnl_sign(unreal_pnl, currency)}</div>'
         f'    <div class="pnl-sub {_pnl_class(unreal_pnl)}">{_pnl_pct(unreal_pct)}'
-        f'      &nbsp;<span style="color:var(--text-tertiary);font-weight:400">from entry · {len(positions)} holdings</span></div>'
+        f'      &nbsp;<span style="color:var(--text-tertiary);font-weight:400">{len(positions)} holdings</span></div>'
         f'  </div>'
+        # ── Card 3: Realised ──────────────────────────────────────────────────
         f'  <div class="pnl-card">'
         f'    <div class="pnl-label">Realised P&L'
-        f'      <span {_pill}>Closed trades</span></div>'
+        f'      <span {_pill}>closed trades</span></div>'
         f'    <div class="pnl-value {_pnl_class(realised_pnl)}">{_pnl_sign(realised_pnl, currency)}</div>'
         f'    <div class="pnl-sub {_pnl_class(realised_pnl)}">'
-        f'      <span style="color:var(--text-tertiary);font-weight:400">all-time · exited positions</span></div>'
+        f'      <span style="color:var(--text-tertiary);font-weight:400">all-time · exited</span></div>'
         f'  </div>'
+        # ── Card 4: Total ─────────────────────────────────────────────────────
         f'  <div class="pnl-card">'
         f'    <div class="pnl-label">Total P&L'
-        f'      <span {_pill}>Unrealised + Realised</span></div>'
+        f'      <span {_pill}>unrealised + realised</span></div>'
         f'    <div class="pnl-value {pnl_cls}">{_pnl_sign(total_pnl, currency)}</div>'
         f'    <div class="pnl-sub {pnl_cls}">{_pnl_pct(total_pnl_pct)}'
         f'      &nbsp;<span style="color:var(--text-tertiary);font-weight:400">'
-        f'      {len(positions)} open + all closed trades</span></div>'
+        f'      {len(positions)} open + all closed</span></div>'
         f'  </div>'
         f'</div>',
         unsafe_allow_html=True,
@@ -1987,6 +2018,34 @@ with tab_dash:
             '  <div class="empty-title">No closed trades yet</div>'
             '  <div class="empty-sub">P&L data will appear after the first position is closed.</div>'
             '</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Daily Portfolio P&L (intraday history) ──────────────────────────────
+    st.markdown('<div class="kite-section" style="margin-top:28px">Daily Portfolio P&L</div>',
+                unsafe_allow_html=True)
+    _daily_rows = load_daily_pnl(exchange, 60, db=active_db)
+    if _daily_rows:
+        import plotly.graph_objects as go
+        _d_dates  = [r.get("date") for r in _daily_rows]
+        _d_vals   = [r.get("total_day_pnl") or 0 for r in _daily_rows]
+        _d_colors = ["#00c48c" if v >= 0 else "#ff5a5a" for v in _d_vals]
+        _fig_d = go.Figure(go.Bar(
+            x=_d_dates, y=_d_vals,
+            marker_color=_d_colors,
+            text=[f"{currency}{v:+,.0f}" for v in _d_vals],
+            textposition="outside",
+            hovertemplate="%{x}<br>Day P&L: " + currency + "%{y:+,.2f}<extra></extra>",
+        ))
+        _layout_d = _chart_base(h=240)
+        _layout_d["yaxis"]["tickprefix"] = currency
+        _layout_d["showlegend"] = False
+        _fig_d.update_layout(**_layout_d)
+        st.plotly_chart(_fig_d, use_container_width=True, config={"displayModeBar": False})
+    else:
+        st.markdown(
+            '<div style="font-size:0.8rem;color:var(--text-tertiary);padding:12px 0">'
+            'Daily P&L history will appear here after the first market close.</div>',
             unsafe_allow_html=True,
         )
 

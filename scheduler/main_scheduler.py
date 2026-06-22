@@ -192,9 +192,12 @@ def job_market_close():
     if stale:
         logger.info("Exited %d stale positions", len(stale))
     # ── Phase 2: Supabase cloud sync ─────────────────────────────────────────
-    from storage.supabase_sync import sync_watchlist_to_supabase, sync_trades_to_supabase
-    sync_watchlist_to_supabase()   # positions may have changed (stop/target exits)
+    from storage.supabase_sync import (
+        sync_watchlist_to_supabase, sync_trades_to_supabase, sync_daily_pnl_to_supabase,
+    )
+    sync_watchlist_to_supabase()      # positions may have changed (stop/target exits)
     sync_trades_to_supabase()
+    sync_daily_pnl_to_supabase()      # record today's P&L snapshot for history chart
 
 
 def job_intraday_check():

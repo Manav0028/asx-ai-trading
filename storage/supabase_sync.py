@@ -446,3 +446,77 @@ def sync_backtest_to_supabase(results: dict) -> bool:
     except Exception as e:
         logger.warning("sync_backtest_to_supabase failed: %s", e)
         return False
+
+
+def sync_daily_pnl_to_supabase() -> bool:
+    """
+    Upsert today's P&L snapshot into the daily_pnl table.
+    Called at market close to build a day-by-day performance history.
+
+    Rows:  date, exchange, day_pnl (intraday open move),
+           realised_today (closed trades today), total_day_pnl, portfolio_value.
+    """
+    exchange_id = _get_exchange_id()
+    suffix      = _ticker_suffix(exchange_id)
+    today       = date.today()
+
+    try:
+        from storage.database import get_session
+        from storage.models import WatchlistItem, Trade, Price
+
+        with get_session() as session:
+            # Intraday move on open positions (current vs prev close)
+            items = (
+                session.query(WatchlistItem)
+                .filter(WatchlistItem.is_active == True, WatchlistItem.ticker.endswith(suffix))
+                .all()
+            )
+            day_pnl = 0.0
+            portfolio_value = 0.0
+            for i in items:
+                current = i.current_price or i.entry_price or 0
+                portfolio_value += current * (i.shares or 0)
+                prev_row = (
+                    session.query(Price.close)
+                    .filter(Price.ticker == i.ticker, Price.date < today)
+                    .order_by(Price.date.desc())
+                    .first()
+                )
+                if prev_row:
+                    sign = -1 if (getattr(i, "direction", None) or "long") == "short" else 1
+                    day_pnl += sign * (current - prev_row[0]) * (i.shares or 0)
+
+            # Realised P&L from trades closed today
+            closed_today = (
+                session.query(Trade)
+                .filter(Trade.exit_date == today, Trade.ticker.endswith(suffix))
+                .all()
+            )
+            realised_today = sum(t.net_pnl or 0 for t in closed_today)
+
+        payload = [{
+            "date":            str(today),
+            "exchange":        exchange_id,
+            "day_pnl":         round(day_pnl, 2),
+            "realised_today":  round(realised_today, 2),
+            "total_day_pnl":   round(day_pnl + realised_today, 2),
+            "portfolio_value": round(portfolio_value, 2),
+            "positions_count": len(items),
+        }]
+
+        ok = False
+        for url, key, label in _all_db_configs():
+            if label == "new" and str(today) < str(NEW_DB_EPOCH):
+                continue
+            result = _upsert(url, key, "daily_pnl", payload)
+            if result:
+                logger.info(
+                    "Synced daily P&L → %s DB (%s): day=%+.2f realised=%+.2f",
+                    label, exchange_id.upper(), day_pnl, realised_today,
+                )
+            ok = ok or result
+        return ok
+
+    except Exception as e:
+        logger.warning("sync_daily_pnl_to_supabase failed: %s", e)
+        return False
