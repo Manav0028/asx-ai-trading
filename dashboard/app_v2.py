@@ -2078,6 +2078,14 @@ with tab_holdings:
             unsafe_allow_html=True,
         )
 
+        # Price freshness indicator — live (market open) or last intraday sync
+        _any_live = any(p.get("is_live") for p in _pos)
+        if _any_live:
+            _price_badge = '<span style="background:var(--profit);color:#fff;font-size:0.62rem;padding:2px 7px;border-radius:10px;font-weight:600;margin-left:8px">● LIVE</span>'
+        else:
+            _price_badge = '<span style="background:var(--border);color:var(--text-tertiary);font-size:0.62rem;padding:2px 7px;border-radius:10px;font-weight:500;margin-left:8px">↻ synced every 30 min</span>'
+        st.markdown(f'<div style="margin-bottom:8px;font-size:0.78rem;color:var(--text-tertiary)">Prices {_price_badge}</div>', unsafe_allow_html=True)
+
         table_html = '''<table class="kite-table"><thead><tr>
             <th>Instrument</th><th>Qty.</th><th>Avg. cost</th><th>LTP</th>
             <th>Invested</th><th>Cur. val</th><th>Day P&L</th><th>P&L</th><th>Net chg.</th><th>Days</th>

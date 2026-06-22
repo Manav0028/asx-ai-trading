@@ -310,10 +310,18 @@ def get_portfolio(exchange: str, live: bool = False,
         tickers = [p["ticker"] for p in positions]
         live_prices = get_live_prices(tickers)
 
-    # ── Fetch previous close for day's P&L ────────────────────────────────
+    # ── Fetch previous close for day's P&L ───────────────────────────────
+    # Prefer prev_close already stored in Supabase (populated by intraday sync)
+    # and only call yfinance for tickers where it's missing.
     prev_closes: Dict[str, float] = {}
     if positions:
-        prev_closes = _get_prev_closes([p.get("ticker", "") for p in positions])
+        for p in positions:
+            pc = p.get("prev_close")
+            if pc:
+                prev_closes[p["ticker"]] = float(pc)
+        missing = [p["ticker"] for p in positions if p["ticker"] not in prev_closes]
+        if missing:
+            prev_closes.update(_get_prev_closes(missing))
 
     # ── Per-position derived fields ───────────────────────────────────────
     for p in positions:
@@ -325,8 +333,8 @@ def get_portfolio(exchange: str, live: bool = False,
         # Override current_price with live quote when available
         if ticker in live_prices:
             cp = live_prices[ticker]
-            p["current_price"]     = round(cp, 4)
-            p["unrealised_pnl"]    = round((cp - entry) * shares, 2)
+            p["current_price"]      = round(cp, 4)
+            p["unrealised_pnl"]     = round((cp - entry) * shares, 2)
             p["unrealised_pnl_pct"] = round((cp - entry) / entry * 100, 2) if entry else 0
         else:
             cp = p.get("current_price") or 0
@@ -336,11 +344,11 @@ def get_portfolio(exchange: str, live: bool = False,
         p["is_live"]       = ticker in live_prices
 
         prev_close = prev_closes.get(ticker)
-        if prev_close is not None:
+        if prev_close:
             p["day_pnl"]     = round((cp - prev_close) * shares, 2)
-            p["day_pnl_pct"] = round((cp - prev_close) / prev_close * 100, 2) if prev_close else 0
+            p["day_pnl_pct"] = round((cp - prev_close) / prev_close * 100, 2)
         else:
-            p["day_pnl"]     = None  # no prev-close available
+            p["day_pnl"]     = None
             p["day_pnl_pct"] = None
 
     total_unrealised_pnl = sum(p.get("unrealised_pnl")   or 0 for p in positions)
