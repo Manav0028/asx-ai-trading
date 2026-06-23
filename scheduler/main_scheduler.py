@@ -129,8 +129,8 @@ def job_place_orders(source: str = "morning"):
         logger.info("Internal paper orders placed: %d", len(fills))
 
     # ── Telegram signal alerts for all non-live fills ─────────────────────
-    if not LIVE_TRADING_ENABLED and 'fills' in dir():
-        from alerts.telegram_bot import send_signal_alert
+    if not LIVE_TRADING_ENABLED and fills:
+        from alerts.telegram_bot import send_signal_alert, send_volume_spike_alert
         from ai_engine.technical_engine import get_technical_meta
         from ai_engine.fundamental_scorer import get_fundamental_meta
         from ai_engine.sentiment import get_sentiment_meta
@@ -145,28 +145,9 @@ def job_place_orders(source: str = "morning"):
                     sent_meta=get_sentiment_meta(ticker),
                 )
 
-        from alerts.telegram_bot import send_signal_alert
-        from ai_engine.technical_engine import get_technical_meta
-        from ai_engine.fundamental_scorer import get_fundamental_meta
-        from ai_engine.sentiment import get_sentiment_meta
-        from signals.watchlist import get_active_watchlist
-        active_tickers = {p["ticker"] for p in get_active_watchlist()}
-        for fill in fills:
-            ticker = fill["ticker"]
-            sig = next((s for s in signals if s["ticker"] == ticker), None)
-            if sig:
-                send_signal_alert(
-                    sig,
-                    tech_meta=get_technical_meta(ticker),
-                    fund_meta=get_fundamental_meta(ticker),
-                    sent_meta=get_sentiment_meta(ticker),
-                )
-
-        from alerts.telegram_bot import send_volume_spike_alert
-        from ai_engine.technical_engine import get_technical_meta as gtm
         for sig in signals:
             if sig["composite_score"] >= 70:
-                meta = gtm(sig["ticker"])
+                meta = get_technical_meta(sig["ticker"])
                 vol_signals = [s for s in (meta.get("signals") or []) if "volume" in s.lower()]
                 if vol_signals:
                     ratio_str = vol_signals[0].split("volume ")[1].split("x")[0] if "x" in vol_signals[0] else "2"

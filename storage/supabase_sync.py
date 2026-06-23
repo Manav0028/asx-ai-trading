@@ -263,7 +263,8 @@ def sync_watchlist_to_supabase() -> bool:
                     "signal_score":     i.signal_score,
                     "is_active":        True,
                     "strategy_name":    getattr(i, "strategy_name", None),
-                    "direction":        getattr(i, "direction", None) or "long",
+                    "direction":        getattr(i, "direction", "long") or "long",
+                    "source":           getattr(i, "source", "morning") or "morning",
                     "source":           getattr(i, "source", "morning") or "morning",
                 })
 

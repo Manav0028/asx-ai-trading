@@ -114,12 +114,20 @@ def execute_buy(signal: Dict, source: str = "morning") -> Optional[Dict]:
         return None
 
     actual_cost = shares * fill_price + PAPER_BROKERAGE
+
+    # Rebase signal stop/target to fill_price so risk geometry stays correct
+    # when fill_price differs from the signal's entry_price (slippage or intraday move).
+    price_ratio = fill_price / raw_price if raw_price else 1.0
     if short:
-        stop_loss = signal.get("stop_loss_price") or round(fill_price * (1 + STOP_LOSS_PCT), 3)
-        target = signal.get("target_price") or round(fill_price * 0.90, 3)
+        stop_loss = (round(signal["stop_loss_price"] * price_ratio, 3)
+                     if signal.get("stop_loss_price") else round(fill_price * (1 + STOP_LOSS_PCT), 3))
+        target    = (round(signal["target_price"] * price_ratio, 3)
+                     if signal.get("target_price") else round(fill_price * 0.90, 3))
     else:
-        stop_loss = signal.get("stop_loss_price") or round(fill_price * (1 - STOP_LOSS_PCT), 3)
-        target = signal.get("target_price") or round(fill_price * 1.10, 3)
+        stop_loss = (round(signal["stop_loss_price"] * price_ratio, 3)
+                     if signal.get("stop_loss_price") else round(fill_price * (1 - STOP_LOSS_PCT), 3))
+        target    = (round(signal["target_price"] * price_ratio, 3)
+                     if signal.get("target_price") else round(fill_price * 1.10, 3))
 
     add_to_watchlist(
         ticker=ticker,
@@ -131,6 +139,7 @@ def execute_buy(signal: Dict, source: str = "morning") -> Optional[Dict]:
         signal_score=score,
         direction=direction,
         source=source,
+        strategy_name=signal.get("strategy_name"),
     )
 
     _record_trade(

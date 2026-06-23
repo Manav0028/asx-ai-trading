@@ -178,9 +178,9 @@ def _watchlist_row_to_dict(i) -> Dict:
         "unrealised_pnl_pct": i.unrealised_pnl_pct,
         "days_held": i.days_held,
         "signal_score": i.signal_score,
-        # trading_mode added in Phase 2 — default to 'paper' for older rows
-        "trading_mode": getattr(i, "trading_mode", None) or "paper",
-        "source": getattr(i, "source", "morning") or "morning",
+        "trading_mode":  getattr(i, "trading_mode", None) or "paper",
+        "strategy_name": getattr(i, "strategy_name", None),
+        "source":        getattr(i, "source", "morning") or "morning",
     }
 
 

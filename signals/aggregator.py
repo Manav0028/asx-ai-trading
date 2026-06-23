@@ -169,44 +169,44 @@ def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
         position_aud    = 0.0
         kelly_f         = 0.0
 
-    # If a position is already open for this ticker today, preserve the original
-    # entry_price (the price at which it was actually bought). Intraday rescans
-    # update the current price but must not overwrite the committed entry price.
+    from storage.models import WatchlistItem
+
+    # Single session: check open position (to preserve entry_price) then upsert signal.
     with get_session() as session:
         existing_signal = (
             session.query(Signal)
             .filter(Signal.ticker == ticker, Signal.date == today)
             .first()
         )
-        from storage.models import WatchlistItem
         has_open_position = session.query(WatchlistItem).filter(
             WatchlistItem.ticker == ticker,
             WatchlistItem.is_active == True,
         ).first() is not None
 
-    if has_open_position and existing_signal and existing_signal.entry_price:
-        entry_price = existing_signal.entry_price
+        # Preserve original entry_price when a position is open — intraday rescans
+        # must not overwrite the price at which the position was actually entered.
+        if has_open_position and existing_signal and existing_signal.entry_price:
+            entry_price = existing_signal.entry_price
 
-    signal_dict = {
-        "ticker": ticker,
-        "date": today,
-        "sentiment_score": sentiment,
-        "fundamental_score": fundamental,
-        "technical_score": technical,
-        "insider_score": insider,
-        "composite_score": composite,
-        "regime_ok": regime_ok,
-        "kelly_fraction": kelly_f,
-        "position_size_aud": position_aud,
-        "entry_price": entry_price,
-        "target_price": target_price,
-        "stop_loss_price": stop_loss_price,
-        "strategy_name": strategy_name,
-        "direction": direction,
-        "strategy_fires": bool(strat and strat.get("fires")),
-    }
+        signal_dict = {
+            "ticker": ticker,
+            "date": today,
+            "sentiment_score": sentiment,
+            "fundamental_score": fundamental,
+            "technical_score": technical,
+            "insider_score": insider,
+            "composite_score": composite,
+            "regime_ok": regime_ok,
+            "kelly_fraction": kelly_f,
+            "position_size_aud": position_aud,
+            "entry_price": entry_price,
+            "target_price": target_price,
+            "stop_loss_price": stop_loss_price,
+            "strategy_name": strategy_name,
+            "direction": direction,
+            "strategy_fires": bool(strat and strat.get("fires")),
+        }
 
-    with get_session() as session:
         stmt = insert(Signal).values(**signal_dict).on_conflict_do_update(
             constraint="uq_signal_ticker_date",
             set_={k: v for k, v in signal_dict.items() if k not in ("ticker", "date")},
@@ -272,7 +272,7 @@ def get_top_signals(n: int = 10, min_score: float = None) -> List[Dict]:
                     and_(Signal.direction == "short", Signal.position_size_aud > 0),
                 ),
             )
-            .order_by(Signal.position_size_aud.desc(), Signal.composite_score.desc())
+            .order_by(Signal.position_size_aud.desc())
             .limit(n * 4 if suffix else n)
             .all()
         )

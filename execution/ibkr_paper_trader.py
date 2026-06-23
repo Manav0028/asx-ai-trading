@@ -76,8 +76,16 @@ def _record_buy(ticker: str, fill_price: float, shares: int,
     from storage.models import Trade
 
     cost = round(fill_price * shares + PAPER_BROKERAGE, 2)
-    target = signal.get("target_price") or round(fill_price * 1.10, 3)
-    stop   = signal.get("stop_loss_price") or round(fill_price * 0.93, 3)
+    # Rebase signal stop/target to actual fill_price so risk geometry is correct
+    signal_entry = signal.get("entry_price") or fill_price
+    price_ratio  = fill_price / signal_entry if signal_entry else 1.0
+    short        = (signal.get("direction") or "long") == "short"
+    target = (round(signal["target_price"] * price_ratio, 3)
+              if signal.get("target_price") else
+              round(fill_price * (0.90 if short else 1.10), 3))
+    stop   = (round(signal["stop_loss_price"] * price_ratio, 3)
+              if signal.get("stop_loss_price") else
+              round(fill_price * (1.07 if short else 0.93), 3))
     score  = signal.get("composite_score", 0)
 
     # Add to watchlist (tagged ibkr_paper so it doesn't mix with internal paper)
@@ -91,6 +99,7 @@ def _record_buy(ticker: str, fill_price: float, shares: int,
         signal_score=score,
         trading_mode="ibkr_paper",
         source=source,
+        strategy_name=signal.get("strategy_name"),
     )
 
     # Record as open trade
@@ -293,7 +302,9 @@ def ibkr_process_new_signals(signals: List[Dict], source: str = "morning") -> Li
     """
     fills = []
     for sig in signals:
-        if sig.get("composite_score", 0) < SIGNAL_THRESHOLD:
+        direction = sig.get("direction") or "long"
+        effective_score = (100 - sig.get("composite_score", 0)) if direction == "short" else sig.get("composite_score", 0)
+        if effective_score < SIGNAL_THRESHOLD:
             continue
         result = ibkr_execute_buy(sig, source=source)
         if result:

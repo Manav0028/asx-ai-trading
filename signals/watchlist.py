@@ -63,6 +63,7 @@ def add_to_watchlist(
     trading_mode: str = None,          # defaults to current phase mode
     direction: str = "long",           # 'long' | 'short'
     source: str = "morning",           # 'morning' | 'intraday'
+    strategy_name: str = None,         # strategy that triggered the entry
 ) -> WatchlistItem:
     mode = trading_mode or _current_trading_mode()
 
@@ -89,6 +90,7 @@ def add_to_watchlist(
             existing.unrealised_pnl_pct = 0.0
             existing.days_held          = 0
             existing.signal_score       = signal_score
+            existing.strategy_name      = strategy_name
             existing.trading_mode       = mode
             existing.direction          = direction
             existing.source             = source
@@ -109,6 +111,7 @@ def add_to_watchlist(
             unrealised_pnl_pct=0.0,
             days_held=0,
             signal_score=signal_score,
+            strategy_name=strategy_name,
             trading_mode=mode,
             direction=direction,
             source=source,
