@@ -104,7 +104,9 @@ def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
 
     direction = (strat or {}).get("direction") or "long"
     if strat is None:
-        strategy_ok, strategy_name, strategy_state = True, None, "unassigned"
+        # No strategy assigned yet — never trade until the weekly selection job runs.
+        # Legacy composite-only path is intentionally disabled: unvalidated edge = no trade.
+        strategy_ok, strategy_name, strategy_state = False, None, "no assignment"
     elif not strat["validated"]:
         strategy_ok, strategy_name, strategy_state = False, strat["strategy"], "unvalidated"
     elif strat["fires"]:
@@ -166,6 +168,24 @@ def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
         stop_loss_price = tech_meta.get("stop")   or (round(entry_price * 0.93, 3) if entry_price else None)
         position_aud    = 0.0
         kelly_f         = 0.0
+
+    # If a position is already open for this ticker today, preserve the original
+    # entry_price (the price at which it was actually bought). Intraday rescans
+    # update the current price but must not overwrite the committed entry price.
+    with get_session() as session:
+        existing_signal = (
+            session.query(Signal)
+            .filter(Signal.ticker == ticker, Signal.date == today)
+            .first()
+        )
+        from storage.models import WatchlistItem
+        has_open_position = session.query(WatchlistItem).filter(
+            WatchlistItem.ticker == ticker,
+            WatchlistItem.is_active == True,
+        ).first() is not None
+
+    if has_open_position and existing_signal and existing_signal.entry_price:
+        entry_price = existing_signal.entry_price
 
     signal_dict = {
         "ticker": ticker,
