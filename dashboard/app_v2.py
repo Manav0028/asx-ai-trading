@@ -974,8 +974,11 @@ footer { visibility: hidden; }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _pnl_class(val: float) -> str:
-    return "up" if (val or 0) >= 0 else "down"
+def _pnl_class(val) -> str:
+    try:
+        return "up" if float(val or 0) >= 0 else "down"
+    except (TypeError, ValueError):
+        return "up"
 
 def _pnl_sign(val, cur: str = "") -> str:
     try:
@@ -2249,19 +2252,23 @@ def _render_positions_section(pos_list, label, currency, accent_color, sort_key=
         <th>Instrument</th><th>Qty.</th><th>Avg. cost</th><th>LTP</th>
         <th>Invested</th><th>Cur. val</th><th>Day P&L</th><th>P&L</th><th>Net chg.</th><th>Days</th>
     </tr></thead><tbody>'''
+    def _f(v):  # safe float coercion for any Supabase return type
+        try: return float(v or 0)
+        except (TypeError, ValueError): return 0.0
+
     for p in pos_list:
-        t    = p["ticker"]
-        sh   = p.get("shares") or 0
-        ep   = p.get("entry_price") or 0
-        cp   = p.get("current_price") or 0
-        invested_p = p.get("invested") or 0
-        cv   = p.get("current_value") or 0
-        pnl  = p.get("unrealised_pnl") or 0
-        ppct = p.get("unrealised_pnl_pct") or 0
-        dp   = p.get("day_pnl") or 0
-        days = p.get("days_held") or 0
-        cls  = _pnl_class(pnl)
-        dcls = _pnl_class(dp)
+        t          = p["ticker"]
+        sh         = _f(p.get("shares"))
+        ep         = _f(p.get("entry_price"))
+        cp         = _f(p.get("current_price"))
+        invested_p = _f(p.get("invested"))
+        cv         = _f(p.get("current_value"))
+        pnl        = _f(p.get("unrealised_pnl"))
+        ppct       = _f(p.get("unrealised_pnl_pct"))
+        dp         = _f(p.get("day_pnl"))
+        days       = int(_f(p.get("days_held")))
+        cls        = _pnl_class(pnl)
+        dcls       = _pnl_class(dp)
         tbl += (
             f'<tr class="{"loss-row" if pnl < 0 else ""}">'
             f'<td><a href="{_tv_url(t)}" target="_blank" class="ticker-link">{_short(t)}</a></td>'
