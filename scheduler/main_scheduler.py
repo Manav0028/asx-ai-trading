@@ -360,15 +360,39 @@ def _check_held_position_news():
                 alerted.add(ticker)
 
 
+def job_open_orders():
+    """
+    Morning order placement — fires 10 min after market open.
+
+    Uses signals already computed and stored by job_signal_scan (pre-market),
+    which runs at ph+1:20 using previous-day close prices. This guarantees:
+      - Signal entry_price = the price the system evaluated pre-market
+      - Fill price ≈ signal price (opening price, not 45-min intraday drift)
+      - Daily report and actual buys reference the same signal snapshot
+      - No re-scan, no strategy re-validation (strategies validated weekly on Sunday)
+
+    Intraday price discovery happens later via job_intraday_rescan.
+    """
+    logger.info("=== Morning orders: placing from pre-market signals ===")
+
+    from storage.supabase_sync import (
+        sync_trades_to_supabase, sync_strategy_assignments_to_supabase,
+    )
+    job_place_orders(source="morning")
+    sync_trades_to_supabase()
+    sync_strategy_assignments_to_supabase()
+
+    logger.info("=== Morning orders complete ===")
+
+
 def job_rescan_and_trade():
     """
-    On-demand pipeline: validate strategies → rescore all tickers → place orders.
-    Fixes stale position_size_aud=0 that occurs when signals were stored before
-    strategy validation completed. Safe to run any time market is open.
+    Full re-validation pipeline — kept for manual/on-demand use only.
+    NOT scheduled daily. Use when strategy assignments may be stale
+    or to force a full rescore mid-session.
     """
-    logger.info("=== Rescan-and-trade: validate → rescore → place orders ===")
+    logger.info("=== Manual rescan-and-trade: validate → rescore → place orders ===")
 
-    # Step 1: validate strategies so position sizes are computed correctly
     from strategies.selector import run_strategy_selection
     sel = run_strategy_selection(_tickers())
     logger.info(
@@ -376,17 +400,14 @@ def job_rescan_and_trade():
         sel["total"], sel["validated"], sel["skipped"],
     )
 
-    # Step 2: rescore all tickers — position_size_aud now reflects validated state
     from signals.aggregator import run_full_scan
-    from config.settings import SIGNAL_THRESHOLD
     results = run_full_scan(_tickers())
     above = [r for r in results if r.get("position_size_aud", 0) > 0]
     logger.info(
-        "Signal rescan: %d scored, %d with position size (actionable)",
+        "Signal rescan: %d scored, %d actionable",
         len(results), len(above),
     )
 
-    # Step 3: sync fresh signals + regime to Supabase (both DBs)
     from storage.supabase_sync import (
         sync_signals_to_supabase, sync_regime_to_supabase,
         sync_strategy_assignments_to_supabase, sync_trades_to_supabase,
@@ -394,9 +415,8 @@ def job_rescan_and_trade():
     sync_signals_to_supabase()
     sync_regime_to_supabase()
     sync_strategy_assignments_to_supabase()
-    sync_trades_to_supabase()   # keep closed-trade history current in both DBs
+    sync_trades_to_supabase()
 
-    # Step 4: place orders; job_place_orders also calls sync_watchlist_to_supabase
     job_place_orders(source="morning")
     logger.info("=== Rescan-and-trade complete ===")
 
@@ -514,49 +534,47 @@ def build_scheduler() -> BlockingScheduler:
     mo_h, mo_m = exchange.market_open      # market open
     mc_h, mc_m = exchange.market_close     # market close
 
-    # Morning rescan-and-trade: once, after the pre-market pipeline + market open.
-    # Runs strategy validation (backtest) + full rescore + orders.
-    # Intraday rescan: lightweight (prices + technicals + signals + orders, no backtest),
-    # runs every 90 min from (first_rescan + 90 min) until 60 min before close.
-    RESCAN_INTERVAL_MIN = 90
-    RESCAN_CUTOFF_MIN   = 60
+    # Morning orders: placed 10 min after open using pre-market signals (no rescan).
+    # Intraday rescans: lightweight price+technical+signal refresh every 90 min,
+    # starting 90 min after morning orders, stopping 60 min before close.
+    OPEN_ORDER_OFFSET_MIN = 10   # minutes after market open to place morning orders
+    RESCAN_INTERVAL_MIN   = 90
+    RESCAN_CUTOFF_MIN     = 60
 
-    pipeline_done_min = (ph + 1) * 60 + 50   # ph+1:50 — 20 min after signal_scan
-    market_open_min   = mo_h * 60 + mo_m + 45
-    first_rescan_min  = max(pipeline_done_min, market_open_min)
-    market_close_min  = mc_h * 60 + mc_m
-    cutoff_min        = market_close_min - RESCAN_CUTOFF_MIN
+    open_order_min   = mo_h * 60 + mo_m + OPEN_ORDER_OFFSET_MIN
+    market_close_min = mc_h * 60 + mc_m
+    cutoff_min       = market_close_min - RESCAN_CUTOFF_MIN
+
+    open_order_h = open_order_min // 60
+    open_order_m = open_order_min % 60
 
     intraday_times = []
-    t = first_rescan_min + RESCAN_INTERVAL_MIN
+    t = open_order_min + RESCAN_INTERVAL_MIN
     while t <= cutoff_min:
         intraday_times.append((t // 60, t % 60))
         t += RESCAN_INTERVAL_MIN
 
-    rescan_h = first_rescan_min // 60
-    rescan_m = first_rescan_min % 60
-
-    scheduler.add_job(job_fetch_prices,            CronTrigger(hour=ph,       minute=0,       day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_fetch_announcements,      CronTrigger(hour=ph,       minute=20,      day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_fetch_insider_trades,     CronTrigger(hour=ph,       minute=40,      day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_ai_sentiment_fundamental, CronTrigger(hour=ph + 1,   minute=0,       day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_technical_regime,         CronTrigger(hour=ph + 1,   minute=15,      day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_signal_scan,              CronTrigger(hour=ph + 1,   minute=20,      day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_daily_report,             CronTrigger(hour=ph + 1,   minute=30,      day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_rescan_and_trade,         CronTrigger(hour=rescan_h, minute=rescan_m, day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_fetch_prices,            CronTrigger(hour=ph,          minute=0,        day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_fetch_announcements,      CronTrigger(hour=ph,          minute=20,       day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_fetch_insider_trades,     CronTrigger(hour=ph,          minute=40,       day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_ai_sentiment_fundamental, CronTrigger(hour=ph + 1,      minute=0,        day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_technical_regime,         CronTrigger(hour=ph + 1,      minute=15,       day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_signal_scan,              CronTrigger(hour=ph + 1,      minute=20,       day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_daily_report,             CronTrigger(hour=ph + 1,      minute=30,       day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_open_orders,              CronTrigger(hour=open_order_h, minute=open_order_m, day_of_week="mon-fri", timezone=tz))
     for ih, im in intraday_times:
-        scheduler.add_job(job_intraday_rescan,      CronTrigger(hour=ih,       minute=im,      day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_intraday_check,           CronTrigger(minute="*/30", day_of_week="mon-fri",                 timezone=tz))
-    scheduler.add_job(job_market_close,             CronTrigger(hour=mc_h,     minute=mc_m,    day_of_week="mon-fri", timezone=tz))
-    scheduler.add_job(job_news_refresh,             CronTrigger(minute=0,      hour="*/2",                            timezone=tz))
-    scheduler.add_job(job_strategy_selection,       CronTrigger(day_of_week="sun", hour=7, minute=0,                  timezone=tz))
-    scheduler.add_job(job_weekly_sunday,            CronTrigger(day_of_week="sun", hour=8, minute=0,                  timezone=tz))
+        scheduler.add_job(job_intraday_rescan,      CronTrigger(hour=ih,          minute=im,       day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_intraday_check,           CronTrigger(minute="*/30",    day_of_week="mon-fri",                  timezone=tz))
+    scheduler.add_job(job_market_close,             CronTrigger(hour=mc_h,        minute=mc_m,     day_of_week="mon-fri", timezone=tz))
+    scheduler.add_job(job_news_refresh,             CronTrigger(minute=0,         hour="*/2",                             timezone=tz))
+    scheduler.add_job(job_strategy_selection,       CronTrigger(day_of_week="sun", hour=7, minute=0,                      timezone=tz))
+    scheduler.add_job(job_weekly_sunday,            CronTrigger(day_of_week="sun", hour=8, minute=0,                      timezone=tz))
 
     intraday_str = ", ".join(f"{h:02d}:{m:02d}" for h, m in intraday_times) or "none"
     logger.info(
-        "Scheduler built for %s (%s) — pipeline starts %02d:00, market %02d:%02d–%02d:%02d, "
-        "rescan+trade %02d:%02d, intraday rescan at: %s",
-        exchange.name, tz, ph, mo_h, mo_m, mc_h, mc_m, rescan_h, rescan_m, intraday_str,
+        "Scheduler built for %s (%s) — pre-market %02d:00, market %02d:%02d–%02d:%02d, "
+        "open orders %02d:%02d (pre-market signals), intraday rescan at: %s",
+        exchange.name, tz, ph, mo_h, mo_m, mc_h, mc_m, open_order_h, open_order_m, intraday_str,
     )
     return scheduler
 
