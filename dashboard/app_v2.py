@@ -2173,14 +2173,19 @@ with tab_dash:
                 '<div class="kite-section" style="margin:10px 0 6px">Intraday Recovery Trades Today</div>',
                 unsafe_allow_html=True,
             )
+            def _rf(v):
+                try: return float(v or 0)
+                except (TypeError, ValueError): return 0.0
             _rt_html = '<table class="kite-table"><thead><tr><th>Ticker</th><th>Entry</th><th>Exit</th><th>Net P&L</th><th>Reason</th></tr></thead><tbody>'
             for _rt in _recovery_trades:
-                _rt_pnl = _rt.get("net_pnl") or _rt.get("realised_pnl") or 0
+                _rt_pnl = _rf(_rt.get("net_pnl") or _rt.get("realised_pnl"))
+                _rt_ep  = _rf(_rt.get("entry_price"))
+                _rt_xp  = _rf(_rt.get("exit_price"))
                 _rt_cls = _pnl_class(_rt_pnl)
                 _rt_html += (
                     f'<tr><td>{_short(_rt.get("ticker",""))}</td>'
-                    f'<td>{currency}{(_rt.get("entry_price") or 0):.2f}</td>'
-                    f'<td>{currency}{(_rt.get("exit_price") or 0):.2f}</td>'
+                    f'<td>{currency}{_rt_ep:.2f}</td>'
+                    f'<td>{currency}{_rt_xp:.2f}</td>'
                     f'<td class="{_rt_cls}">{_pnl_sign(_rt_pnl, currency)}</td>'
                     f'<td style="font-size:0.75rem;color:var(--text-secondary)">'
                     f'{_rt.get("exit_reason","")}</td></tr>'
@@ -3369,26 +3374,31 @@ with tab_history:
         if not positions:
             st.markdown('<div class="radar-empty">No open positions.</div>', unsafe_allow_html=True)
         else:
-            _u_total = sum(p.get("unrealised_pnl", 0) or 0 for p in positions)
+            def _uf(v):
+                try: return float(v or 0)
+                except (TypeError, ValueError): return 0.0
+            _u_total = sum(_uf(p.get("unrealised_pnl")) for p in positions)
             _u_table = '''<table class="kite-table"><thead><tr>
                 <th>Ticker</th><th>Entry Date</th><th>Entry Price</th><th>Current Price</th>
                 <th>Shares</th><th>Unrealised P&L</th><th>Net chg.</th><th>Days held</th>
             </tr></thead><tbody>'''
             for p in positions:
-                pnl = p.get("unrealised_pnl", 0) or 0
+                pnl = _uf(p.get("unrealised_pnl"))
                 cls = _pnl_class(pnl)
                 row_cls = "loss-row" if pnl < 0 else ""
                 tv = _tv_url(p["ticker"])
-                _u_table += f'''<tr class="{row_cls}">
-                    <td><a href="{tv}" target="_blank" class="ticker-link">{_short(p["ticker"])}</a></td>
-                    <td>{p.get("entry_date","")}</td>
-                    <td>{currency}{p.get("entry_price",0):,.2f}</td>
-                    <td>{currency}{p.get("current_price",0):,.2f}</td>
-                    <td>{p.get("shares",0):,.0f}</td>
-                    <td class="{cls}">{_pnl_sign(pnl, currency)}</td>
-                    <td class="{cls}">{_pnl_pct(p.get("unrealised_pnl_pct",0) or 0)}</td>
-                    <td>{p.get("days_held",0)}</td>
-                </tr>'''
+                _u_table += (
+                    f'<tr class="{row_cls}">'
+                    f'<td><a href="{tv}" target="_blank" class="ticker-link">{_short(p["ticker"])}</a></td>'
+                    f'<td>{p.get("entry_date","")}</td>'
+                    f'<td>{currency}{_uf(p.get("entry_price")):,.2f}</td>'
+                    f'<td>{currency}{_uf(p.get("current_price")):,.2f}</td>'
+                    f'<td>{_uf(p.get("shares")):,.0f}</td>'
+                    f'<td class="{cls}">{_pnl_sign(pnl, currency)}</td>'
+                    f'<td class="{cls}">{_pnl_pct(_uf(p.get("unrealised_pnl_pct")))}</td>'
+                    f'<td>{int(_uf(p.get("days_held")))}</td>'
+                    f'</tr>'
+                )
             _u_table += f'''<tr class="total-row">
                 <td>Total ({len(positions)})</td><td></td><td></td><td></td><td></td>
                 <td class="{_pnl_class(_u_total)}">{_pnl_sign(_u_total, currency)}</td><td></td><td></td>
@@ -3402,10 +3412,15 @@ with tab_history:
             trades = [t for t in trades if str(t.get("exit_date","")) >= str(hist_date_from)]
         if hist_date_to:
             trades = [t for t in trades if str(t.get("exit_date","")) <= str(hist_date_to)]
+        def _tf(v):
+            """Safe float for any Supabase value (may arrive as string, None, or numeric)."""
+            try: return float(v or 0)
+            except (TypeError, ValueError): return 0.0
+
         if hist_outcome == "Wins":
-            trades = [t for t in trades if (t.get("net_pnl", 0) or 0) > 0]
+            trades = [t for t in trades if _tf(t.get("net_pnl")) > 0]
         elif hist_outcome == "Losses":
-            trades = [t for t in trades if (t.get("net_pnl", 0) or 0) <= 0]
+            trades = [t for t in trades if _tf(t.get("net_pnl")) <= 0]
         if hist_source == "Long-term":
             trades = [t for t in trades if (t.get("source") or "morning") == "morning"]
         elif hist_source == "Intraday":
@@ -3417,12 +3432,12 @@ with tab_history:
         def _trade_stats_strip(trade_list, label, accent):
             if not trade_list:
                 return
-            net   = sum(t.get("net_pnl", 0) or 0 for t in trade_list)
-            w     = sum(1 for t in trade_list if (t.get("net_pnl", 0) or 0) > 0)
+            net   = sum(_tf(t.get("net_pnl")) for t in trade_list)
+            w     = sum(1 for t in trade_list if _tf(t.get("net_pnl")) > 0)
             l     = len(trade_list) - w
             wr    = w / len(trade_list) * 100
-            avg_w = sum(t.get("net_pnl", 0) or 0 for t in trade_list if (t.get("net_pnl", 0) or 0) > 0) / max(w, 1)
-            avg_l = sum(t.get("net_pnl", 0) or 0 for t in trade_list if (t.get("net_pnl", 0) or 0) <= 0) / max(l, 1)
+            avg_w = sum(_tf(t.get("net_pnl")) for t in trade_list if _tf(t.get("net_pnl")) > 0) / max(w, 1)
+            avg_l = sum(_tf(t.get("net_pnl")) for t in trade_list if _tf(t.get("net_pnl")) <= 0) / max(l, 1)
             pf    = abs(avg_w * w / (avg_l * l)) if l and avg_l else 0
             st.markdown(
                 f'<div style="display:flex;gap:20px;flex-wrap:wrap;background:var(--bg-secondary);'
@@ -3494,14 +3509,14 @@ with tab_history:
             for t in trades:
                 ticker  = t.get("ticker", "")
                 src     = t.get("source") or "morning"
-                pnl     = t.get("realised_pnl", 0) or t.get("net_pnl", 0) or 0
-                ret_pct = t.get("realised_pnl_pct", 0) or 0
+                pnl     = _tf(t.get("realised_pnl") or t.get("net_pnl"))
+                ret_pct = _tf(t.get("realised_pnl_pct"))
+                ep      = _tf(t.get("entry_price"))
+                xp      = _tf(t.get("exit_price"))
+                shares  = _tf(t.get("shares"))
                 cls     = _pnl_class(pnl)
                 tv      = _tv_url(ticker)
                 reason  = t.get("exit_reason_label") or _clean_reason(t.get("exit_reason", ""))
-                ep      = t.get("entry_price", 0) or 0
-                xp      = t.get("exit_price", 0) or 0
-                shares  = t.get("shares", 0) or 0
                 src_badge = (
                     '<span style="background:#f59e0b22;color:#f59e0b;font-size:0.6rem;'
                     'padding:1px 5px;border-radius:4px;font-weight:600">Intraday</span>'
