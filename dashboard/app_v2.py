@@ -1994,10 +1994,12 @@ with tab_dash:
     with _rc1:
         st.markdown(
             f'<div class="pnl-card" style="border-left:3px solid {_rec_border}">'
-            f'  <div class="pnl-label">Today\'s Session P&L</div>'
+            f'  <div class="pnl-label">Today\'s Intraday P&L'
+            f'    <span style="margin-left:6px;font-size:0.6rem;font-weight:400;color:var(--text-tertiary);'
+            f'    text-transform:none;letter-spacing:0">vs yesterday\'s close · live</span></div>'
             f'  <div class="pnl-value {_pnl_class(_today_total)}">{_pnl_sign(_today_total, currency)}</div>'
             f'  <div class="pnl-sub" style="color:{_rec_mode_color}">'
-            f'    {_rec_today_pct*100:+.2f}% of capital</div>'
+            f'    {_rec_today_pct*100:+.2f}% of capital · updates every 30 min</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -2133,7 +2135,7 @@ with tab_dash:
         )
 
     # ── Daily Portfolio P&L (intraday history) ──────────────────────────────
-    st.markdown('<div class="kite-section" style="margin-top:28px">Daily Portfolio P&L</div>',
+    st.markdown('<div class="kite-section" style="margin-top:28px">Daily Portfolio P&L <span style="font-size:0.65rem;font-weight:400;color:var(--text-tertiary);text-transform:none;letter-spacing:0">· completed trading days only · written at market close</span></div>',
                 unsafe_allow_html=True)
     _daily_rows = load_daily_pnl(exchange, 60, db=active_db)
     if _daily_rows:
