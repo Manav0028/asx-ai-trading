@@ -2076,14 +2076,14 @@ with tab_dash:
     _RECOVERY_MODE_LOSS_PCT = float(os.getenv("RECOVERY_MODE_LOSS_PCT", 0.005))
     _PORTFOLIO_CAPITAL      = float(os.getenv("PORTFOLIO_CAPITAL",      100_000.0))
     _snapshots   = load_equity_snapshots(exchange, db=active_db)
-    _pnl_pct      = _today_total / _PORTFOLIO_CAPITAL if _PORTFOLIO_CAPITAL else 0
+    _today_pct    = _today_total / _PORTFOLIO_CAPITAL if _PORTFOLIO_CAPITAL else 0
     _circuit_pct  = -_MAX_DAILY_LOSS_PCT
     _recovery_pct = -_RECOVERY_MODE_LOSS_PCT
 
-    if _pnl_pct <= _circuit_pct:
+    if _today_pct <= _circuit_pct:
         _mode_label = "CIRCUIT BREAKER"
         _mode_color = "var(--loss)"
-    elif _pnl_pct <= _recovery_pct:
+    elif _today_pct <= _recovery_pct:
         _mode_label = "RECOVERY MODE"
         _mode_color = "#f59e0b"
     else:
@@ -2097,9 +2097,9 @@ with tab_dash:
             and str(t.get("entry_date", ""))[:10] == _today_str)
     ]
 
-    _panel_expanded = _pnl_pct <= _recovery_pct
+    _panel_expanded = _today_pct <= _recovery_pct
     with st.expander("Recovery Status", expanded=_panel_expanded):
-        if _pnl_pct <= _circuit_pct:
+        if _today_pct <= _circuit_pct:
             st.markdown(
                 '<div style="background:rgba(255,90,90,0.12);border:1px solid var(--loss);'
                 'border-radius:var(--radius-md);padding:12px 16px;margin-bottom:14px;'
@@ -2117,7 +2117,7 @@ with tab_dash:
                 f'  <div class="pnl-value {_pnl_class(_today_total)}">'
                 f'    {_pnl_sign(_today_total, currency)}</div>'
                 f'  <div class="pnl-sub" style="color:{_mode_color}">'
-                f'    {_pnl_pct*100:+.2f}% of capital</div>'
+                f'    {_today_pct*100:+.2f}% of capital</div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
