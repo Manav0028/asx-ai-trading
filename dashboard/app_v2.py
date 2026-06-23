@@ -1956,6 +1956,95 @@ with tab_dash:
         unsafe_allow_html=True,
     )
 
+    # ── Recovery Status Panel ─────────────────────────────────────────────────
+    _MAX_DAILY_LOSS_PCT     = float(os.getenv("MAX_DAILY_LOSS_PCT",     0.02))
+    _RECOVERY_MODE_LOSS_PCT = float(os.getenv("RECOVERY_MODE_LOSS_PCT", 0.005))
+    _PORTFOLIO_CAPITAL      = float(os.getenv("PORTFOLIO_CAPITAL",      100_000.0))
+    _rec_snapshots  = load_equity_snapshots(exchange, db=active_db)
+    _rec_today_pct  = _today_total / _PORTFOLIO_CAPITAL if _PORTFOLIO_CAPITAL else 0
+    _rec_circuit    = -_MAX_DAILY_LOSS_PCT
+    _rec_recovery   = -_RECOVERY_MODE_LOSS_PCT
+
+    if _rec_today_pct <= _rec_circuit:
+        _rec_mode_label = "🚨 CIRCUIT BREAKER"
+        _rec_mode_color = "var(--loss)"
+        _rec_border     = "var(--loss)"
+    elif _rec_today_pct <= _rec_recovery:
+        _rec_mode_label = "⚠️ RECOVERY MODE"
+        _rec_mode_color = "#f59e0b"
+        _rec_border     = "#f59e0b"
+    else:
+        _rec_mode_label = "✅ NORMAL"
+        _rec_mode_color = "var(--profit)"
+        _rec_border     = "var(--profit)"
+
+    _rec_max_dd = min((_safe_f(s.get("drawdown_pct"))) for s in _rec_snapshots) if _rec_snapshots else 0.0
+
+    st.markdown('<div class="kite-section" style="margin-top:20px">Recovery Status</div>', unsafe_allow_html=True)
+    if _rec_today_pct <= _rec_circuit:
+        st.markdown(
+            '<div style="background:rgba(255,90,90,0.12);border:1px solid var(--loss);'
+            'border-radius:var(--radius-md);padding:10px 16px;margin-bottom:10px;'
+            'font-size:13px;color:var(--loss);font-weight:600">'
+            '🚨 Circuit breaker active — new intraday entries are halted for today.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    _rc1, _rc2, _rc3 = st.columns(3)
+    with _rc1:
+        st.markdown(
+            f'<div class="pnl-card" style="border-left:3px solid {_rec_border}">'
+            f'  <div class="pnl-label">Today\'s Session P&L</div>'
+            f'  <div class="pnl-value {_pnl_class(_today_total)}">{_pnl_sign(_today_total, currency)}</div>'
+            f'  <div class="pnl-sub" style="color:{_rec_mode_color}">'
+            f'    {_rec_today_pct*100:+.2f}% of capital</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    with _rc2:
+        st.markdown(
+            f'<div class="pnl-card" style="border-left:3px solid {_rec_border}">'
+            f'  <div class="pnl-label">Session Mode</div>'
+            f'  <div class="pnl-value" style="font-size:1rem;color:{_rec_mode_color}">{_rec_mode_label}</div>'
+            f'  <div class="pnl-sub" style="color:var(--text-tertiary)">'
+            f'    CB −{abs(_rec_circuit)*100:.0f}% &nbsp;·&nbsp; Recovery −{abs(_rec_recovery)*100:.1f}%</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    with _rc3:
+        _dd_cls = "down" if _rec_max_dd < -0.5 else ""
+        st.markdown(
+            f'<div class="pnl-card" style="border-left:3px solid {_rec_border}">'
+            f'  <div class="pnl-label">Max Drawdown Today</div>'
+            f'  <div class="pnl-value {_dd_cls}">{_rec_max_dd:.2f}%</div>'
+            f'  <div class="pnl-sub" style="color:var(--text-tertiary)">'
+            f'    {len(_rec_snapshots)} intraday snapshots</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    if _rec_snapshots and len(_rec_snapshots) >= 2:
+        import plotly.graph_objects as go
+        import pandas as pd
+        _rec_df = pd.DataFrame(_rec_snapshots)
+        _rec_df["snapshot_at"] = pd.to_datetime(_rec_df["snapshot_at"])
+        _rec_fig = go.Figure()
+        _rec_fig.add_trace(go.Scatter(
+            x=_rec_df["snapshot_at"], y=_rec_df["total_day_pnl"].apply(_safe_f),
+            mode="lines+markers", name="Day P&L",
+            line=dict(color="#6993ff", width=2), marker=dict(size=4),
+            fill="tozeroy", fillcolor="rgba(105,147,255,0.08)",
+            hovertemplate="%{x|%H:%M}<br>" + currency + "%{y:+,.2f}<extra></extra>",
+        ))
+        _rec_fig.add_hline(y=0, line_dash="dot", line_color="#3c3c42")
+        _rec_fig.add_hline(y=-_MAX_DAILY_LOSS_PCT * _PORTFOLIO_CAPITAL,
+                            line_dash="dash", line_color="#ff5a5a",
+                            annotation_text="Circuit Breaker", annotation_font_color="#ff5a5a")
+        _rec_layout = _chart_base(h=160)
+        _rec_layout["yaxis"]["tickprefix"] = currency
+        _rec_layout["showlegend"] = False
+        _rec_fig.update_layout(**_rec_layout)
+        st.plotly_chart(_rec_fig, use_container_width=True, config={"displayModeBar": False})
+
     if True:  # regime stats block
         regime_cls = "risk-on" if regime_ok else "risk-off"
         regime_text = "RISK-ON" if regime_ok else "RISK-OFF"
@@ -2071,137 +2160,7 @@ with tab_dash:
             unsafe_allow_html=True,
         )
 
-    # ── Recovery Status Panel ─────────────────────────────────────────────────
-    _MAX_DAILY_LOSS_PCT     = float(os.getenv("MAX_DAILY_LOSS_PCT",     0.02))
-    _RECOVERY_MODE_LOSS_PCT = float(os.getenv("RECOVERY_MODE_LOSS_PCT", 0.005))
-    _PORTFOLIO_CAPITAL      = float(os.getenv("PORTFOLIO_CAPITAL",      100_000.0))
-    _snapshots   = load_equity_snapshots(exchange, db=active_db)
-    _today_pct    = _today_total / _PORTFOLIO_CAPITAL if _PORTFOLIO_CAPITAL else 0
-    _circuit_pct  = -_MAX_DAILY_LOSS_PCT
-    _recovery_pct = -_RECOVERY_MODE_LOSS_PCT
 
-    if _today_pct <= _circuit_pct:
-        _mode_label = "CIRCUIT BREAKER"
-        _mode_color = "var(--loss)"
-    elif _today_pct <= _recovery_pct:
-        _mode_label = "RECOVERY MODE"
-        _mode_color = "#f59e0b"
-    else:
-        _mode_label = "NORMAL"
-        _mode_color = "var(--profit)"
-
-    _max_drawdown   = min((s.get("drawdown_pct") or 0) for s in _snapshots) if _snapshots else 0
-    _recovery_trades = [
-        t for t in load_trades(exchange, 1, db=active_db)
-        if (t.get("source") == "intraday"
-            and str(t.get("entry_date", ""))[:10] == _today_str)
-    ]
-
-    _panel_expanded = _today_pct <= _recovery_pct
-    with st.expander("Recovery Status", expanded=_panel_expanded):
-        if _today_pct <= _circuit_pct:
-            st.markdown(
-                '<div style="background:rgba(255,90,90,0.12);border:1px solid var(--loss);'
-                'border-radius:var(--radius-md);padding:12px 16px;margin-bottom:14px;'
-                'font-size:13px;color:var(--loss);font-weight:600">'
-                '🚨 Circuit breaker active — new intraday entries are halted for today.'
-                '</div>',
-                unsafe_allow_html=True,
-            )
-
-        rc1, rc2, rc3 = st.columns(3)
-        with rc1:
-            st.markdown(
-                f'<div class="pnl-card">'
-                f'  <div class="pnl-label">Today\'s P&L</div>'
-                f'  <div class="pnl-value {_pnl_class(_today_total)}">'
-                f'    {_pnl_sign(_today_total, currency)}</div>'
-                f'  <div class="pnl-sub" style="color:{_mode_color}">'
-                f'    {_today_pct*100:+.2f}% of capital</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        with rc2:
-            st.markdown(
-                f'<div class="pnl-card">'
-                f'  <div class="pnl-label">Session Mode</div>'
-                f'  <div class="pnl-value" style="font-size:1.1rem;color:{_mode_color}">'
-                f'    {_mode_label}</div>'
-                f'  <div class="pnl-sub" style="color:var(--text-tertiary)">'
-                f'    CB {abs(_circuit_pct)*100:.0f}% / Recovery {abs(_recovery_pct)*100:.1f}%'
-                f'  </div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        with rc3:
-            dd_cls = "down" if _max_drawdown < -0.5 else ""
-            st.markdown(
-                f'<div class="pnl-card">'
-                f'  <div class="pnl-label">Max Drawdown Today</div>'
-                f'  <div class="pnl-value {dd_cls}">{_max_drawdown:.2f}%</div>'
-                f'  <div class="pnl-sub" style="color:var(--text-tertiary)">'
-                f'    peak-to-trough · {len(_snapshots)} snapshots</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-
-        if _snapshots and len(_snapshots) >= 2:
-            import plotly.graph_objects as go
-            import pandas as pd
-            _snap_df = pd.DataFrame(_snapshots)
-            _snap_df["snapshot_at"] = pd.to_datetime(_snap_df["snapshot_at"])
-            _fig_eq = go.Figure()
-            _fig_eq.add_trace(go.Scatter(
-                x=_snap_df["snapshot_at"],
-                y=_snap_df["total_day_pnl"],
-                mode="lines+markers",
-                name="Day P&L",
-                line=dict(color="#6993ff", width=2),
-                marker=dict(size=4),
-                fill="tozeroy",
-                fillcolor="rgba(105,147,255,0.08)",
-                hovertemplate="%{x|%H:%M}<br>" + currency + "%{y:+,.2f}<extra></extra>",
-            ))
-            _fig_eq.add_hline(y=0, line_dash="dot", line_color="#3c3c42")
-            _fig_eq.add_hline(
-                y=-_MAX_DAILY_LOSS_PCT * _PORTFOLIO_CAPITAL,
-                line_dash="dash", line_color="#ff5a5a",
-                annotation_text="Circuit Breaker",
-                annotation_font_color="#ff5a5a",
-            )
-            _layout_eq = _chart_base(h=180)
-            _layout_eq["yaxis"]["tickprefix"] = currency
-            _layout_eq["showlegend"] = False
-            _fig_eq.update_layout(**_layout_eq)
-            st.plotly_chart(_fig_eq, use_container_width=True, config={"displayModeBar": False})
-
-        if _recovery_trades:
-            st.markdown(
-                '<div class="kite-section" style="margin:10px 0 6px">Intraday Recovery Trades Today</div>',
-                unsafe_allow_html=True,
-            )
-            _rt_html = '<table class="kite-table"><thead><tr><th>Ticker</th><th>Entry</th><th>Exit</th><th>Net P&L</th><th>Reason</th></tr></thead><tbody>'
-            for _rt in _recovery_trades:
-                _rt_pnl = _safe_f(_rt.get("net_pnl") or _rt.get("realised_pnl"))
-                _rt_ep  = _safe_f(_rt.get("entry_price"))
-                _rt_xp  = _safe_f(_rt.get("exit_price"))
-                _rt_cls = _pnl_class(_rt_pnl)
-                _rt_html += (
-                    f'<tr><td>{_short(_rt.get("ticker",""))}</td>'
-                    f'<td>{currency}{_rt_ep:.2f}</td>'
-                    f'<td>{currency}{_rt_xp:.2f}</td>'
-                    f'<td class="{_rt_cls}">{_pnl_sign(_rt_pnl, currency)}</td>'
-                    f'<td style="font-size:0.75rem;color:var(--text-secondary)">'
-                    f'{_rt.get("exit_reason","")}</td></tr>'
-                )
-            _rt_html += '</tbody></table>'
-            st.markdown('<div class="kite-table-wrap">' + _rt_html + '</div>', unsafe_allow_html=True)
-        else:
-            st.markdown(
-                '<div style="color:var(--text-tertiary);font-size:0.8rem;padding:6px 0">'
-                'No intraday recovery trades placed today.</div>',
-                unsafe_allow_html=True,
-            )
 
 
 # ── TAB 2: Holdings ──────────────────────────────────────────────────────────
