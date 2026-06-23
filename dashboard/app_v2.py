@@ -974,6 +974,13 @@ footer { visibility: hidden; }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _safe_f(v) -> float:
+    """Coerce any Supabase value (float, int, string, None) to Python float."""
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
 def _pnl_class(val) -> str:
     try:
         return "up" if float(val or 0) >= 0 else "down"
@@ -2173,14 +2180,11 @@ with tab_dash:
                 '<div class="kite-section" style="margin:10px 0 6px">Intraday Recovery Trades Today</div>',
                 unsafe_allow_html=True,
             )
-            def _rf(v):
-                try: return float(v or 0)
-                except (TypeError, ValueError): return 0.0
             _rt_html = '<table class="kite-table"><thead><tr><th>Ticker</th><th>Entry</th><th>Exit</th><th>Net P&L</th><th>Reason</th></tr></thead><tbody>'
             for _rt in _recovery_trades:
-                _rt_pnl = _rf(_rt.get("net_pnl") or _rt.get("realised_pnl"))
-                _rt_ep  = _rf(_rt.get("entry_price"))
-                _rt_xp  = _rf(_rt.get("exit_price"))
+                _rt_pnl = _safe_f(_rt.get("net_pnl") or _rt.get("realised_pnl"))
+                _rt_ep  = _safe_f(_rt.get("entry_price"))
+                _rt_xp  = _safe_f(_rt.get("exit_price"))
                 _rt_cls = _pnl_class(_rt_pnl)
                 _rt_html += (
                     f'<tr><td>{_short(_rt.get("ticker",""))}</td>'
@@ -2212,13 +2216,13 @@ def _render_positions_section(pos_list, label, currency, accent_color, sort_key=
         )
         return
 
-    inv   = sum(p.get("invested", 0) or 0 for p in pos_list)
-    val   = sum(p.get("current_value", 0) or 0 for p in pos_list)
-    upnl  = sum(p.get("unrealised_pnl", 0) or 0 for p in pos_list)
-    dpnl  = sum(p.get("day_pnl", 0) or 0 for p in pos_list)
-    upct  = (upnl / inv * 100) if inv else 0
-    dpct  = (dpnl / val * 100) if val else 0
-    wins  = sum(1 for p in pos_list if (p.get("unrealised_pnl") or 0) > 0)
+    inv    = sum(_safe_f(p.get("invested"))       for p in pos_list)
+    val    = sum(_safe_f(p.get("current_value"))  for p in pos_list)
+    upnl   = sum(_safe_f(p.get("unrealised_pnl")) for p in pos_list)
+    dpnl   = sum(_safe_f(p.get("day_pnl"))        for p in pos_list)
+    upct   = (upnl / inv * 100) if inv else 0.0
+    dpct   = (dpnl / val * 100) if val else 0.0
+    wins   = sum(1 for p in pos_list if _safe_f(p.get("unrealised_pnl")) > 0)
     losses = len(pos_list) - wins
 
     any_live = any(p.get("is_live") for p in pos_list)
@@ -2257,21 +2261,17 @@ def _render_positions_section(pos_list, label, currency, accent_color, sort_key=
         <th>Instrument</th><th>Qty.</th><th>Avg. cost</th><th>LTP</th>
         <th>Invested</th><th>Cur. val</th><th>Day P&L</th><th>P&L</th><th>Net chg.</th><th>Days</th>
     </tr></thead><tbody>'''
-    def _f(v):  # safe float coercion for any Supabase return type
-        try: return float(v or 0)
-        except (TypeError, ValueError): return 0.0
-
     for p in pos_list:
-        t          = p["ticker"]
-        sh         = _f(p.get("shares"))
-        ep         = _f(p.get("entry_price"))
-        cp         = _f(p.get("current_price"))
-        invested_p = _f(p.get("invested"))
-        cv         = _f(p.get("current_value"))
-        pnl        = _f(p.get("unrealised_pnl"))
-        ppct       = _f(p.get("unrealised_pnl_pct"))
-        dp         = _f(p.get("day_pnl"))
-        days       = int(_f(p.get("days_held")))
+        t          = p.get("ticker", "")
+        sh         = _safe_f(p.get("shares"))
+        ep         = _safe_f(p.get("entry_price"))
+        cp         = _safe_f(p.get("current_price"))
+        invested_p = _safe_f(p.get("invested"))
+        cv         = _safe_f(p.get("current_value"))
+        pnl        = _safe_f(p.get("unrealised_pnl"))
+        ppct       = _safe_f(p.get("unrealised_pnl_pct"))
+        dp         = _safe_f(p.get("day_pnl"))
+        days       = int(_safe_f(p.get("days_held")))
         cls        = _pnl_class(pnl)
         dcls       = _pnl_class(dp)
         tbl += (
@@ -2297,14 +2297,15 @@ def _render_positions_section(pos_list, label, currency, accent_color, sort_key=
     # Mini P&L bar chart
     if len(pos_list) > 1:
         import plotly.graph_objects as go
-        sp = sorted(pos_list, key=lambda x: x.get("unrealised_pnl", 0))
+        sp    = sorted(pos_list, key=lambda x: _safe_f(x.get("unrealised_pnl")))
+        sp_pnl = [_safe_f(p.get("unrealised_pnl")) for p in sp]
         fig = go.Figure(go.Bar(
-            y=[_short(p["ticker"]) for p in sp],
-            x=[p.get("unrealised_pnl", 0) for p in sp],
+            y=[_short(p.get("ticker", "")) for p in sp],
+            x=sp_pnl,
             orientation="h",
-            marker_color=["#00c48c" if (p.get("unrealised_pnl") or 0) >= 0 else "#ff5a5a" for p in sp],
+            marker_color=["#00c48c" if v >= 0 else "#ff5a5a" for v in sp_pnl],
             marker_line=dict(width=0),
-            text=[f'{currency}{p.get("unrealised_pnl",0):+,.0f}' for p in sp],
+            text=[f'{currency}{v:+,.0f}' for v in sp_pnl],
             textposition="outside", textfont=dict(size=10, color="#a0a0a6"),
         ))
         layout = _chart_base(h=max(len(pos_list) * 30, 140))
@@ -3374,16 +3375,13 @@ with tab_history:
         if not positions:
             st.markdown('<div class="radar-empty">No open positions.</div>', unsafe_allow_html=True)
         else:
-            def _uf(v):
-                try: return float(v or 0)
-                except (TypeError, ValueError): return 0.0
-            _u_total = sum(_uf(p.get("unrealised_pnl")) for p in positions)
+            _u_total = sum(_safe_f(p.get("unrealised_pnl")) for p in positions)
             _u_table = '''<table class="kite-table"><thead><tr>
                 <th>Ticker</th><th>Entry Date</th><th>Entry Price</th><th>Current Price</th>
                 <th>Shares</th><th>Unrealised P&L</th><th>Net chg.</th><th>Days held</th>
             </tr></thead><tbody>'''
             for p in positions:
-                pnl = _uf(p.get("unrealised_pnl"))
+                pnl = _safe_f(p.get("unrealised_pnl"))
                 cls = _pnl_class(pnl)
                 row_cls = "loss-row" if pnl < 0 else ""
                 tv = _tv_url(p["ticker"])
@@ -3391,12 +3389,12 @@ with tab_history:
                     f'<tr class="{row_cls}">'
                     f'<td><a href="{tv}" target="_blank" class="ticker-link">{_short(p["ticker"])}</a></td>'
                     f'<td>{p.get("entry_date","")}</td>'
-                    f'<td>{currency}{_uf(p.get("entry_price")):,.2f}</td>'
-                    f'<td>{currency}{_uf(p.get("current_price")):,.2f}</td>'
-                    f'<td>{_uf(p.get("shares")):,.0f}</td>'
+                    f'<td>{currency}{_safe_f(p.get("entry_price")):,.2f}</td>'
+                    f'<td>{currency}{_safe_f(p.get("current_price")):,.2f}</td>'
+                    f'<td>{_safe_f(p.get("shares")):,.0f}</td>'
                     f'<td class="{cls}">{_pnl_sign(pnl, currency)}</td>'
-                    f'<td class="{cls}">{_pnl_pct(_uf(p.get("unrealised_pnl_pct")))}</td>'
-                    f'<td>{int(_uf(p.get("days_held")))}</td>'
+                    f'<td class="{cls}">{_pnl_pct(_safe_f(p.get("unrealised_pnl_pct")))}</td>'
+                    f'<td>{int(_safe_f(p.get("days_held")))}</td>'
                     f'</tr>'
                 )
             _u_table += f'''<tr class="total-row">
@@ -3412,15 +3410,10 @@ with tab_history:
             trades = [t for t in trades if str(t.get("exit_date","")) >= str(hist_date_from)]
         if hist_date_to:
             trades = [t for t in trades if str(t.get("exit_date","")) <= str(hist_date_to)]
-        def _tf(v):
-            """Safe float for any Supabase value (may arrive as string, None, or numeric)."""
-            try: return float(v or 0)
-            except (TypeError, ValueError): return 0.0
-
         if hist_outcome == "Wins":
-            trades = [t for t in trades if _tf(t.get("net_pnl")) > 0]
+            trades = [t for t in trades if _safe_f(t.get("net_pnl")) > 0]
         elif hist_outcome == "Losses":
-            trades = [t for t in trades if _tf(t.get("net_pnl")) <= 0]
+            trades = [t for t in trades if _safe_f(t.get("net_pnl")) <= 0]
         if hist_source == "Long-term":
             trades = [t for t in trades if (t.get("source") or "morning") == "morning"]
         elif hist_source == "Intraday":
@@ -3432,12 +3425,12 @@ with tab_history:
         def _trade_stats_strip(trade_list, label, accent):
             if not trade_list:
                 return
-            net   = sum(_tf(t.get("net_pnl")) for t in trade_list)
-            w     = sum(1 for t in trade_list if _tf(t.get("net_pnl")) > 0)
+            net   = sum(_safe_f(t.get("net_pnl")) for t in trade_list)
+            w     = sum(1 for t in trade_list if _safe_f(t.get("net_pnl")) > 0)
             l     = len(trade_list) - w
             wr    = w / len(trade_list) * 100
-            avg_w = sum(_tf(t.get("net_pnl")) for t in trade_list if _tf(t.get("net_pnl")) > 0) / max(w, 1)
-            avg_l = sum(_tf(t.get("net_pnl")) for t in trade_list if _tf(t.get("net_pnl")) <= 0) / max(l, 1)
+            avg_w = sum(_safe_f(t.get("net_pnl")) for t in trade_list if _safe_f(t.get("net_pnl")) > 0) / max(w, 1)
+            avg_l = sum(_safe_f(t.get("net_pnl")) for t in trade_list if _safe_f(t.get("net_pnl")) <= 0) / max(l, 1)
             pf    = abs(avg_w * w / (avg_l * l)) if l and avg_l else 0
             st.markdown(
                 f'<div style="display:flex;gap:20px;flex-wrap:wrap;background:var(--bg-secondary);'
@@ -3509,11 +3502,11 @@ with tab_history:
             for t in trades:
                 ticker  = t.get("ticker", "")
                 src     = t.get("source") or "morning"
-                pnl     = _tf(t.get("realised_pnl") or t.get("net_pnl"))
-                ret_pct = _tf(t.get("realised_pnl_pct"))
-                ep      = _tf(t.get("entry_price"))
-                xp      = _tf(t.get("exit_price"))
-                shares  = _tf(t.get("shares"))
+                pnl     = _safe_f(t.get("realised_pnl") or t.get("net_pnl"))
+                ret_pct = _safe_f(t.get("realised_pnl_pct"))
+                ep      = _safe_f(t.get("entry_price"))
+                xp      = _safe_f(t.get("exit_price"))
+                shares  = _safe_f(t.get("shares"))
                 cls     = _pnl_class(pnl)
                 tv      = _tv_url(ticker)
                 reason  = t.get("exit_reason_label") or _clean_reason(t.get("exit_reason", ""))
