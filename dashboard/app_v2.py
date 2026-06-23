@@ -977,13 +977,20 @@ footer { visibility: hidden; }
 def _pnl_class(val: float) -> str:
     return "up" if (val or 0) >= 0 else "down"
 
-def _pnl_sign(val: float, cur: str = "") -> str:
-    if val >= 0:
-        return f"+{cur}{val:,.2f}"
-    return f"-{cur}{abs(val):,.2f}"
+def _pnl_sign(val, cur: str = "") -> str:
+    try:
+        v = float(val or 0)
+    except (TypeError, ValueError):
+        return "—"
+    if v >= 0:
+        return f"+{cur}{v:,.2f}"
+    return f"-{cur}{abs(v):,.2f}"
 
-def _pnl_pct(val: float) -> str:
-    return f"{val:+.2f}%"
+def _pnl_pct(val) -> str:
+    try:
+        return f"{float(val or 0):+.2f}%"
+    except (TypeError, ValueError):
+        return "—"
 
 def _pnl_class_var(v):
     return "var(--profit)" if v > 0 else ("var(--loss)" if v < 0 else "var(--text-secondary)")
