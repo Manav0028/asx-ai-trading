@@ -2055,13 +2055,13 @@ with tab_dash:
         )
 
     # ── Recovery Status Panel ─────────────────────────────────────────────────
-    from config.settings import (
-        MAX_DAILY_LOSS_PCT, RECOVERY_MODE_LOSS_PCT, PORTFOLIO_CAPITAL,
-    )
+    _MAX_DAILY_LOSS_PCT     = float(os.getenv("MAX_DAILY_LOSS_PCT",     0.02))
+    _RECOVERY_MODE_LOSS_PCT = float(os.getenv("RECOVERY_MODE_LOSS_PCT", 0.005))
+    _PORTFOLIO_CAPITAL      = float(os.getenv("PORTFOLIO_CAPITAL",      100_000.0))
     _snapshots   = load_equity_snapshots(exchange, db=active_db)
-    _pnl_pct     = _today_total / PORTFOLIO_CAPITAL if PORTFOLIO_CAPITAL else 0
-    _circuit_pct = -MAX_DAILY_LOSS_PCT
-    _recovery_pct = -RECOVERY_MODE_LOSS_PCT
+    _pnl_pct      = _today_total / _PORTFOLIO_CAPITAL if _PORTFOLIO_CAPITAL else 0
+    _circuit_pct  = -_MAX_DAILY_LOSS_PCT
+    _recovery_pct = -_RECOVERY_MODE_LOSS_PCT
 
     if _pnl_pct <= _circuit_pct:
         _mode_label = "CIRCUIT BREAKER"
@@ -2147,7 +2147,7 @@ with tab_dash:
             ))
             _fig_eq.add_hline(y=0, line_dash="dot", line_color="#3c3c42")
             _fig_eq.add_hline(
-                y=-MAX_DAILY_LOSS_PCT * PORTFOLIO_CAPITAL,
+                y=-_MAX_DAILY_LOSS_PCT * _PORTFOLIO_CAPITAL,
                 line_dash="dash", line_color="#ff5a5a",
                 annotation_text="Circuit Breaker",
                 annotation_font_color="#ff5a5a",
