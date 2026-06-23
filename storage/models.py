@@ -107,6 +107,7 @@ class Trade(Base):
     brokerage = Column(Float)
     exit_reason = Column(String(50))     # 'stop_loss' | 'target' | 'manual' | 'regime'
     signal_score = Column(Float)
+    source = Column(String(20), default="morning")  # 'morning' | 'intraday'
     created_at = Column(DateTime, default=datetime.utcnow)
     __table_args__ = (Index("ix_trade_ticker_date", "ticker", "entry_date"),)
 
@@ -150,4 +151,5 @@ class WatchlistItem(Base):
     is_active = Column(Boolean, default=True)
     trading_mode = Column(String(20), default="paper")  # 'paper' | 'ibkr_paper' | 'live'
     direction = Column(String(8), default="long")     # 'long' | 'short'
+    source = Column(String(20), default="morning")    # 'morning' | 'intraday'
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

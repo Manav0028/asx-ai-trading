@@ -62,6 +62,7 @@ def add_to_watchlist(
     signal_score: float,
     trading_mode: str = None,          # defaults to current phase mode
     direction: str = "long",           # 'long' | 'short'
+    source: str = "morning",           # 'morning' | 'intraday'
 ) -> WatchlistItem:
     mode = trading_mode or _current_trading_mode()
 
@@ -90,6 +91,7 @@ def add_to_watchlist(
             existing.signal_score       = signal_score
             existing.trading_mode       = mode
             existing.direction          = direction
+            existing.source             = source
             existing.is_active          = True
             logger.info("Reopened %s in %s watchlist at $%.3f", ticker, mode, entry_price)
             return existing
@@ -109,6 +111,7 @@ def add_to_watchlist(
             signal_score=signal_score,
             trading_mode=mode,
             direction=direction,
+            source=source,
             is_active=True,
         )
         session.add(item)
@@ -244,6 +247,7 @@ def get_active_watchlist(trading_mode: str = None,
                 "signal_score":     i.signal_score,
                 "trading_mode":     i.trading_mode,
                 "direction":        getattr(i, "direction", None) or "long",
+                "source":           getattr(i, "source", "morning") or "morning",
             }
             for i in items
             if suffix is None or i.ticker.endswith(suffix)

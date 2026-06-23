@@ -2051,6 +2051,115 @@ with tab_dash:
 
 
 # ── TAB 2: Holdings ──────────────────────────────────────────────────────────
+
+def _render_positions_section(pos_list, label, currency, accent_color, sort_key="hold_sort"):
+    """Render a single position group (long-term or intraday) with summary + table + chart."""
+    if not pos_list:
+        st.markdown(
+            f'<div style="font-size:0.82rem;color:var(--text-tertiary);padding:10px 0 4px">'
+            f'No {label.lower()} positions open.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    inv   = sum(p.get("invested", 0) or 0 for p in pos_list)
+    val   = sum(p.get("current_value", 0) or 0 for p in pos_list)
+    upnl  = sum(p.get("unrealised_pnl", 0) or 0 for p in pos_list)
+    dpnl  = sum(p.get("day_pnl", 0) or 0 for p in pos_list)
+    upct  = (upnl / inv * 100) if inv else 0
+    dpct  = (dpnl / val * 100) if val else 0
+    wins  = sum(1 for p in pos_list if (p.get("unrealised_pnl") or 0) > 0)
+    losses = len(pos_list) - wins
+
+    any_live = any(p.get("is_live") for p in pos_list)
+    price_badge = (
+        '<span style="background:var(--profit);color:#fff;font-size:0.6rem;padding:1px 6px;'
+        'border-radius:8px;font-weight:600;margin-left:6px">● LIVE</span>'
+        if any_live else
+        '<span style="background:var(--border);color:var(--text-tertiary);font-size:0.6rem;'
+        'padding:1px 6px;border-radius:8px;font-weight:500;margin-left:6px">↻ 30 min</span>'
+    )
+
+    # Summary strip
+    st.markdown(
+        f'<div style="display:flex;gap:20px;flex-wrap:wrap;background:var(--bg-secondary);'
+        f'border-left:3px solid {accent_color};border-radius:var(--radius-sm);'
+        f'padding:10px 14px;margin:8px 0 10px;font-size:0.8rem">'
+        f'  <span><span style="color:var(--text-tertiary)">Positions</span>&nbsp;'
+        f'    <b style="color:var(--text-primary)">{len(pos_list)}</b></span>'
+        f'  <span><span style="color:var(--text-tertiary)">Invested</span>&nbsp;'
+        f'    <b style="color:var(--text-primary)">{currency}{inv:,.0f}</b></span>'
+        f'  <span><span style="color:var(--text-tertiary)">Cur. Value</span>&nbsp;'
+        f'    <b style="color:var(--text-primary)">{currency}{val:,.0f}</b></span>'
+        f'  <span><span style="color:var(--text-tertiary)">Day P&L</span>&nbsp;'
+        f'    <b class="{_pnl_class(dpnl)}">{_pnl_sign(dpnl, currency)} ({dpct:+.2f}%)</b></span>'
+        f'  <span><span style="color:var(--text-tertiary)">Total P&L</span>&nbsp;'
+        f'    <b class="{_pnl_class(upnl)}">{_pnl_sign(upnl, currency)} ({upct:+.2f}%)</b></span>'
+        f'  <span><span style="color:var(--text-tertiary)">W/L</span>&nbsp;'
+        f'    <b style="color:var(--text-primary)">{wins}W / {losses}L</b></span>'
+        f'  <span style="margin-left:auto">Prices {price_badge}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Table
+    tbl = '''<table class="kite-table"><thead><tr>
+        <th>Instrument</th><th>Qty.</th><th>Avg. cost</th><th>LTP</th>
+        <th>Invested</th><th>Cur. val</th><th>Day P&L</th><th>P&L</th><th>Net chg.</th><th>Days</th>
+    </tr></thead><tbody>'''
+    for p in pos_list:
+        t    = p["ticker"]
+        sh   = p.get("shares") or 0
+        ep   = p.get("entry_price") or 0
+        cp   = p.get("current_price") or 0
+        invested_p = p.get("invested") or 0
+        cv   = p.get("current_value") or 0
+        pnl  = p.get("unrealised_pnl") or 0
+        ppct = p.get("unrealised_pnl_pct") or 0
+        dp   = p.get("day_pnl") or 0
+        days = p.get("days_held") or 0
+        cls  = _pnl_class(pnl)
+        dcls = _pnl_class(dp)
+        tbl += (
+            f'<tr class="{"loss-row" if pnl < 0 else ""}">'
+            f'<td><a href="{_tv_url(t)}" target="_blank" class="ticker-link">{_short(t)}</a></td>'
+            f'<td>{sh:,.0f}</td><td>{ep:,.2f}</td><td>{cp:,.2f}</td>'
+            f'<td>{currency}{invested_p:,.2f}</td><td>{currency}{cv:,.2f}</td>'
+            f'<td class="{dcls}">{_pnl_sign(dp, currency)}</td>'
+            f'<td class="{cls}">{_pnl_sign(pnl, currency)}</td>'
+            f'<td class="{cls}">{_pnl_pct(ppct)}</td>'
+            f'<td>{days}</td></tr>'
+        )
+    tbl += (
+        f'<tr class="total-row"><td>Total ({len(pos_list)})</td><td></td><td></td><td></td>'
+        f'<td>{currency}{inv:,.2f}</td><td>{currency}{val:,.2f}</td>'
+        f'<td class="{_pnl_class(dpnl)}">{_pnl_sign(dpnl, currency)}</td>'
+        f'<td class="{_pnl_class(upnl)}">{_pnl_sign(upnl, currency)}</td>'
+        f'<td class="{_pnl_class(upnl)}">{_pnl_pct(upct)}</td><td></td></tr>'
+        '</tbody></table>'
+    )
+    st.markdown('<div class="kite-table-wrap">' + tbl + '</div>', unsafe_allow_html=True)
+
+    # Mini P&L bar chart
+    if len(pos_list) > 1:
+        import plotly.graph_objects as go
+        sp = sorted(pos_list, key=lambda x: x.get("unrealised_pnl", 0))
+        fig = go.Figure(go.Bar(
+            y=[_short(p["ticker"]) for p in sp],
+            x=[p.get("unrealised_pnl", 0) for p in sp],
+            orientation="h",
+            marker_color=["#00c48c" if (p.get("unrealised_pnl") or 0) >= 0 else "#ff5a5a" for p in sp],
+            marker_line=dict(width=0),
+            text=[f'{currency}{p.get("unrealised_pnl",0):+,.0f}' for p in sp],
+            textposition="outside", textfont=dict(size=10, color="#a0a0a6"),
+        ))
+        layout = _chart_base(h=max(len(pos_list) * 30, 140))
+        layout["yaxis"]["autorange"] = True
+        layout["xaxis"]["tickprefix"] = currency
+        fig.update_layout(**layout)
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+
 with tab_holdings:
     if not positions:
         st.markdown(
@@ -2062,74 +2171,57 @@ with tab_holdings:
             unsafe_allow_html=True,
         )
     else:
-        # ── Filters ──────────────────────────────────────────────────────────
-        hf1, hf2, hf3 = st.columns([1, 1, 1])
-        with hf1:
-            hold_sort = st.selectbox("Sort by", ["Default", "P&L ↑", "P&L ↓", "P&L % ↑", "Value ↓", "Days held ↓"],
-                                     index=0, key="hold_sort")
-        with hf2:
-            all_entry_dates = sorted({str(p.get("entry_date", "")) for p in positions if p.get("entry_date")})
-            hold_date_from = st.date_input("Entered from", value=None, key="hold_date_from")
-        with hf3:
-            hold_date_to = st.date_input("Entered to", value=None, key="hold_date_to")
-
-        # apply date filter
-        _pos = positions
-        if hold_date_from:
-            _pos = [p for p in _pos if p.get("entry_date") and str(p["entry_date"]) >= str(hold_date_from)]
-        if hold_date_to:
-            _pos = [p for p in _pos if p.get("entry_date") and str(p["entry_date"]) <= str(hold_date_to)]
-
-        if hold_sort == "P&L ↑":
-            _pos = sorted(_pos, key=lambda x: x.get("unrealised_pnl", 0), reverse=True)
-        elif hold_sort == "P&L ↓":
-            _pos = sorted(_pos, key=lambda x: x.get("unrealised_pnl", 0))
-        elif hold_sort == "P&L % ↑":
-            _pos = sorted(_pos, key=lambda x: x.get("unrealised_pnl_pct", 0), reverse=True)
-        elif hold_sort == "Value ↓":
-            _pos = sorted(_pos, key=lambda x: x.get("current_value", 0), reverse=True)
-        elif hold_sort == "Days held ↓":
-            _pos = sorted(_pos, key=lambda x: x.get("days_held", 0), reverse=True)
-
-        # Derived totals for filtered set
-        _total_invested  = sum(p.get("invested", 0) or 0 for p in _pos)
-        _total_value     = sum(p.get("current_value", 0) or 0 for p in _pos)
-        _unrealised_pnl  = sum(p.get("unrealised_pnl", 0) or 0 for p in _pos)
-        _day_pnl         = sum(p.get("day_pnl", 0) or 0 for p in _pos)
-        _day_pnl_pct     = (_day_pnl / _total_value * 100) if _total_value else 0
-        _unreal_pct      = (_unrealised_pnl / _total_invested * 100) if _total_invested else 0
-
         from dashboard.data import _realised_pnl_totals as _rpt
         _real_all, _real_today = _rpt(exchange, db=active_db)
 
+        # Split positions by source
+        _pos_lt = [p for p in positions if (p.get("source") or "morning") == "morning"]
+        _pos_id = [p for p in positions if (p.get("source") or "morning") == "intraday"]
+
+        # ── Sort control ────────────────────────────────────────────────────
+        hcol1, hcol2 = st.columns([1, 3])
+        with hcol1:
+            hold_sort = st.selectbox(
+                "Sort by", ["Default", "P&L ↑", "P&L ↓", "P&L % ↑", "Value ↓", "Days ↓"],
+                index=0, key="hold_sort",
+            )
+        def _apply_sort(lst):
+            if hold_sort == "P&L ↑":    return sorted(lst, key=lambda x: x.get("unrealised_pnl", 0), reverse=True)
+            if hold_sort == "P&L ↓":    return sorted(lst, key=lambda x: x.get("unrealised_pnl", 0))
+            if hold_sort == "P&L % ↑":  return sorted(lst, key=lambda x: x.get("unrealised_pnl_pct", 0), reverse=True)
+            if hold_sort == "Value ↓":  return sorted(lst, key=lambda x: x.get("current_value", 0), reverse=True)
+            if hold_sort == "Days ↓":   return sorted(lst, key=lambda x: x.get("days_held", 0), reverse=True)
+            return lst
+        _pos_lt = _apply_sort(_pos_lt)
+        _pos_id = _apply_sort(_pos_id)
+
+        # ── Portfolio P&L summary (combined) ────────────────────────────────
+        _all_pos = _pos_lt + _pos_id
+        _tot_inv  = sum(p.get("invested", 0) or 0 for p in _all_pos)
+        _tot_val  = sum(p.get("current_value", 0) or 0 for p in _all_pos)
+        _tot_upnl = sum(p.get("unrealised_pnl", 0) or 0 for p in _all_pos)
+        _tot_dpnl = sum(p.get("day_pnl", 0) or 0 for p in _all_pos)
         st.markdown(
             f'<div class="hold-summary">'
             f'  <div class="hold-block">'
-            f'    <div class="hb-title">Unrealised P&L'
-            f'      <span style="margin-left:6px;font-size:0.65rem;font-weight:500;font-style:italic;'
-            f'      color:var(--text-tertiary);text-transform:none;letter-spacing:0">'
-            f'      Open positions · from entry</span></div>'
-            f'    <div class="hb-row"><span class="hb-key">Unrealised gain/loss</span>'
-            f'      <span class="hb-val {_pnl_class(_unrealised_pnl)}">{_pnl_sign(_unrealised_pnl, currency)} ({_pnl_pct(_unreal_pct)})</span></div>'
-            f'    <div class="hb-row"><span class="hb-key">Positions shown</span>'
-            f'      <span class="hb-val">{len(_pos)} of {len(positions)}</span></div>'
+            f'    <div class="hb-title">Portfolio · Open Positions</div>'
+            f'    <div class="hb-row"><span class="hb-key">Total invested</span>'
+            f'      <span class="hb-val">{currency}{_tot_inv:,.2f}</span></div>'
             f'    <div class="hb-row"><span class="hb-key">Current value</span>'
-            f'      <span class="hb-val">{currency}{_total_value:,.2f}</span></div>'
-            f'    <div class="hb-row"><span class="hb-key">Intraday move</span>'
-            f'      <span class="hb-val {_pnl_class(_day_pnl)}">{_pnl_sign(_day_pnl, currency)} ({_pnl_pct(_day_pnl_pct)})</span></div>'
+            f'      <span class="hb-val">{currency}{_tot_val:,.2f}</span></div>'
+            f'    <div class="hb-row"><span class="hb-key">Today\'s move</span>'
+            f'      <span class="hb-val {_pnl_class(_tot_dpnl)}">{_pnl_sign(_tot_dpnl, currency)}</span></div>'
+            f'    <div class="hb-row"><span class="hb-key">Total unrealised</span>'
+            f'      <span class="hb-val {_pnl_class(_tot_upnl)}">{_pnl_sign(_tot_upnl, currency)}</span></div>'
             f'  </div>'
             f'  <div class="hold-block">'
-            f'    <div class="hb-title">Total P&L'
-            f'      <span style="margin-left:6px;font-size:0.65rem;font-weight:500;font-style:italic;'
-            f'      color:var(--text-tertiary);text-transform:none;letter-spacing:0">'
-            f'      Unrealised + Realised (all-time)</span></div>'
-            f'    <div class="hb-row"><span class="hb-key">Unrealised (open)</span>'
-            f'      <span class="hb-val {_pnl_class(_unrealised_pnl)}">{_pnl_sign(_unrealised_pnl, currency)}</span></div>'
-            f'    <div class="hb-row"><span class="hb-key">Realised (closed trades)</span>'
+            f'    <div class="hb-title">Breakdown</div>'
+            f'    <div class="hb-row"><span class="hb-key">Long-term positions</span>'
+            f'      <span class="hb-val">{len(_pos_lt)}</span></div>'
+            f'    <div class="hb-row"><span class="hb-key">Intraday radar trades</span>'
+            f'      <span class="hb-val">{len(_pos_id)}</span></div>'
+            f'    <div class="hb-row"><span class="hb-key">Realised (all-time)</span>'
             f'      <span class="hb-val {_pnl_class(_real_all)}">{_pnl_sign(_real_all, currency)}</span></div>'
-            f'    <div class="hb-row" style="border-top:1px solid var(--border);padding-top:6px;margin-top:2px">'
-            f'      <span class="hb-key" style="font-weight:600;color:var(--text-secondary)">Combined Total</span>'
-            f'      <span class="hb-val {_pnl_class(total_pnl)}" style="font-size:1rem">{_pnl_sign(total_pnl, currency)}</span></div>'
             f'    <div class="hb-row"><span class="hb-key">W / L</span>'
             f'      <span class="hb-val">{portfolio.get("winners",0)}W / {portfolio.get("losers",0)}L</span></div>'
             f'  </div>'
@@ -2137,101 +2229,27 @@ with tab_holdings:
             unsafe_allow_html=True,
         )
 
-        # Price freshness indicator — live (market open) or last intraday sync
-        _any_live = any(p.get("is_live") for p in _pos)
-        if _any_live:
-            _price_badge = '<span style="background:var(--profit);color:#fff;font-size:0.62rem;padding:2px 7px;border-radius:10px;font-weight:600;margin-left:8px">● LIVE</span>'
-        else:
-            _price_badge = '<span style="background:var(--border);color:var(--text-tertiary);font-size:0.62rem;padding:2px 7px;border-radius:10px;font-weight:500;margin-left:8px">↻ synced every 30 min</span>'
-        st.markdown(f'<div style="margin-bottom:8px;font-size:0.78rem;color:var(--text-tertiary)">Prices {_price_badge}</div>', unsafe_allow_html=True)
+        # ── Section 1: Long-term Positions ──────────────────────────────────
+        st.markdown(
+            '<div class="kite-section" style="margin-top:24px;border-left:3px solid var(--accent);'
+            'padding-left:10px">Long-term Positions'
+            '<span style="margin-left:8px;font-size:0.65rem;font-weight:400;color:var(--text-tertiary);'
+            'text-transform:none;letter-spacing:0">entered at morning pipeline · held overnight</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        _render_positions_section(_pos_lt, "Long-term", currency, "var(--accent)")
 
-        table_html = '''<table class="kite-table"><thead><tr>
-            <th>Instrument</th><th>Qty.</th><th>Avg. cost</th><th>LTP</th>
-            <th>Invested</th><th>Cur. val</th><th>Day P&L</th><th>P&L</th><th>Net chg.</th><th>Days</th>
-        </tr></thead><tbody>'''
-
-        for p in _pos:
-            t = p["ticker"]
-            shares = p.get("shares") or 0
-            entry = p.get("entry_price") or 0
-            cp = p.get("current_price") or 0
-            invested = p.get("invested") or 0
-            cur_val = p.get("current_value") or 0
-            pnl = p.get("unrealised_pnl") or 0
-            pnl_pct = p.get("unrealised_pnl_pct") or 0
-            dpnl = p.get("day_pnl") or 0
-            days = p.get("days_held") or 0
-            cls = _pnl_class(pnl)
-            dcls = _pnl_class(dpnl)
-            row_cls = "loss-row" if pnl < 0 else ""
-            tv = _tv_url(t)
-
-            table_html += f'''<tr class="{row_cls}">
-                <td><a href="{tv}" target="_blank" class="ticker-link">{_short(t)}</a></td>
-                <td>{shares:,.0f}</td>
-                <td>{entry:,.2f}</td>
-                <td>{cp:,.2f}</td>
-                <td>{currency}{invested:,.2f}</td>
-                <td>{currency}{cur_val:,.2f}</td>
-                <td class="{dcls}">{_pnl_sign(dpnl, currency)}</td>
-                <td class="{cls}">{_pnl_sign(pnl, currency)}</td>
-                <td class="{cls}">{_pnl_pct(pnl_pct)}</td>
-                <td>{days}</td>
-            </tr>'''
-
-        table_html += f'''<tr class="total-row">
-            <td>Total ({len(_pos)})</td><td></td><td></td><td></td>
-            <td>{currency}{_total_invested:,.2f}</td>
-            <td>{currency}{_total_value:,.2f}</td>
-            <td class="{_pnl_class(_day_pnl)}">{_pnl_sign(_day_pnl, currency)}</td>
-            <td class="{_pnl_class(_unrealised_pnl)}">{_pnl_sign(_unrealised_pnl, currency)}</td>
-            <td class="{_pnl_class(_unrealised_pnl)}">{_pnl_pct(_unreal_pct)}</td>
-            <td></td>
-        </tr>'''
-
-        table_html += '</tbody></table>'
-        st.markdown('<div class="kite-table-wrap">' + table_html + '</div>', unsafe_allow_html=True)
-
-        # Allocation bar + legend
-        if _total_value > 0:
-            bar_html = '<div class="alloc-bar" style="margin-top:24px">'
-            legend_html = '<div class="alloc-legend">'
-            for i, p in enumerate(_pos):
-                pct = (p.get("current_value", 0) / _total_value * 100)
-                color = _ALLOC_COLORS[i % len(_ALLOC_COLORS)]
-                short = _short(p["ticker"])
-                bar_html += f'<div class="alloc-seg" style="width:{pct:.1f}%;background:{color}" title="{short}: {pct:.1f}%"></div>'
-                legend_html += (
-                    f'<span class="alloc-legend-item">'
-                    f'<span class="alloc-dot" style="background:{color}"></span>'
-                    f'{short} {currency}{p.get("current_value",0):,.0f}</span>'
-                )
-            bar_html += '</div>'
-            legend_html += '</div>'
-            st.markdown(bar_html + legend_html, unsafe_allow_html=True)
-
-        # P&L horizontal bar chart
-        st.markdown('<div class="kite-section" style="margin-top:28px">P&L by Position</div>',
-                    unsafe_allow_html=True)
-
-        import plotly.graph_objects as go
-        sorted_pos = sorted(_pos, key=lambda x: x.get("unrealised_pnl", 0))
-        tickers_short = [_short(p["ticker"]) for p in sorted_pos]
-        pnls = [p.get("unrealised_pnl", 0) for p in sorted_pos]
-        colors = ["#00c48c" if v >= 0 else "#ff5a5a" for v in pnls]
-
-        fig = go.Figure(go.Bar(
-            y=tickers_short, x=pnls, orientation="h",
-            marker_color=colors,
-            marker_line=dict(width=0),
-            text=[f"{currency}{v:+,.0f}" for v in pnls],
-            textposition="outside", textfont=dict(size=11, color="#a0a0a6"),
-        ))
-        layout = _chart_base(h=max(len(positions) * 32, 300))
-        layout["yaxis"]["autorange"] = True
-        layout["xaxis"]["tickprefix"] = currency
-        fig.update_layout(**layout)
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        # ── Section 2: Intraday Radar Trades ────────────────────────────────
+        st.markdown(
+            '<div class="kite-section" style="margin-top:32px;border-left:3px solid #f59e0b;'
+            'padding-left:10px">Intraday Radar Trades'
+            '<span style="margin-left:8px;font-size:0.65rem;font-weight:400;color:var(--text-tertiary);'
+            'text-transform:none;letter-spacing:0">entered during intraday rescan · same-day signals</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        _render_positions_section(_pos_id, "Intraday", currency, "#f59e0b")
 
 
 # ── TAB 3: Signals ────────────────────────────────────────────────────────────
@@ -3178,7 +3196,7 @@ with tab_scanner:
 # ── TAB 6: Trade History ──────────────────────────────────────────────────────
 with tab_history:
     # ── Filters ───────────────────────────────────────────────────────────────
-    hf1, hf2, hf3, hf4, hf5 = st.columns([1.2, 0.8, 0.8, 0.8, 0.8])
+    hf1, hf2, hf3, hf4, hf5, hf6 = st.columns([1.2, 0.7, 0.7, 0.7, 0.7, 0.8])
     with hf1:
         hist_period = st.selectbox("Period", ["7 days", "30 days", "60 days", "90 days", "180 days", "1 year", "All time"],
                                    index=3, key="hist_period")
@@ -3189,7 +3207,9 @@ with tab_history:
     with hf4:
         hist_outcome = st.selectbox("Outcome", ["All", "Wins", "Losses"], key="hist_outcome")
     with hf5:
-        hist_type = st.selectbox("Type", ["Realised", "Unrealised"], key="hist_type")
+        hist_source = st.selectbox("Trade type", ["All", "Long-term", "Intraday"], key="hist_source")
+    with hf6:
+        hist_type = st.selectbox("View", ["Realised", "Unrealised"], key="hist_type")
 
     hist_days = {"7 days": 7, "30 days": 30, "60 days": 60, "90 days": 90,
                  "180 days": 180, "1 year": 365, "All time": 3650}[hist_period]
@@ -3228,7 +3248,7 @@ with tab_history:
     else:
         trades = load_trades(exchange, hist_days, db=active_db)
 
-        # Apply date and outcome filters
+        # Apply filters
         if hist_date_from:
             trades = [t for t in trades if str(t.get("exit_date","")) >= str(hist_date_from)]
         if hist_date_to:
@@ -3237,9 +3257,42 @@ with tab_history:
             trades = [t for t in trades if (t.get("net_pnl", 0) or 0) > 0]
         elif hist_outcome == "Losses":
             trades = [t for t in trades if (t.get("net_pnl", 0) or 0) <= 0]
+        if hist_source == "Long-term":
+            trades = [t for t in trades if (t.get("source") or "morning") == "morning"]
+        elif hist_source == "Intraday":
+            trades = [t for t in trades if (t.get("source") or "morning") == "intraday"]
 
         def _clean_reason(r):
             return str(r or "").replace("_", " ").strip().title()
+
+        def _trade_stats_strip(trade_list, label, accent):
+            if not trade_list:
+                return
+            net   = sum(t.get("net_pnl", 0) or 0 for t in trade_list)
+            w     = sum(1 for t in trade_list if (t.get("net_pnl", 0) or 0) > 0)
+            l     = len(trade_list) - w
+            wr    = w / len(trade_list) * 100
+            avg_w = sum(t.get("net_pnl", 0) or 0 for t in trade_list if (t.get("net_pnl", 0) or 0) > 0) / max(w, 1)
+            avg_l = sum(t.get("net_pnl", 0) or 0 for t in trade_list if (t.get("net_pnl", 0) or 0) <= 0) / max(l, 1)
+            pf    = abs(avg_w * w / (avg_l * l)) if l and avg_l else 0
+            st.markdown(
+                f'<div style="display:flex;gap:20px;flex-wrap:wrap;background:var(--bg-secondary);'
+                f'border-left:3px solid {accent};border-radius:var(--radius-sm);'
+                f'padding:10px 14px;margin:8px 0 6px;font-size:0.8rem">'
+                f'  <span style="font-weight:600;color:var(--text-primary)">{label}</span>'
+                f'  <span><span style="color:var(--text-tertiary)">Trades</span>&nbsp;<b>{len(trade_list)}</b></span>'
+                f'  <span><span style="color:var(--text-tertiary)">Net P&L</span>&nbsp;'
+                f'    <b class="{_pnl_class(net)}">{_pnl_sign(net, currency)}</b></span>'
+                f'  <span><span style="color:var(--text-tertiary)">Win rate</span>&nbsp;<b>{wr:.0f}%</b></span>'
+                f'  <span><span style="color:var(--text-tertiary)">W/L</span>&nbsp;<b>{w}W / {l}L</b></span>'
+                f'  <span><span style="color:var(--text-tertiary)">Avg win</span>&nbsp;'
+                f'    <b class="up">{_pnl_sign(avg_w, currency)}</b></span>'
+                f'  <span><span style="color:var(--text-tertiary)">Avg loss</span>&nbsp;'
+                f'    <b class="down">{_pnl_sign(avg_l, currency)}</b></span>'
+                f'  <span><span style="color:var(--text-tertiary)">PF</span>&nbsp;<b>{pf:.2f}</b></span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
         if not trades:
             st.markdown(
@@ -3250,20 +3303,12 @@ with tab_history:
                 unsafe_allow_html=True,
             )
         else:
-            total_realized = sum(t.get("net_pnl", 0) for t in trades)
-            wins = sum(1 for t in trades if (t.get("net_pnl", 0) > 0))
-            losses = len(trades) - wins
-            win_rate = (wins / len(trades) * 100) if trades else 0
-            avg_win = (sum(t.get("net_pnl", 0) for t in trades if t.get("net_pnl", 0) > 0) / max(wins, 1))
-            avg_loss = (sum(t.get("net_pnl", 0) for t in trades if t.get("net_pnl", 0) <= 0) / max(losses, 1))
-            profit_factor = abs(avg_win * wins / (avg_loss * losses)) if losses and avg_loss else 0
+            # Split by source
+            _t_lt = [t for t in trades if (t.get("source") or "morning") == "morning"]
+            _t_id = [t for t in trades if (t.get("source") or "morning") == "intraday"]
 
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Closed Trades", len(trades))
-            c2.metric("Net P&L", f"{currency}{total_realized:+,.2f}")
-            c3.metric("Win Rate", f"{win_rate:.0f}%")
-            c4.metric("Avg Win / Loss", f"{currency}{avg_win:+,.0f} / {currency}{avg_loss:+,.0f}")
-            c5.metric("Profit Factor", f"{profit_factor:.2f}")
+            _trade_stats_strip(_t_lt, "Long-term Trades", "var(--accent)")
+            _trade_stats_strip(_t_id, "Intraday Radar Trades", "#f59e0b")
 
             pnl_data = load_pnl(exchange, hist_days, db=active_db)
             if pnl_data:
@@ -3293,33 +3338,42 @@ with tab_history:
             st.markdown('<div class="kite-section">Trade Log</div>', unsafe_allow_html=True)
 
             table_html = '''<table class="kite-table"><thead><tr>
-                <th>Ticker</th><th>Entry Date</th><th>Exit Date</th><th>Shares</th>
-                <th>Entry Price</th><th>Exit Price</th><th>Return %</th><th>Net P&L</th><th>Reason</th>
+                <th>Ticker</th><th>Type</th><th>Entry</th><th>Exit</th><th>Shares</th>
+                <th>Entry $</th><th>Exit $</th><th>Return %</th><th>Net P&L</th><th>Reason</th>
             </tr></thead><tbody>'''
 
             for t in trades:
-                ticker = t.get("ticker", "")
-                pnl = t.get("realised_pnl", 0) or t.get("net_pnl", 0) or 0
+                ticker  = t.get("ticker", "")
+                src     = t.get("source") or "morning"
+                pnl     = t.get("realised_pnl", 0) or t.get("net_pnl", 0) or 0
                 ret_pct = t.get("realised_pnl_pct", 0) or 0
-                cls = _pnl_class(pnl)
-                row_cls = "loss-row" if pnl < 0 else ""
-                tv = _tv_url(ticker)
-                reason = t.get("exit_reason_label") or _clean_reason(t.get("exit_reason", ""))
-                ep = t.get("entry_price", 0) or 0
-                xp = t.get("exit_price", 0) or 0
-                shares = t.get("shares", 0) or 0
-
-                table_html += f'''<tr class="{row_cls}">
-                    <td><a href="{tv}" target="_blank" class="ticker-link">{_short(ticker)}</a></td>
-                    <td style="color:var(--text-secondary)">{t.get("entry_date", "")}</td>
-                    <td style="color:var(--text-secondary)">{t.get("exit_date", "")}</td>
-                    <td style="font-variant-numeric:tabular-nums">{shares:,.0f}</td>
-                    <td style="font-family:var(--font-mono)">{currency}{ep:,.2f}</td>
-                    <td style="font-family:var(--font-mono)">{currency}{xp:,.2f}</td>
-                    <td class="{cls}" style="font-family:var(--font-mono)">{ret_pct:+.2f}%</td>
-                    <td class="{cls}" style="font-family:var(--font-mono);font-weight:600">{_pnl_sign(pnl, currency)}</td>
-                    <td style="font-size:0.78rem;color:var(--text-secondary)">{reason}</td>
-                </tr>'''
+                cls     = _pnl_class(pnl)
+                tv      = _tv_url(ticker)
+                reason  = t.get("exit_reason_label") or _clean_reason(t.get("exit_reason", ""))
+                ep      = t.get("entry_price", 0) or 0
+                xp      = t.get("exit_price", 0) or 0
+                shares  = t.get("shares", 0) or 0
+                src_badge = (
+                    '<span style="background:#f59e0b22;color:#f59e0b;font-size:0.6rem;'
+                    'padding:1px 5px;border-radius:4px;font-weight:600">Intraday</span>'
+                    if src == "intraday" else
+                    '<span style="background:rgba(105,147,255,0.12);color:var(--accent);font-size:0.6rem;'
+                    'padding:1px 5px;border-radius:4px;font-weight:600">Position</span>'
+                )
+                table_html += (
+                    f'<tr class="{"loss-row" if pnl < 0 else ""}">'
+                    f'<td><a href="{tv}" target="_blank" class="ticker-link">{_short(ticker)}</a></td>'
+                    f'<td>{src_badge}</td>'
+                    f'<td style="color:var(--text-secondary)">{t.get("entry_date","")}</td>'
+                    f'<td style="color:var(--text-secondary)">{t.get("exit_date","")}</td>'
+                    f'<td>{shares:,.0f}</td>'
+                    f'<td style="font-family:var(--font-mono)">{currency}{ep:,.2f}</td>'
+                    f'<td style="font-family:var(--font-mono)">{currency}{xp:,.2f}</td>'
+                    f'<td class="{cls}" style="font-family:var(--font-mono)">{ret_pct:+.2f}%</td>'
+                    f'<td class="{cls}" style="font-family:var(--font-mono);font-weight:600">{_pnl_sign(pnl, currency)}</td>'
+                    f'<td style="font-size:0.78rem;color:var(--text-secondary)">{reason}</td>'
+                    f'</tr>'
+                )
 
             table_html += '</tbody></table>'
             st.markdown('<div class="kite-table-wrap">' + table_html + '</div>', unsafe_allow_html=True)

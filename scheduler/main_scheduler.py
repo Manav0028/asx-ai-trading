@@ -98,8 +98,8 @@ def job_daily_report():
     generate_and_send()
 
 
-def job_place_orders():
-    logger.info("Placing orders")
+def job_place_orders(source: str = "morning"):
+    logger.info("Placing orders (source=%s)", source)
     from signals.aggregator import get_top_signals
     from config.settings import LIVE_TRADING_ENABLED, IBKR_PAPER_ENABLED
 
@@ -119,13 +119,13 @@ def job_place_orders():
     elif IBKR_PAPER_ENABLED:
         # ── Phase 2: IBKR paper trading ───────────────────────────────────
         from execution.ibkr_paper_trader import ibkr_process_new_signals
-        fills = ibkr_process_new_signals(signals)
+        fills = ibkr_process_new_signals(signals, source=source)
         logger.info("IBKR paper orders placed: %d", len(fills))
 
     else:
         # ── Phase 1: Internal paper trader ────────────────────────────────
         from execution.paper_trader import process_new_signals
-        fills = process_new_signals(signals)
+        fills = process_new_signals(signals, source=source)
         logger.info("Internal paper orders placed: %d", len(fills))
 
     # ── Telegram signal alerts for all non-live fills ─────────────────────
@@ -416,7 +416,7 @@ def job_rescan_and_trade():
     sync_trades_to_supabase()   # keep closed-trade history current in both DBs
 
     # Step 4: place orders; job_place_orders also calls sync_watchlist_to_supabase
-    job_place_orders()
+    job_place_orders(source="morning")
     logger.info("=== Rescan-and-trade complete ===")
 
 
@@ -469,7 +469,7 @@ def job_intraday_rescan():
     sync_signals_to_supabase()
     sync_regime_to_supabase()
 
-    job_place_orders()
+    job_place_orders(source="intraday")
     logger.info("=== Intraday rescan complete ===")
 
 

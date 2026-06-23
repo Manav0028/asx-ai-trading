@@ -70,7 +70,7 @@ def _wait_for_fill(ib, trade) -> Optional[float]:
 
 
 def _record_buy(ticker: str, fill_price: float, shares: int,
-                signal: Dict) -> Optional[Dict]:
+                signal: Dict, source: str = "morning") -> Optional[Dict]:
     """Write the buy to watchlist and trade tables."""
     from storage.database import get_session
     from storage.models import Trade
@@ -90,6 +90,7 @@ def _record_buy(ticker: str, fill_price: float, shares: int,
         position_size_aud=cost,
         signal_score=score,
         trading_mode="ibkr_paper",
+        source=source,
     )
 
     # Record as open trade
@@ -103,6 +104,7 @@ def _record_buy(ticker: str, fill_price: float, shares: int,
             shares=shares,
             brokerage=PAPER_BROKERAGE,
             signal_score=score,
+            source=source,
         )
         session.add(trade)
 
@@ -163,7 +165,7 @@ def _record_sell(ticker: str, fill_price: float, reason: str) -> Optional[Dict]:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def ibkr_execute_buy(signal: Dict) -> Optional[Dict]:
+def ibkr_execute_buy(signal: Dict, source: str = "morning") -> Optional[Dict]:
     """
     Place a paper buy order via IBKR for a single signal.
     Falls back to internal paper trader if TWS is unreachable.
@@ -212,7 +214,7 @@ def ibkr_execute_buy(signal: Dict) -> Optional[Dict]:
                 "%s fill timed out — using estimated price %.3f", ticker, fill_price
             )
 
-        return _record_buy(ticker, fill_price, shares, signal)
+        return _record_buy(ticker, fill_price, shares, signal, source=source)
 
     except ConnectionError:
         # TWS is down — fall back to internal paper trader
@@ -283,7 +285,7 @@ def ibkr_execute_sell(ticker: str, reason: str = "manual") -> Optional[Dict]:
             ib.disconnect()
 
 
-def ibkr_process_new_signals(signals: List[Dict]) -> List[Dict]:
+def ibkr_process_new_signals(signals: List[Dict], source: str = "morning") -> List[Dict]:
     """
     Process a list of signals: place IBKR paper buy orders for all qualifying signals.
     Mirrors paper_trader.process_new_signals() but uses IBKR.
@@ -293,7 +295,7 @@ def ibkr_process_new_signals(signals: List[Dict]) -> List[Dict]:
     for sig in signals:
         if sig.get("composite_score", 0) < SIGNAL_THRESHOLD:
             continue
-        result = ibkr_execute_buy(sig)
+        result = ibkr_execute_buy(sig, source=source)
         if result:
             fills.append(result)
     return fills

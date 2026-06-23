@@ -49,6 +49,7 @@ def _record_trade(
     exit_reason: str,
     signal_score: float,
     mode: str = None,
+    source: str = "morning",
 ) -> None:
     mode = mode or _current_mode()
     gross = (exit_price - entry_price) * shares if exit_price else 0.0
@@ -68,10 +69,11 @@ def _record_trade(
             brokerage=PAPER_BROKERAGE * (2 if exit_price else 1),
             exit_reason=exit_reason,
             signal_score=signal_score,
+            source=source,
         ))
 
 
-def execute_buy(signal: Dict) -> Optional[Dict]:
+def execute_buy(signal: Dict, source: str = "morning") -> Optional[Dict]:
     """
     Open a paper position (long or short) for an actionable signal.
     Longs need composite ≥ threshold; shorts need the bearish composite
@@ -128,6 +130,7 @@ def execute_buy(signal: Dict) -> Optional[Dict]:
         position_size_aud=actual_cost,
         signal_score=score,
         direction=direction,
+        source=source,
     )
 
     _record_trade(
@@ -140,6 +143,7 @@ def execute_buy(signal: Dict) -> Optional[Dict]:
         exit_date=None,
         exit_reason="open",
         signal_score=score,
+        source=source,
     )
 
     logger.info(
@@ -203,13 +207,13 @@ def execute_sell(ticker: str, reason: str = "manual",
     return {"ticker": ticker, "fill_price": fill_price, "pnl": round(pnl, 2)}
 
 
-def process_new_signals(signals: List[Dict]) -> List[Dict]:
+def process_new_signals(signals: List[Dict], source: str = "morning") -> List[Dict]:
     """Attempt to buy any signal above threshold not already in watchlist."""
     active_tickers = {p["ticker"] for p in get_active_watchlist()}
     fills = []
     for sig in signals:
         if sig["ticker"] not in active_tickers:
-            fill = execute_buy(sig)
+            fill = execute_buy(sig, source=source)
             if fill:
                 fills.append(fill)
     return fills

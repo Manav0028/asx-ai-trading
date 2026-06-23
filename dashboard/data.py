@@ -180,6 +180,7 @@ def _watchlist_row_to_dict(i) -> Dict:
         "signal_score": i.signal_score,
         # trading_mode added in Phase 2 — default to 'paper' for older rows
         "trading_mode": getattr(i, "trading_mode", None) or "paper",
+        "source": getattr(i, "source", "morning") or "morning",
     }
 
 

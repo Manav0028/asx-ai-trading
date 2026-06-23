@@ -264,6 +264,7 @@ def sync_watchlist_to_supabase() -> bool:
                     "is_active":        True,
                     "strategy_name":    getattr(i, "strategy_name", None),
                     "direction":        getattr(i, "direction", None) or "long",
+                    "source":           getattr(i, "source", "morning") or "morning",
                 })
 
         ok = False
@@ -331,6 +332,7 @@ def sync_trades_to_supabase(days: int = 90) -> bool:
                     "brokerage": r.brokerage,
                     "exit_reason": r.exit_reason,
                     "signal_score": r.signal_score,
+                    "source": getattr(r, "source", "morning") or "morning",
                 }
                 for r in rows_orm
             ]
