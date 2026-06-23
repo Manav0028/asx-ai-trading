@@ -216,6 +216,93 @@ def execute_sell(ticker: str, reason: str = "manual",
     return {"ticker": ticker, "fill_price": fill_price, "pnl": round(pnl, 2)}
 
 
+def execute_partial_sell(ticker: str, pct: float = 0.5,
+                          reason: str = "partial_target") -> Optional[Dict]:
+    """
+    Sell `pct` fraction of an open position and lock the stop to breakeven.
+    Called by intraday_evaluate_exits() when price reaches partial_target_price.
+
+    - Reduces shares and position_size_aud in the WatchlistItem
+    - Moves stop_loss_price to entry_price (breakeven)
+    - Sets partial_exit_taken = True (prevents re-triggering)
+    - Records a partial Trade row
+    """
+    raw_price = get_latest_price(ticker)
+    if not raw_price:
+        return None
+
+    watchlist = get_active_watchlist(all_modes=True)
+    position  = next((p for p in watchlist if p["ticker"] == ticker), None)
+    if not position:
+        return None
+
+    if position.get("partial_exit_taken"):
+        return None  # already taken once
+
+    total_shares = position["shares"] or 0
+    sell_shares  = max(1, int(total_shares * pct))
+    if sell_shares <= 0 or sell_shares >= total_shares:
+        return None  # nothing meaningful to partial-exit
+
+    short      = (position.get("direction") or "long") == "short"
+    fill_price = _simulate_fill(raw_price, "buy" if short else "sell")
+    entry      = position["entry_price"]
+
+    if short:
+        partial_gross = (entry - fill_price) * sell_shares
+    else:
+        partial_gross = (fill_price - entry) * sell_shares
+    partial_net = partial_gross - PAPER_BROKERAGE
+
+    remaining_shares = total_shares - sell_shares
+    pos_mode         = position.get("trading_mode", "paper")
+
+    from storage.database import get_session
+    from storage.models import WatchlistItem, Trade
+
+    with get_session() as session:
+        item = session.query(WatchlistItem).filter(
+            WatchlistItem.ticker == ticker,
+            WatchlistItem.is_active == True,
+        ).first()
+        if not item:
+            return None
+
+        item.shares              = remaining_shares
+        item.position_size_aud   = round(remaining_shares * entry, 2)
+        item.stop_loss_price     = entry           # move stop to breakeven
+        item.partial_exit_taken  = True
+
+        session.add(Trade(
+            ticker     = ticker,
+            trade_type = "cover" if short else "sell",
+            mode       = pos_mode,
+            entry_date = position.get("entry_date"),
+            exit_date  = date.today(),
+            entry_price= entry,
+            exit_price = fill_price,
+            shares     = sell_shares,
+            gross_pnl  = round(partial_gross, 2),
+            net_pnl    = round(partial_net, 2),
+            brokerage  = PAPER_BROKERAGE,
+            exit_reason= reason,
+            signal_score= position.get("signal_score"),
+            source     = position.get("source", "morning"),
+        ))
+
+    logger.info(
+        "PARTIAL SELL: %s sold %d/%d shares @ $%.3f  partial_pnl=$%.2f  stop→breakeven",
+        ticker, sell_shares, int(total_shares), fill_price, partial_net,
+    )
+    return {
+        "ticker":          ticker,
+        "shares_sold":     sell_shares,
+        "fill_price":      fill_price,
+        "partial_pnl":     round(partial_net, 2),
+        "remaining_shares": remaining_shares,
+    }
+
+
 def process_new_signals(signals: List[Dict], source: str = "morning") -> List[Dict]:
     """Attempt to buy any signal above threshold not already in watchlist."""
     active_tickers = {p["ticker"] for p in get_active_watchlist()}

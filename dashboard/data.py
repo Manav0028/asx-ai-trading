@@ -664,6 +664,25 @@ def get_todays_scores(tickers: List[str], exchange: str,
             return {}
 
 
+def get_equity_snapshots(exchange: str, date_str: str = None,
+                          db: str = "primary") -> List[Dict]:
+    """
+    Return today's 30-min equity snapshots from the equity_snapshots Supabase table.
+    Sorted ascending by time — suitable for plotting an intraday equity curve.
+    Returns [] when Supabase is not configured or no data exists.
+    """
+    from datetime import date as _date
+    target_date = date_str or str(_date.today())
+    if not _use_supabase():
+        return []
+    return _sb_get("equity_snapshots", {
+        "exchange":    f"eq.{exchange}",
+        "snapshot_at": f"gte.{target_date}T00:00:00Z",
+        "order":       "snapshot_at.asc",
+        "select":      "snapshot_at,portfolio_value,day_pnl,total_day_pnl,drawdown_pct,positions_count",
+    }, db=db)
+
+
 def get_backtest_results(exchange: str, db: str = "primary") -> Dict:
     """
     Most recent backtest results for the exchange.

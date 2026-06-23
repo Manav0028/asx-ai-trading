@@ -83,3 +83,15 @@ BACKTESTER_LOOKBACK_MONTHS = 6
 TRADING_PHASE = int(os.getenv("TRADING_PHASE", 1))
 IBKR_PAPER_ENABLED  = TRADING_PHASE >= 2   # phases 2 and 3 both use IBKR
 LIVE_TRADING_ENABLED = TRADING_PHASE >= 3  # phase 3 only
+
+# ── Intraday Loss Recovery ────────────────────────────────────────────────────
+# Circuit breaker: halt all new intraday entries when session loss exceeds this
+# fraction of PORTFOLIO_CAPITAL. Default 2% = -$2,000 on $100k.
+MAX_DAILY_LOSS_PCT     = float(os.getenv("MAX_DAILY_LOSS_PCT",     0.02))
+# Recovery mode: raise signal threshold when session loss exceeds this fraction.
+# Default 0.5% = -$500 on $100k.
+RECOVERY_MODE_LOSS_PCT = float(os.getenv("RECOVERY_MODE_LOSS_PCT", 0.005))
+# Extra points added to SIGNAL_THRESHOLD in recovery mode.
+RECOVERY_SIGNAL_BOOST  = float(os.getenv("RECOVERY_SIGNAL_BOOST",  8.0))
+# Only these fast-exit strategies are entered in recovery mode (max hold ≤ 15 days).
+RECOVERY_STRATEGIES    = ["rsi2_dip", "oversold_bounce", "mean_reversion"]

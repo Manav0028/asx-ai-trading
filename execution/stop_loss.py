@@ -255,6 +255,45 @@ def intraday_evaluate_exits(live_prices: Dict[str, float]) -> Tuple[List[Dict], 
                     targets_hit.append({**result, "target_price": target})
             continue
 
+        # ── Intraday trailing stop update ─────────────────────────────────────
+        # Mirror of evaluate_exits() trailing logic — keeps stop current between EOD runs.
+        trail_act, trail_dist = _get_trail_params(ticker, entry)
+        gain_pct = (current - entry) / entry if entry else 0
+        if gain_pct >= trail_act:
+            peak       = _get_peak(ticker, current)
+            trail_stop = peak * (1 - trail_dist)
+            if trail_stop > (stop or 0):
+                from storage.database import get_session
+                from storage.models import WatchlistItem as _WI
+                with get_session() as _sess:
+                    _item = _sess.query(_WI).filter(
+                        _WI.ticker == ticker, _WI.is_active == True,
+                    ).first()
+                    if _item and trail_stop > (_item.stop_loss_price or 0):
+                        _item.stop_loss_price = round(trail_stop, 3)
+                        stop = trail_stop
+                        logger.info(
+                            "INTRADAY TRAIL: %s stop raised to $%.3f (peak $%.3f)",
+                            ticker, trail_stop, peak,
+                        )
+        else:
+            _get_peak(ticker, current)  # initialise peak tracking
+
+        # ── Partial profit target (70% of full target, 50% of shares) ─────────
+        partial_taken  = pos.get("partial_exit_taken", False)
+        partial_target = pos.get("partial_target_price")
+        if (not partial_taken and partial_target
+                and current >= partial_target and target and current < target):
+            from execution.paper_trader import execute_partial_sell
+            from alerts.telegram_bot import send_partial_target_alert
+            result = execute_partial_sell(ticker, pct=0.5, reason="partial_target")
+            if result:
+                logger.info(
+                    "PARTIAL TARGET: %s live=$%.3f partial_target=$%.3f sold 50%%",
+                    ticker, current, partial_target,
+                )
+                send_partial_target_alert(ticker, current, partial_target, result["partial_pnl"])
+
         # ── Hard stop-loss ────────────────────────────────────────────────────
         effective_stop = stop or (entry * (1 - STOP_LOSS_PCT))
         if current <= effective_stop:

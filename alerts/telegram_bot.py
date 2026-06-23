@@ -401,6 +401,59 @@ def send_negative_news_alert(ticker: str, headlines: list,
     return _send(msg)
 
 
+# ── Loss Recovery Alerts ──────────────────────────────────────────────────────
+
+def send_circuit_breaker_alert(total_day_pnl: float, threshold_pct: float,
+                                positions_count: int) -> bool:
+    badge = _exchange_badge()
+    cur   = _currency()
+    msg = (
+        f"🚨 *CIRCUIT BREAKER ACTIVATED*\n"
+        f"{_divider(badge)}\n\n"
+        f"Today's session loss has reached the daily limit.\n"
+        f"No new intraday entries will be placed for the rest of the session.\n\n"
+        f"  Day P&L:   `{cur}{total_day_pnl:+,.2f}`\n"
+        f"  Limit:     `{threshold_pct:.1f}% of capital`\n"
+        f"  Open pos:  `{positions_count}`\n\n"
+        f"_Existing stop-loss and target exits continue to be monitored._\n"
+        f"_Circuit breaker resets at next market open._"
+    )
+    return _send(msg)
+
+
+def send_recovery_mode_alert(total_day_pnl: float, new_threshold: float) -> bool:
+    badge = _exchange_badge()
+    cur   = _currency()
+    msg = (
+        f"⚠️ *RECOVERY MODE ACTIVE*\n"
+        f"{_divider(badge)}\n\n"
+        f"Session P&L is negative. Signal threshold raised for new intraday entries.\n"
+        f"Only fast-exit strategies (ConnorsRSI2, OversoldBounce, MeanReversion) qualify.\n\n"
+        f"  Day P&L:       `{cur}{total_day_pnl:+,.2f}`\n"
+        f"  New threshold: `{new_threshold:.0f}/100` (raised from normal)\n"
+        f"  VWAP filter:   Active — longs above VWAP only\n\n"
+        f"_Only highest-conviction, short-hold signals will be acted upon._"
+    )
+    return _send(msg)
+
+
+def send_partial_target_alert(ticker: str, live_price: float,
+                               partial_target: float, partial_pnl: float) -> bool:
+    badge = _exchange_badge()
+    cur   = _currency()
+    msg = (
+        f"💰 *PARTIAL PROFIT TAKEN — {ticker}*\n"
+        f"{_divider(badge)}\n\n"
+        f"Reached 70% of target — sold 50% of the position.\n\n"
+        f"  Live price:     `{cur}{live_price:.2f}`\n"
+        f"  Partial target: `{cur}{partial_target:.2f}`\n"
+        f"  Partial profit: `{cur}{partial_pnl:+,.2f}` ✅\n\n"
+        f"  Stop moved to breakeven — remaining 50% runs to full target.\n\n"
+        f"_Half the profit is locked in regardless of what happens next._"
+    )
+    return _send(msg)
+
+
 # ── Test ──────────────────────────────────────────────────────────────────────
 
 def send_test_message() -> bool:

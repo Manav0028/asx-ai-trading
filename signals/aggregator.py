@@ -296,3 +296,75 @@ def get_top_signals(n: int = 10, min_score: float = None) -> List[Dict]:
             if suffix is None or r.ticker.endswith(suffix)
         ]
         return results[:n]
+
+
+def compute_current_day_pnl(exchange_suffix: str = None) -> dict:
+    """
+    Compute today's total session P&L without syncing anywhere.
+    Called before job_intraday_rescan() to decide circuit breaker / recovery mode.
+
+    Returns:
+        day_pnl        — intraday unrealised move on open positions (vs prev close)
+        realised_today — net P&L from trades closed today
+        total_day_pnl  — day_pnl + realised_today
+        pct_of_capital — total_day_pnl / PORTFOLIO_CAPITAL
+    """
+    from datetime import date
+    from storage.database import get_session
+    from storage.models import WatchlistItem, Trade, Price
+    from config.settings import PORTFOLIO_CAPITAL
+    from signals.watchlist import _active_ticker_suffix
+
+    today  = date.today()
+    suffix = exchange_suffix or _active_ticker_suffix() or ""
+
+    with get_session() as session:
+        items = session.query(WatchlistItem).filter(WatchlistItem.is_active == True).all()
+        day_pnl = 0.0
+        for i in items:
+            if suffix and not i.ticker.endswith(suffix):
+                continue
+            current = i.current_price or i.entry_price or 0
+            prev_row = (
+                session.query(Price.close)
+                .filter(Price.ticker == i.ticker, Price.date < today)
+                .order_by(Price.date.desc())
+                .first()
+            )
+            if prev_row:
+                sign = -1 if (getattr(i, "direction", None) or "long") == "short" else 1
+                day_pnl += sign * (current - prev_row[0]) * (i.shares or 0)
+
+        closed_today = session.query(Trade).filter(Trade.exit_date == today).all()
+        realised_today = sum(
+            t.net_pnl or 0 for t in closed_today
+            if not suffix or t.ticker.endswith(suffix)
+        )
+
+    total = day_pnl + realised_today
+    return {
+        "day_pnl":        round(day_pnl, 2),
+        "realised_today": round(realised_today, 2),
+        "total_day_pnl":  round(total, 2),
+        "pct_of_capital": round(total / PORTFOLIO_CAPITAL, 6) if PORTFOLIO_CAPITAL else 0,
+    }
+
+
+def get_effective_threshold(pct_of_capital: float) -> float:
+    """
+    Return the signal threshold to apply for new intraday entries based on
+    today's session P&L as a fraction of capital.
+
+      pct >= -RECOVERY_MODE_LOSS_PCT  → normal SIGNAL_THRESHOLD
+      pct in (-MAX_DAILY_LOSS_PCT, -RECOVERY_MODE_LOSS_PCT] → raised threshold
+      pct <= -MAX_DAILY_LOSS_PCT      → float('inf') — no new entries (circuit breaker)
+    """
+    from config.settings import (
+        SIGNAL_THRESHOLD, MAX_DAILY_LOSS_PCT,
+        RECOVERY_MODE_LOSS_PCT, RECOVERY_SIGNAL_BOOST,
+    )
+    if pct_of_capital <= -MAX_DAILY_LOSS_PCT:
+        return float("inf")
+    if pct_of_capital <= -RECOVERY_MODE_LOSS_PCT:
+        return SIGNAL_THRESHOLD + RECOVERY_SIGNAL_BOOST
+    return SIGNAL_THRESHOLD

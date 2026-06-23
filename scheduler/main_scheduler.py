@@ -239,8 +239,9 @@ def job_intraday_check():
     from signals.watchlist import update_watchlist_prices_live
     updated = update_watchlist_prices_live(live_prices)
     if updated:
-        from storage.supabase_sync import sync_watchlist_to_supabase
+        from storage.supabase_sync import sync_watchlist_to_supabase, sync_equity_snapshot
         sync_watchlist_to_supabase()
+        sync_equity_snapshot(updated)  # 30-min equity curve + drawdown tracking
 
     logger.info(
         "Intraday check done — %d stop(s), %d target(s), %d prices updated",
@@ -465,13 +466,132 @@ def job_intraday_rescan():
         len(results), len(above),
     )
 
-    # Step 4: sync updated signals to Supabase and place orders
+    # Step 4: sync updated signals to Supabase
     from storage.supabase_sync import sync_signals_to_supabase, sync_regime_to_supabase
     sync_signals_to_supabase()
     sync_regime_to_supabase()
 
-    job_place_orders(source="intraday")
+    # Step 5: compute session P&L → apply circuit breaker / recovery mode
+    from signals.aggregator import compute_current_day_pnl, get_effective_threshold
+    from config.settings import MAX_DAILY_LOSS_PCT, RECOVERY_MODE_LOSS_PCT, RECOVERY_STRATEGIES
+    from alerts.telegram_bot import send_circuit_breaker_alert, send_recovery_mode_alert
+    from signals.watchlist import get_active_watchlist
+
+    pnl_state = compute_current_day_pnl()
+    pnl_pct   = pnl_state["pct_of_capital"]
+    threshold  = get_effective_threshold(pnl_pct)
+
+    if threshold == float("inf"):
+        n_open = len(get_active_watchlist())
+        send_circuit_breaker_alert(pnl_state["total_day_pnl"], MAX_DAILY_LOSS_PCT * 100, n_open)
+        logger.warning(
+            "CIRCUIT BREAKER: day P&L %.2f%% breached %.1f%% limit — no new entries",
+            pnl_pct * 100, MAX_DAILY_LOSS_PCT * 100,
+        )
+        logger.info("=== Intraday rescan complete (circuit breaker active) ===")
+        return
+
+    in_recovery = pnl_pct <= -RECOVERY_MODE_LOSS_PCT
+    if in_recovery:
+        send_recovery_mode_alert(pnl_state["total_day_pnl"], threshold)
+        logger.info("Recovery mode: threshold=%.0f strategy_filter=%s", threshold, RECOVERY_STRATEGIES)
+
+    # Step 6: compute VWAP for actionable signal tickers
+    vwap_prices = {}
+    vwap_tickers = [r["ticker"] for r in results if r.get("position_size_aud", 0) > 0]
+    if vwap_tickers:
+        try:
+            import yfinance as yf
+            from data_ingestion.intraday_indicators import compute_vwap_from_bars
+            raw_intraday = yf.download(
+                vwap_tickers, period="1d", interval="1m",
+                progress=False, auto_adjust=True,
+            )
+            vwap_prices = compute_vwap_from_bars(raw_intraday)
+            logger.info("VWAP computed for %d tickers", len(vwap_prices))
+        except Exception as e:
+            logger.warning("VWAP fetch failed: %s — proceeding without VWAP filter", e)
+
+    # Step 7: place orders with adaptive threshold, strategy filter, and VWAP filter
+    job_place_orders_recovery(
+        source="intraday",
+        min_score=threshold,
+        strategy_filter=RECOVERY_STRATEGIES if in_recovery else None,
+        vwap_prices=vwap_prices,
+    )
     logger.info("=== Intraday rescan complete ===")
+
+
+def job_place_orders_recovery(
+    source: str = "intraday",
+    min_score: float = None,
+    strategy_filter: list = None,
+    vwap_prices: dict = None,
+) -> None:
+    """
+    Variant of job_place_orders() used by job_intraday_rescan().
+    Adds three layers of filtering on top of normal order placement:
+      1. min_score  — adaptive threshold (raised in recovery mode)
+      2. strategy_filter — restrict to fast-exit strategies in recovery mode
+      3. vwap_prices — long entries above VWAP only; short entries below VWAP only
+    """
+    from signals.aggregator import get_top_signals
+    from config.settings import LIVE_TRADING_ENABLED, IBKR_PAPER_ENABLED, SIGNAL_THRESHOLD
+
+    effective_min = min_score if min_score is not None else SIGNAL_THRESHOLD
+    signals = get_top_signals(n=20, min_score=effective_min)
+
+    if strategy_filter:
+        before = len(signals)
+        signals = [s for s in signals if (s.get("strategy_name") or "") in strategy_filter]
+        logger.info(
+            "Recovery strategy filter: %d → %d signals (allowed: %s)",
+            before, len(signals), strategy_filter,
+        )
+
+    if vwap_prices:
+        before = len(signals)
+        signals = [s for s in signals if _passes_vwap_filter(s, vwap_prices)]
+        logger.info("VWAP filter: %d → %d signals", before, len(signals))
+
+    if not signals:
+        logger.info("No signals pass recovery-mode filters — skipping order placement")
+        from storage.supabase_sync import sync_watchlist_to_supabase
+        sync_watchlist_to_supabase()
+        return
+
+    fills = []
+    if LIVE_TRADING_ENABLED:
+        from execution.ibkr_trader import place_market_buy, place_stop_loss_order
+        from signals.kelly_sizer import compute_shares
+        for sig in signals:
+            shares = compute_shares(sig.get("position_size_aud", 0), sig.get("entry_price", 1))
+            if shares > 0:
+                fill = place_market_buy(sig["ticker"], shares)
+                if fill and sig.get("stop_loss_price"):
+                    place_stop_loss_order(sig["ticker"], shares, sig["stop_loss_price"])
+    elif IBKR_PAPER_ENABLED:
+        from execution.ibkr_paper_trader import ibkr_process_new_signals
+        fills = ibkr_process_new_signals(signals, source=source)
+        logger.info("IBKR recovery orders: %d fills", len(fills))
+    else:
+        from execution.paper_trader import process_new_signals
+        fills = process_new_signals(signals, source=source)
+        logger.info("Paper recovery orders: %d fills", len(fills))
+
+    from storage.supabase_sync import sync_watchlist_to_supabase
+    sync_watchlist_to_supabase()
+
+
+def _passes_vwap_filter(signal: dict, vwap_prices: dict) -> bool:
+    """Long entries above VWAP; short entries below VWAP. Pass-through if no VWAP data."""
+    ticker    = signal.get("ticker")
+    direction = signal.get("direction") or "long"
+    price     = signal.get("entry_price")
+    vwap      = vwap_prices.get(ticker)
+    if vwap is None or price is None:
+        return True
+    return price >= vwap if direction == "long" else price <= vwap
 
 
 def job_strategy_selection():

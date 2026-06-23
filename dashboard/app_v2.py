@@ -27,6 +27,7 @@ from dashboard.data import (
     get_todays_scores, is_market_open, market_status, _use_supabase,
     get_price_history, get_multi_close, get_multi_today_ohlc,
     ticker_tv_url, ticker_yahoo_url,
+    get_equity_snapshots,
 )
 
 # ── CSS: Professional dark fintech theme ─────────────────────────────────────
@@ -1059,6 +1060,10 @@ def load_trades(exch, days, db="primary"):
 def load_pnl(exch, days, db="primary"):
     return get_cumulative_pnl(exch, days=days, db=db)
 
+@st.cache_data(ttl=30)
+def load_equity_snapshots(exch, db="primary"):
+    return get_equity_snapshots(exch, db=db)
+
 @st.cache_data(ttl=300)
 def load_daily_pnl(exch, days=60, db="primary"):
     from dashboard.data import _sb_get
@@ -2048,6 +2053,136 @@ with tab_dash:
             'Daily P&L history will appear here after the first market close.</div>',
             unsafe_allow_html=True,
         )
+
+    # ── Recovery Status Panel ─────────────────────────────────────────────────
+    from config.settings import (
+        MAX_DAILY_LOSS_PCT, RECOVERY_MODE_LOSS_PCT, PORTFOLIO_CAPITAL,
+    )
+    _snapshots   = load_equity_snapshots(exchange, db=active_db)
+    _pnl_pct     = _today_total / PORTFOLIO_CAPITAL if PORTFOLIO_CAPITAL else 0
+    _circuit_pct = -MAX_DAILY_LOSS_PCT
+    _recovery_pct = -RECOVERY_MODE_LOSS_PCT
+
+    if _pnl_pct <= _circuit_pct:
+        _mode_label = "CIRCUIT BREAKER"
+        _mode_color = "var(--loss)"
+    elif _pnl_pct <= _recovery_pct:
+        _mode_label = "RECOVERY MODE"
+        _mode_color = "#f59e0b"
+    else:
+        _mode_label = "NORMAL"
+        _mode_color = "var(--profit)"
+
+    _max_drawdown   = min((s.get("drawdown_pct") or 0) for s in _snapshots) if _snapshots else 0
+    _recovery_trades = [
+        t for t in load_trades(exchange, 1, db=active_db)
+        if (t.get("source") == "intraday"
+            and str(t.get("entry_date", ""))[:10] == _today_str)
+    ]
+
+    _panel_expanded = _pnl_pct <= _recovery_pct
+    with st.expander("Recovery Status", expanded=_panel_expanded):
+        if _pnl_pct <= _circuit_pct:
+            st.markdown(
+                '<div style="background:rgba(255,90,90,0.12);border:1px solid var(--loss);'
+                'border-radius:var(--radius-md);padding:12px 16px;margin-bottom:14px;'
+                'font-size:13px;color:var(--loss);font-weight:600">'
+                '🚨 Circuit breaker active — new intraday entries are halted for today.'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+
+        rc1, rc2, rc3 = st.columns(3)
+        with rc1:
+            st.markdown(
+                f'<div class="pnl-card">'
+                f'  <div class="pnl-label">Today\'s P&L</div>'
+                f'  <div class="pnl-value {_pnl_class(_today_total)}">'
+                f'    {_pnl_sign(_today_total, currency)}</div>'
+                f'  <div class="pnl-sub" style="color:{_mode_color}">'
+                f'    {_pnl_pct*100:+.2f}% of capital</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with rc2:
+            st.markdown(
+                f'<div class="pnl-card">'
+                f'  <div class="pnl-label">Session Mode</div>'
+                f'  <div class="pnl-value" style="font-size:1.1rem;color:{_mode_color}">'
+                f'    {_mode_label}</div>'
+                f'  <div class="pnl-sub" style="color:var(--text-tertiary)">'
+                f'    CB {abs(_circuit_pct)*100:.0f}% / Recovery {abs(_recovery_pct)*100:.1f}%'
+                f'  </div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with rc3:
+            dd_cls = "down" if _max_drawdown < -0.5 else ""
+            st.markdown(
+                f'<div class="pnl-card">'
+                f'  <div class="pnl-label">Max Drawdown Today</div>'
+                f'  <div class="pnl-value {dd_cls}">{_max_drawdown:.2f}%</div>'
+                f'  <div class="pnl-sub" style="color:var(--text-tertiary)">'
+                f'    peak-to-trough · {len(_snapshots)} snapshots</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        if _snapshots and len(_snapshots) >= 2:
+            import plotly.graph_objects as go
+            import pandas as pd
+            _snap_df = pd.DataFrame(_snapshots)
+            _snap_df["snapshot_at"] = pd.to_datetime(_snap_df["snapshot_at"])
+            _fig_eq = go.Figure()
+            _fig_eq.add_trace(go.Scatter(
+                x=_snap_df["snapshot_at"],
+                y=_snap_df["total_day_pnl"],
+                mode="lines+markers",
+                name="Day P&L",
+                line=dict(color="#6993ff", width=2),
+                marker=dict(size=4),
+                fill="tozeroy",
+                fillcolor="rgba(105,147,255,0.08)",
+                hovertemplate="%{x|%H:%M}<br>" + currency + "%{y:+,.2f}<extra></extra>",
+            ))
+            _fig_eq.add_hline(y=0, line_dash="dot", line_color="#3c3c42")
+            _fig_eq.add_hline(
+                y=-MAX_DAILY_LOSS_PCT * PORTFOLIO_CAPITAL,
+                line_dash="dash", line_color="#ff5a5a",
+                annotation_text="Circuit Breaker",
+                annotation_font_color="#ff5a5a",
+            )
+            _layout_eq = _chart_base(h=180)
+            _layout_eq["yaxis"]["tickprefix"] = currency
+            _layout_eq["showlegend"] = False
+            _fig_eq.update_layout(**_layout_eq)
+            st.plotly_chart(_fig_eq, use_container_width=True, config={"displayModeBar": False})
+
+        if _recovery_trades:
+            st.markdown(
+                '<div class="kite-section" style="margin:10px 0 6px">Intraday Recovery Trades Today</div>',
+                unsafe_allow_html=True,
+            )
+            _rt_html = '<table class="kite-table"><thead><tr><th>Ticker</th><th>Entry</th><th>Exit</th><th>Net P&L</th><th>Reason</th></tr></thead><tbody>'
+            for _rt in _recovery_trades:
+                _rt_pnl = _rt.get("net_pnl") or _rt.get("realised_pnl") or 0
+                _rt_cls = _pnl_class(_rt_pnl)
+                _rt_html += (
+                    f'<tr><td>{_short(_rt.get("ticker",""))}</td>'
+                    f'<td>{currency}{(_rt.get("entry_price") or 0):.2f}</td>'
+                    f'<td>{currency}{(_rt.get("exit_price") or 0):.2f}</td>'
+                    f'<td class="{_rt_cls}">{_pnl_sign(_rt_pnl, currency)}</td>'
+                    f'<td style="font-size:0.75rem;color:var(--text-secondary)">'
+                    f'{_rt.get("exit_reason","")}</td></tr>'
+                )
+            _rt_html += '</tbody></table>'
+            st.markdown('<div class="kite-table-wrap">' + _rt_html + '</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(
+                '<div style="color:var(--text-tertiary);font-size:0.8rem;padding:6px 0">'
+                'No intraday recovery trades placed today.</div>',
+                unsafe_allow_html=True,
+            )
 
 
 # ── TAB 2: Holdings ──────────────────────────────────────────────────────────

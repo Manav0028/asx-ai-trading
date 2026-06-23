@@ -451,6 +451,107 @@ def sync_backtest_to_supabase(results: dict) -> bool:
         return False
 
 
+def sync_equity_snapshot(updated_positions: list) -> bool:
+    """
+    Write a timestamped equity snapshot to the equity_snapshots Supabase table.
+    Called from job_intraday_check() every 30 min during market hours.
+
+    updated_positions: list of dicts returned by update_watchlist_prices_live(),
+    each containing ticker, current_price, day_pnl, unrealised_pnl, shares, etc.
+
+    Computes drawdown_pct = (portfolio_value - peak_today) / peak_today.
+    """
+    from datetime import datetime, date, timezone
+    exchange_id = _get_exchange_id()
+    suffix      = _ticker_suffix(exchange_id)
+    today       = date.today()
+    now_utc     = datetime.now(timezone.utc)
+
+    try:
+        from storage.database import get_session
+        from storage.models import WatchlistItem, Trade
+
+        with get_session() as session:
+            items = (
+                session.query(WatchlistItem)
+                .filter(WatchlistItem.is_active == True,
+                        WatchlistItem.ticker.endswith(suffix))
+                .all()
+            )
+            portfolio_value = sum(
+                (i.current_price or i.entry_price or 0) * (i.shares or 0)
+                for i in items
+            )
+            day_pnl = sum(
+                p.get("day_pnl") or 0 for p in updated_positions
+                if p.get("ticker", "").endswith(suffix)
+            )
+            closed_today = (
+                session.query(Trade)
+                .filter(Trade.exit_date == today,
+                        Trade.ticker.endswith(suffix))
+                .all()
+            )
+            realised_today = sum(t.net_pnl or 0 for t in closed_today)
+
+        total_day_pnl = day_pnl + realised_today
+
+        # Compute drawdown by finding today's peak from prior snapshots
+        import requests
+        drawdown_pct = 0.0
+        try:
+            for url, key, _label in _all_db_configs():
+                resp = requests.get(
+                    f"{url}/rest/v1/equity_snapshots",
+                    headers={**_headers(key), "Prefer": ""},
+                    params={
+                        "exchange":    f"eq.{exchange_id}",
+                        "snapshot_at": f"gte.{today}T00:00:00Z",
+                        "select":      "portfolio_value",
+                        "order":       "snapshot_at.asc",
+                    },
+                    timeout=10,
+                )
+                if resp.status_code == 200:
+                    rows = resp.json()
+                    if rows:
+                        peak_value = max(r.get("portfolio_value") or 0 for r in rows)
+                        if peak_value > 0 and portfolio_value < peak_value:
+                            drawdown_pct = round(
+                                (portfolio_value - peak_value) / peak_value * 100, 3
+                            )
+                break
+        except Exception:
+            pass  # drawdown is optional; don't block the snapshot
+
+        payload = [{
+            "snapshot_at":      now_utc.isoformat(),
+            "exchange":         exchange_id,
+            "portfolio_value":  round(portfolio_value, 2),
+            "day_pnl":          round(day_pnl, 2),
+            "total_day_pnl":    round(total_day_pnl, 2),
+            "drawdown_pct":     drawdown_pct,
+            "positions_count":  len(items),
+        }]
+
+        ok = False
+        for url, key, label in _all_db_configs():
+            if label == "new" and str(today) < str(NEW_DB_EPOCH):
+                continue
+            result = _upsert(url, key, "equity_snapshots", payload)
+            if result:
+                logger.info(
+                    "Equity snapshot → %s DB: value=%.0f day_pnl=%+.2f drawdown=%.2f%%",
+                    label, portfolio_value, total_day_pnl, drawdown_pct,
+                )
+            ok = ok or result
+        return ok
+
+    except Exception as e:
+        logger.warning("sync_equity_snapshot failed: %s", e)
+        return False
+
+
 def sync_daily_pnl_to_supabase() -> bool:
     """
     Upsert today's P&L snapshot into the daily_pnl table.

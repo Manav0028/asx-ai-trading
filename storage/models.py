@@ -148,7 +148,9 @@ class WatchlistItem(Base):
     unrealised_pnl_pct = Column(Float)
     days_held = Column(Integer, default=0)
     signal_score = Column(Float)
-    strategy_name = Column(String(40))               # strategy that triggered entry
+    strategy_name        = Column(String(40))               # strategy that triggered entry
+    partial_exit_taken   = Column(Boolean, default=False)   # True after first partial sell
+    partial_target_price = Column(Float)                    # 70% of way to target; set at entry
     is_active = Column(Boolean, default=True)
     trading_mode = Column(String(20), default="paper")  # 'paper' | 'ibkr_paper' | 'live'
     direction = Column(String(8), default="long")     # 'long' | 'short'

@@ -98,6 +98,11 @@ def add_to_watchlist(
             logger.info("Reopened %s in %s watchlist at $%.3f", ticker, mode, entry_price)
             return existing
 
+        partial_target = (
+            round(entry_price + 0.7 * (target_price - entry_price), 3)
+            if target_price and entry_price else None
+        )
+
         item = WatchlistItem(
             ticker=ticker,
             entry_date=date.today(),
@@ -112,6 +117,8 @@ def add_to_watchlist(
             days_held=0,
             signal_score=signal_score,
             strategy_name=strategy_name,
+            partial_exit_taken=False,
+            partial_target_price=partial_target,
             trading_mode=mode,
             direction=direction,
             source=source,
@@ -248,9 +255,12 @@ def get_active_watchlist(trading_mode: str = None,
                 "unrealised_pnl_pct": i.unrealised_pnl_pct,
                 "days_held":        i.days_held,
                 "signal_score":     i.signal_score,
-                "trading_mode":     i.trading_mode,
-                "direction":        getattr(i, "direction", None) or "long",
-                "source":           getattr(i, "source", "morning") or "morning",
+                "trading_mode":        i.trading_mode,
+                "strategy_name":       getattr(i, "strategy_name", None),
+                "direction":           getattr(i, "direction", None) or "long",
+                "source":              getattr(i, "source", "morning") or "morning",
+                "partial_exit_taken":  getattr(i, "partial_exit_taken", False) or False,
+                "partial_target_price": getattr(i, "partial_target_price", None),
             }
             for i in items
             if suffix is None or i.ticker.endswith(suffix)
