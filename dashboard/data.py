@@ -890,6 +890,21 @@ def _strategy_radar_supabase(exchange: str, db: str = "primary") -> List[Dict]:
             "select": "*",
         }, db=db)
         sig_by_ticker = {s["ticker"]: s for s in sig_rows}
+
+        # Deduplicate assignments: keep one per ticker — validated wins, then highest rank_score.
+        # Supabase now has a UNIQUE(ticker, exchange) constraint but guard here too.
+        best: dict = {}
+        for a in assignments:
+            t = a["ticker"]
+            prev = best.get(t)
+            if prev is None:
+                best[t] = a
+            else:
+                if (bool(a.get("validated")), a.get("rank_score") or 0) > \
+                   (bool(prev.get("validated")), prev.get("rank_score") or 0):
+                    best[t] = a
+        assignments = list(best.values())
+
         out = []
         for a in assignments:
             s = sig_by_ticker.get(a["ticker"])
