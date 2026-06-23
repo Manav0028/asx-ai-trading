@@ -2262,28 +2262,46 @@ def _render_positions_section(pos_list, label, currency, accent_color, sort_key=
         <th>Invested</th><th>Cur. val</th><th>Day P&L</th><th>P&L</th><th>Net chg.</th><th>Days</th>
     </tr></thead><tbody>'''
     for p in pos_list:
-        t          = p.get("ticker", "")
-        sh         = _safe_f(p.get("shares"))
-        ep         = _safe_f(p.get("entry_price"))
-        cp         = _safe_f(p.get("current_price"))
-        invested_p = _safe_f(p.get("invested"))
-        cv         = _safe_f(p.get("current_value"))
-        pnl        = _safe_f(p.get("unrealised_pnl"))
-        ppct       = _safe_f(p.get("unrealised_pnl_pct"))
-        dp         = _safe_f(p.get("day_pnl"))
-        days       = int(_safe_f(p.get("days_held")))
-        cls        = _pnl_class(pnl)
-        dcls       = _pnl_class(dp)
-        tbl += (
-            f'<tr class="{"loss-row" if pnl < 0 else ""}">'
-            f'<td><a href="{_tv_url(t)}" target="_blank" class="ticker-link">{_short(t)}</a></td>'
-            f'<td>{sh:,.0f}</td><td>{ep:,.2f}</td><td>{cp:,.2f}</td>'
-            f'<td>{currency}{invested_p:,.2f}</td><td>{currency}{cv:,.2f}</td>'
-            f'<td class="{dcls}">{_pnl_sign(dp, currency)}</td>'
-            f'<td class="{cls}">{_pnl_sign(pnl, currency)}</td>'
-            f'<td class="{cls}">{_pnl_pct(ppct)}</td>'
-            f'<td>{days}</td></tr>'
-        )
+        try:
+            t          = str(p.get("ticker") or "")
+            sh         = _safe_f(p.get("shares"))
+            ep         = _safe_f(p.get("entry_price"))
+            cp         = _safe_f(p.get("current_price"))
+            invested_p = _safe_f(p.get("invested"))
+            cv         = _safe_f(p.get("current_value"))
+            pnl        = _safe_f(p.get("unrealised_pnl"))
+            ppct       = _safe_f(p.get("unrealised_pnl_pct"))
+            dp         = _safe_f(p.get("day_pnl"))
+            days       = int(_safe_f(p.get("days_held")))
+            cls        = _pnl_class(pnl)
+            dcls       = _pnl_class(dp)
+            row_class  = "loss-row" if pnl < 0 else ""
+            row_link   = _tv_url(t)
+            row_name   = _short(t)
+            row_pnl_sign_dp  = _pnl_sign(dp, currency)
+            row_pnl_sign     = _pnl_sign(pnl, currency)
+            row_pnl_pct      = _pnl_pct(ppct)
+            tbl += (
+                f'<tr class="{row_class}">'
+                f'<td><a href="{row_link}" target="_blank" class="ticker-link">{row_name}</a></td>'
+                f'<td>{sh:,.0f}</td><td>{ep:,.2f}</td><td>{cp:,.2f}</td>'
+                f'<td>{currency}{invested_p:,.2f}</td><td>{currency}{cv:,.2f}</td>'
+                f'<td class="{dcls}">{row_pnl_sign_dp}</td>'
+                f'<td class="{cls}">{row_pnl_sign}</td>'
+                f'<td class="{cls}">{row_pnl_pct}</td>'
+                f'<td>{days}</td></tr>'
+            )
+        except Exception as _row_err:
+            import traceback as _tb
+            _err_detail = _tb.format_exc()
+            # Show debug info per row so the actual failing value is visible
+            _field_types = {k: f"{type(v).__name__}={repr(v)[:30]}" for k, v in p.items()
+                            if k in ("shares","entry_price","current_price","invested",
+                                     "current_value","unrealised_pnl","unrealised_pnl_pct",
+                                     "day_pnl","days_held","ticker")}
+            st.error(f"Row render error ({type(_row_err).__name__}): {_row_err}\n\nField types: {_field_types}")
+            st.code(_err_detail)
+            tbl += f'<tr><td colspan="10" style="color:red">{p.get("ticker","?")}: {_row_err}</td></tr>'
     tbl += (
         f'<tr class="total-row"><td>Total ({len(pos_list)})</td><td></td><td></td><td></td>'
         f'<td>{currency}{inv:,.2f}</td><td>{currency}{val:,.2f}</td>'
@@ -2341,29 +2359,29 @@ with tab_holdings:
                 index=0, key="hold_sort",
             )
         def _apply_sort(lst):
-            if hold_sort == "P&L ↑":    return sorted(lst, key=lambda x: x.get("unrealised_pnl", 0), reverse=True)
-            if hold_sort == "P&L ↓":    return sorted(lst, key=lambda x: x.get("unrealised_pnl", 0))
-            if hold_sort == "P&L % ↑":  return sorted(lst, key=lambda x: x.get("unrealised_pnl_pct", 0), reverse=True)
-            if hold_sort == "Value ↓":  return sorted(lst, key=lambda x: x.get("current_value", 0), reverse=True)
-            if hold_sort == "Days ↓":   return sorted(lst, key=lambda x: x.get("days_held", 0), reverse=True)
+            if hold_sort == "P&L ↑":    return sorted(lst, key=lambda x: _safe_f(x.get("unrealised_pnl")), reverse=True)
+            if hold_sort == "P&L ↓":    return sorted(lst, key=lambda x: _safe_f(x.get("unrealised_pnl")))
+            if hold_sort == "P&L % ↑":  return sorted(lst, key=lambda x: _safe_f(x.get("unrealised_pnl_pct")), reverse=True)
+            if hold_sort == "Value ↓":  return sorted(lst, key=lambda x: _safe_f(x.get("current_value")), reverse=True)
+            if hold_sort == "Days ↓":   return sorted(lst, key=lambda x: _safe_f(x.get("days_held")), reverse=True)
             return lst
         _pos_lt = _apply_sort(_pos_lt)
         _pos_id = _apply_sort(_pos_id)
 
         # ── Portfolio P&L summary (combined) ────────────────────────────────
         _all_pos = _pos_lt + _pos_id
-        _tot_inv  = sum(p.get("invested", 0) or 0 for p in _all_pos)
-        _tot_val  = sum(p.get("current_value", 0) or 0 for p in _all_pos)
-        _tot_upnl = sum(p.get("unrealised_pnl", 0) or 0 for p in _all_pos)
-        _tot_dpnl = sum(p.get("day_pnl", 0) or 0 for p in _all_pos)
+        _tot_inv  = sum(_safe_f(p.get("invested"))       for p in _all_pos)
+        _tot_val  = sum(_safe_f(p.get("current_value"))  for p in _all_pos)
+        _tot_upnl = sum(_safe_f(p.get("unrealised_pnl")) for p in _all_pos)
+        _tot_dpnl = sum(_safe_f(p.get("day_pnl"))        for p in _all_pos)
         st.markdown(
             f'<div class="hold-summary">'
             f'  <div class="hold-block">'
             f'    <div class="hb-title">Portfolio · Open Positions</div>'
             f'    <div class="hb-row"><span class="hb-key">Total invested</span>'
-            f'      <span class="hb-val">{currency}{_tot_inv:,.2f}</span></div>'
+            f'      <span class="hb-val">{currency}{float(_tot_inv):,.2f}</span></div>'
             f'    <div class="hb-row"><span class="hb-key">Current value</span>'
-            f'      <span class="hb-val">{currency}{_tot_val:,.2f}</span></div>'
+            f'      <span class="hb-val">{currency}{float(_tot_val):,.2f}</span></div>'
             f'    <div class="hb-row"><span class="hb-key">Today\'s move</span>'
             f'      <span class="hb-val {_pnl_class(_tot_dpnl)}">{_pnl_sign(_tot_dpnl, currency)}</span></div>'
             f'    <div class="hb-row"><span class="hb-key">Total unrealised</span>'
