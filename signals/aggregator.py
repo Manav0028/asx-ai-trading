@@ -120,9 +120,11 @@ def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
     # The news-quality gate is long-biased (blocks negative news) so shorts
     # rely on the strategy validation + liquidity gates instead.
     if direction == "short":
+        # Shorts are valid in RISK-OFF — falling market helps short thesis
         actionable = liquid_ok and strategy_ok and (100 - composite) >= SIGNAL_THRESHOLD
     else:
-        actionable = quality_ok and liquid_ok and strategy_ok and composite >= SIGNAL_THRESHOLD
+        # Longs require RISK-ON regime — no new long entries when market is bearish
+        actionable = quality_ok and liquid_ok and strategy_ok and regime_ok and composite >= SIGNAL_THRESHOLD
 
     # ── Prices + dynamic risk parameters ─────────────────────────────────────
     from ai_engine.technical_engine import get_technical_meta
@@ -163,9 +165,15 @@ def compute_signal(ticker: str, today: date = None) -> Optional[Dict]:
         position_aud    = 0.0
         kelly_f         = 0.0
     else:
-        # Non-actionable signal — store scores but no position
-        target_price    = tech_meta.get("target") or (round(entry_price * 1.10, 3) if entry_price else None)
-        stop_loss_price = tech_meta.get("stop")   or (round(entry_price * 0.93, 3) if entry_price else None)
+        # Non-actionable signal — compute proper ATR-based geometry for display
+        # (so the Radar tab shows correct stop/target even when entry is blocked)
+        from signals.risk_params import compute_stop_target
+        _st = compute_stop_target(entry_price, atr, regime_ok,
+                                  strat.get("stop_mult") if strat else None,
+                                  strat.get("target_mult") if strat else None,
+                                  direction) if entry_price else {}
+        target_price    = _st.get("target_price") or (round(entry_price * 1.10, 3) if entry_price else None)
+        stop_loss_price = _st.get("stop_loss_price") or (round(entry_price * 0.93, 3) if entry_price else None)
         position_aud    = 0.0
         kelly_f         = 0.0
 

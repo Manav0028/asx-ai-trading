@@ -109,21 +109,24 @@ def run_strategy_backtest(strategy: Strategy, ind: Dict[str, np.ndarray]) -> Dic
 #     turtle_55 that trigger every few months) we don't penalise it.
 #     This avoids the previous bug where FW_MIN_TRADES=0 + FW_MIN_PF=0
 #     bypassed forward testing entirely.
-BT_MIN_TRADES = 4
+BT_MIN_TRADES        = 4
 BT_MIN_PROFIT_FACTOR = 1.1
-BT_MIN_WIN_RATE = 0.40
-FW_MIN_PROFIT_FACTOR = 1.0   # only enforced when forward trades exist
+BT_MIN_WIN_RATE      = 0.40
+FW_MIN_TRADES        = 2    # need ≥2 FW trades; 1-trade "100% win" is not evidence
+FW_MIN_PROFIT_FACTOR = 1.0
+FW_MAX_WIN_RATE      = 0.95  # 100% FW win rate with < FW_MIN_TRADES = overfitting
 
 
 def is_validated(result: Dict) -> bool:
     bt, fw = result["backtest"], result["forward"]
-    if bt["num_trades"] < BT_MIN_TRADES:        return False
+    if bt["num_trades"] < BT_MIN_TRADES:           return False
     if bt["profit_factor"] < BT_MIN_PROFIT_FACTOR: return False
-    if bt["win_rate"] < BT_MIN_WIN_RATE:        return False
-    # Forward test: if the strategy fired, it must be profitable.
-    # Zero forward trades → strategy hasn't triggered yet; don't block it.
-    if fw["num_trades"] > 0 and fw["profit_factor"] < FW_MIN_PROFIT_FACTOR:
-        return False
+    if bt["win_rate"] < BT_MIN_WIN_RATE:           return False
+    if fw["num_trades"] > 0:
+        # Strategy fired in FW window — must be profitable AND not suspiciously perfect
+        if fw["profit_factor"] < FW_MIN_PROFIT_FACTOR: return False
+        if fw["num_trades"] < FW_MIN_TRADES and fw["win_rate"] >= FW_MAX_WIN_RATE:
+            return False  # only 1-2 FW trades all winning = pure luck, not edge
     return True
 
 

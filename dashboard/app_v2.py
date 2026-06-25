@@ -2992,6 +2992,88 @@ with tab_radar:
             st.markdown('<div class="radar-empty">No validated assignments yet for this exchange.</div>',
                         unsafe_allow_html=True)
 
+    # ── Intraday Radar Trades — Live Status ───────────────────────────────────
+    _intraday_pos = [p for p in positions if (p.get("source") or "morning") == "intraday"]
+    st.markdown(
+        f'<div class="kite-section" style="margin-top:32px;border-left:3px solid #f59e0b;padding-left:10px">'
+        f'Intraday Radar Trades'
+        f'<span style="margin-left:8px;font-size:0.65rem;font-weight:400;color:var(--text-tertiary);'
+        f'text-transform:none;letter-spacing:0">entered during intraday rescan · live status</span>'
+        f'<span style="margin-left:10px;background:rgba(245,158,11,0.15);color:#f59e0b;'
+        f'font-size:0.65rem;padding:1px 7px;border-radius:10px;font-weight:600">'
+        f'{len(_intraday_pos)} open</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    if not _intraday_pos:
+        st.markdown(
+            '<div class="radar-empty">No open intraday trades. '
+            'Intraday rescan entries will appear here when the system enters positions '
+            'at 12:15 / 13:45 (ASX) or 10:55 / 12:25 / 13:55 (NSE).</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        _any_intra_live = any(p.get("is_live") for p in _intraday_pos)
+        _price_badge_i  = (
+            '<span style="background:var(--profit);color:#fff;font-size:0.6rem;padding:1px 6px;'
+            'border-radius:8px;font-weight:600">● LIVE</span>'
+            if _any_intra_live else
+            '<span style="background:var(--border);color:var(--text-tertiary);font-size:0.6rem;'
+            'padding:1px 6px;border-radius:8px;font-weight:500">↻ 30 min</span>'
+        )
+        st.markdown(f'<div style="font-size:0.75rem;color:var(--text-tertiary);margin:6px 0 8px">Prices {_price_badge_i}</div>', unsafe_allow_html=True)
+
+        for _ip in _intraday_pos:
+            _it    = _ip.get("ticker", "")
+            _icp   = _safe_f(_ip.get("current_price"))
+            _iep   = _safe_f(_ip.get("entry_price"))
+            _itgt  = _safe_f(_ip.get("target_price"))
+            _istp  = _safe_f(_ip.get("stop_loss_price"))
+            _ish   = _safe_f(_ip.get("shares"))
+            _ipnl  = _safe_f(_ip.get("unrealised_pnl"))
+            _idpnl = _safe_f(_ip.get("day_pnl"))
+            _idays = int(_safe_f(_ip.get("days_held")))
+            _istrat = _ip.get("strategy_name") or "—"
+            _idir   = _ip.get("direction") or "long"
+            _icls   = _pnl_class(_ipnl)
+
+            # Progress bar: how far between entry and target
+            _range = _itgt - _iep if _itgt > _iep else 1
+            _progress = max(0.0, min(1.0, (_icp - _iep) / _range)) if _range else 0
+            _progress_color = "var(--profit)" if _ipnl >= 0 else "var(--loss)"
+            _stop_pct  = abs((_iep - _istp) / _iep * 100) if _iep else 0
+            _tgt_pct   = abs((_itgt - _iep) / _iep * 100) if _iep else 0
+            _cur_pct   = (_icp - _iep) / _iep * 100 if _iep else 0
+
+            st.markdown(
+                f'<div class="radar-card" style="border-color:#f59e0b;margin-bottom:10px">'
+                f'  <div class="radar-head">'
+                f'    <a class="radar-ticker" href="{_tv_url(_it)}" target="_blank">{_short(_it)}</a>'
+                f'    <span class="dir-chip {_idir}">{_idir}</span>'
+                f'    <span class="strat-chip" style="background:rgba(245,158,11,0.15);color:#f59e0b">{_istrat}</span>'
+                f'    <span style="margin-left:auto;font-size:0.7rem;color:var(--text-tertiary)">{_idays}d held</span>'
+                f'  </div>'
+                f'  <div class="radar-stats" style="margin-top:8px">'
+                f'    <span>Entry <b>{currency}{_iep:,.2f}</b></span>'
+                f'    <span>Live <b class="{_icls}">{currency}{_icp:,.2f} ({_cur_pct:+.1f}%)</b></span>'
+                f'    <span>Stop <b style="color:var(--loss)">{currency}{_istp:,.2f} (−{_stop_pct:.1f}%)</b></span>'
+                f'    <span>Target <b style="color:var(--profit)">{currency}{_itgt:,.2f} (+{_tgt_pct:.1f}%)</b></span>'
+                f'    <span>P&L <b class="{_icls}">{_pnl_sign(_ipnl, currency)}</b></span>'
+                f'    <span>Day <b class="{_pnl_class(_idpnl)}">{_pnl_sign(_idpnl, currency)}</b></span>'
+                f'  </div>'
+                f'  <div style="margin-top:8px;height:4px;background:var(--border);border-radius:2px">'
+                f'    <div style="width:{_progress*100:.0f}%;height:4px;background:{_progress_color};border-radius:2px;transition:width 0.3s"></div>'
+                f'  </div>'
+                f'  <div style="display:flex;justify-content:space-between;font-size:0.6rem;color:var(--text-tertiary);margin-top:2px">'
+                f'    <span>Entry {currency}{_iep:,.2f}</span>'
+                f'    <span>{_progress*100:.0f}% to target</span>'
+                f'    <span>Target {currency}{_itgt:,.2f}</span>'
+                f'  </div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
 
 # ── TAB 5: Charts (TradingView) ───────────────────────────────────────────────
 with tab_charts:
