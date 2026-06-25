@@ -3007,10 +3007,24 @@ with tab_radar:
     )
 
     if not _intraday_pos:
+        from ai_engine.regime_filter import get_regime_summary as _grs
+        _rec_regime = _grs()
+        _rec_regime_ok = _rec_regime.get("regime_ok")
+        if not _rec_regime_ok:
+            _empty_reason = (
+                '🔴 <b>Market is RISK-OFF</b> — new long entries are blocked until the index recovers above its 200-day EMA. '
+                'No intraday positions will be opened in a bearish regime.'
+            )
+        else:
+            _empty_reason = (
+                'All today\'s firing signals are stocks already held in the portfolio (the system '
+                'won\'t open a duplicate position on the same ticker). Intraday trades appear here '
+                'when a <i>new</i> ticker fires during the 12:15 / 13:45 rescan (ASX) or 10:55 / 12:25 / 13:55 (NSE).'
+            )
         st.markdown(
-            '<div class="radar-empty">No open intraday trades. '
-            'Intraday rescan entries will appear here when the system enters positions '
-            'at 12:15 / 13:45 (ASX) or 10:55 / 12:25 / 13:55 (NSE).</div>',
+            f'<div class="radar-empty">'
+            f'No open intraday trades today. &nbsp; {_empty_reason}'
+            f'</div>',
             unsafe_allow_html=True,
         )
     else:
