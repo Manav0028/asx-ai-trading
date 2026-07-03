@@ -26,3 +26,9 @@ ai_engine/insider_model.pkl
 
 # Server deployment (secrets — template is committed, actual .env.server is not)
 .env.server
+
+# Generated reports and lock files
+param_scan_report.json
+regression_report.json
+skills-lock.json
+graphify-out/

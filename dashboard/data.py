@@ -109,10 +109,6 @@ def _sb_config(db: str = "primary"):
     return os.getenv("SUPABASE_URL", "").rstrip("/"), os.getenv("SUPABASE_KEY", "")
 
 
-def _use_supabase_b() -> bool:
-    """True when the secondary (clean) Supabase instance is configured."""
-    return bool(os.getenv("SUPABASE_URL_B", ""))
-
 
 def _sb_headers(key: str) -> dict:
     return {

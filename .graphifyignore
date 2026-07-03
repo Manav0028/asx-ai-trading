@@ -1,0 +1,14 @@
+.agents/
+.claude/skills/
+node_modules/
+__pycache__/
+*.pyc
+.git/
+graphify-out/
+*.md
+*.txt
+*.json
+*.csv
+*.yml
+*.yaml
+*.toml
