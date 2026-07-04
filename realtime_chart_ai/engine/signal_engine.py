@@ -1,19 +1,21 @@
 """
 The orchestrator — wires timeframe bars into: indicators (already computed by
-TimeframeStore) -> swings -> patterns (candlestick + SMC; chart_patterns.py is
-Phase 2) -> confluence + SMC zone gate -> composite score -> journal -> Claude
-rationale -> optional paper trade -> broadcast. See plan doc's Core Engine §7
-for the composite score formula this implements.
+TimeframeStore) -> swings -> patterns (candlestick + chart + SMC) -> confluence
++ SMC zone gate -> composite score (volume term includes Volume Profile
+proximity) -> journal -> Claude rationale -> optional paper trade -> broadcast.
+See plan doc's Core Engine §7 for the composite score formula this implements.
 """
 import logging
 from typing import Callable, Dict, List, Optional
 
 from engine import confluence, smc
 from engine.candlestick_patterns import CANDLESTICK_PATTERNS
+from engine.chart_patterns import ChartPatternEngine
 from engine.smc import SMCEngine
 from engine.swing_detector import SwingDetector
 from engine.levels import LevelTracker
 from engine.timeframe_store import EXECUTION_TIMEFRAME, TimeframeStore
+from engine.volume_profile import VolumeProfileTracker
 from journal.recorder import log_bar, write_interpretation
 from settings import (
     AUTO_PAPER_TRADE, RTC_SIGNAL_THRESHOLD, WEIGHT_MTF_CONFLUENCE,
@@ -40,22 +42,25 @@ def trend_alignment_score(ind: Dict) -> float:
     return 50.0
 
 
-def volume_confirmation_score(ind: Dict, i: int) -> float:
-    """0-100, mirrors ai_engine/technical_engine.py's _volume_spike. Volume
-    Profile POC/VAH-VAL proximity is folded in during Phase 2 once
-    engine/volume_profile.py exists."""
+def volume_confirmation_score(ind: Dict, i: int, vp_proximity_score: float = 50.0) -> float:
+    """0-100, blends volume-spike-ratio (mirrors ai_engine/technical_engine.py's
+    _volume_spike, 70% weight) with Volume Profile POC/VAH-VAL proximity
+    (30% weight — inside the value area is fair-value/neutral, outside is a
+    directional-extension confirmation)."""
     vol = ind["volumes"][i]
     avg = ind["vol_avg_20"][i] if ind.get("vol_avg_20") else vol
     ratio = vol / avg if avg else 1.0
     if ratio >= 3.0:
-        return 90.0
-    if ratio >= 2.0:
-        return 75.0
-    if ratio >= 1.3:
-        return 60.0
-    if ratio < 0.5:
-        return 35.0
-    return 50.0
+        spike_score = 90.0
+    elif ratio >= 2.0:
+        spike_score = 75.0
+    elif ratio >= 1.3:
+        spike_score = 60.0
+    elif ratio < 0.5:
+        spike_score = 35.0
+    else:
+        spike_score = 50.0
+    return spike_score * 0.7 + vp_proximity_score * 0.3
 
 
 class SignalEngine:
@@ -66,6 +71,8 @@ class SignalEngine:
         self.swing_detector = SwingDetector()
         self.smc_engine = SMCEngine()
         self.level_tracker = LevelTracker()
+        self.chart_pattern_engine = ChartPatternEngine()
+        self.volume_profile = VolumeProfileTracker()
         self._signal_callbacks: List[Callable[[Dict], None]] = []
         self._bar_callbacks: List[Callable[[str, str, Dict], None]] = []
 
@@ -90,6 +97,7 @@ class SignalEngine:
         self.swing_detector.update(ind)
         atr = ind["atr"][i] if ind.get("atr") else 0.0
         self.level_tracker.rebuild(list(self.swing_detector.swings), atr)
+        self.volume_profile.update(ind, i)
 
         fired = self._evaluate_patterns(ind, i)
         if not fired:
@@ -113,6 +121,7 @@ class SignalEngine:
                 result["pattern_type"] = pattern.pattern_type
                 fired.append(result)
         fired.extend(self.smc_engine.evaluate(ind, i, list(self.swing_detector.swings)))
+        fired.extend(self.chart_pattern_engine.evaluate(ind, i, list(self.swing_detector.swings)))
         return fired
 
     def _process_signal(self, signal: Dict, ind: Dict, i: int,
@@ -123,11 +132,12 @@ class SignalEngine:
         conf = confluence.check_confluence(direction, biases)
         zone = smc.zone_for_price(price, dealing_range)
         zone_quality = smc.zone_quality(direction, zone)
+        vp_proximity = self.volume_profile.proximity_score(price)
 
         composite = (
             WEIGHT_PATTERN_CONFIDENCE * (signal["confidence"] * 100)
             + WEIGHT_TREND_ALIGNMENT * trend_alignment_score(ind)
-            + WEIGHT_VOLUME_CONFIRMATION * volume_confirmation_score(ind, i)
+            + WEIGHT_VOLUME_CONFIRMATION * volume_confirmation_score(ind, i, vp_proximity)
             + WEIGHT_MTF_CONFLUENCE * conf["bonus"]
             + WEIGHT_SMC_ZONE_QUALITY * zone_quality
         )
@@ -135,6 +145,11 @@ class SignalEngine:
         nearest = self.level_tracker.nearest(price)
         nearest_desc = f"{nearest.kind} @ {nearest.price:.3f} ({nearest.touches} touches)" if nearest else "none tracked yet"
         volume_ratio = ind["volumes"][i] / ind["vol_avg_20"][i] if ind.get("vol_avg_20") and ind["vol_avg_20"][i] else 1.0
+        vp_levels = self.volume_profile.compute()
+        vp_desc = (
+            f"POC {vp_levels['poc']:.3f}, VA [{vp_levels['val']:.3f}-{vp_levels['vah']:.3f}]"
+            if vp_levels else "not enough session data yet"
+        )
 
         interpretation_payload = {
             "ticker": self.ticker,
@@ -159,6 +174,7 @@ class SignalEngine:
             "mtf_summary": conf["summary"], "smc_zone": zone,
             "smc_context": interpretation_payload["smc_context"] or "none",
             "nearest_levels": nearest_desc, "volume_ratio": round(volume_ratio, 2),
+            "volume_profile": vp_desc,
         })
         interpretation_payload["claude_rationale"] = rationale["text"]
         interpretation_payload["claude_model"] = rationale["model"]

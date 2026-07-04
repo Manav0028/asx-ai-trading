@@ -35,6 +35,7 @@ def _build_prompt(signal: Dict, context: Dict) -> str:
         f"SMC context: {context.get('smc_context', 'none')}\n"
         f"Nearest support/resistance: {context.get('nearest_levels', 'n/a')}\n"
         f"Volume vs 20-bar average: {context.get('volume_ratio', 'n/a')}x\n"
+        f"Volume Profile: {context.get('volume_profile', 'n/a')}\n"
     )
 
 
