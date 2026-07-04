@@ -2,42 +2,91 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>realtime_chart_ai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/static/tabler-icons.min.css">
 <link rel="stylesheet" href="/static/styles.css">
 <script src="/static/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
+  <a class="skip-link" href="#chart-container">Skip to chart</a>
+
   <header>
-    <h1 id="ticker-title">realtime_chart_ai</h1>
-    <div id="status-bar">
-      <span id="conn-status" class="badge disconnected">connecting…</span>
-      <span id="source-badge" class="badge"></span>
+    <div class="brand">
+      <i class="ti ti-chart-candle" aria-hidden="true"></i>
+      <div class="brand-text">
+        <span class="brand-name">realtime_chart_ai</span>
+        <span class="brand-tag">AI pattern intelligence</span>
+      </div>
+    </div>
+
+    <div id="status-bar" role="status" aria-live="polite">
+      <span id="ticker-title" class="chip chip-ticker">—</span>
+      <span id="conn-status" class="chip chip-dot disconnected">
+        <i class="ti ti-plug-connected" aria-hidden="true"></i> connecting
+      </span>
+      <span id="source-badge" class="chip chip-muted"></span>
     </div>
   </header>
 
   <main>
     <section id="chart-panel">
-      <div id="chart-container"></div>
+      <div id="chart-toolbar">
+        <span class="toolbar-label"><i class="ti ti-clock" aria-hidden="true"></i> 1m execution timeframe</span>
+        <div class="legend" aria-hidden="false">
+          <span class="legend-item"><i class="ti ti-caret-up legend-icon long" aria-hidden="true"></i> long signal</span>
+          <span class="legend-item"><i class="ti ti-caret-down legend-icon short" aria-hidden="true"></i> short signal</span>
+        </div>
+      </div>
+      <div id="chart-container" role="img" aria-label="Live candlestick chart with AI pattern markers"></div>
     </section>
 
     <aside id="side-panel">
-      <div id="commentary-tab-bar">
-        <button class="tab-btn active" data-tab="commentary">Claude Commentary</button>
-        <button class="tab-btn" data-tab="journal">Journal History</button>
+      <div id="commentary-tab-bar" role="tablist" aria-label="Signal detail views">
+        <button class="tab-btn active" data-tab="commentary" role="tab" aria-selected="true" aria-controls="commentary-view" id="tab-commentary">
+          <i class="ti ti-sparkles" aria-hidden="true"></i> Commentary
+        </button>
+        <button class="tab-btn" data-tab="journal" role="tab" aria-selected="false" aria-controls="journal-view" id="tab-journal">
+          <i class="ti ti-history" aria-hidden="true"></i> Journal
+        </button>
       </div>
 
-      <div id="commentary-view" class="tab-view active">
-        <div id="commentary-feed"></div>
+      <div id="commentary-view" class="tab-view active" role="tabpanel" aria-labelledby="tab-commentary">
+        <div id="commentary-feed" aria-live="polite"></div>
+        <div id="commentary-empty" class="empty-state">
+          <i class="ti ti-radar-2" aria-hidden="true"></i>
+          <p>Watching for patterns</p>
+          <span>Confirmed signals and Claude's rationale will appear here as they fire.</span>
+        </div>
       </div>
 
-      <div id="journal-view" class="tab-view">
-        <button id="refresh-journal">Refresh</button>
+      <div id="journal-view" class="tab-view" role="tabpanel" aria-labelledby="tab-journal">
+        <div class="journal-toolbar">
+          <span class="toolbar-label">Every interpretation, logged</span>
+          <button id="refresh-journal" class="btn-icon" aria-label="Refresh journal history">
+            <i class="ti ti-refresh" aria-hidden="true"></i> Refresh
+          </button>
+        </div>
         <table id="journal-table">
           <thead>
-            <tr><th>Time</th><th>Pattern</th><th>Dir</th><th>Score</th><th>Zone</th><th>Action</th></tr>
+            <tr>
+              <th scope="col">Time</th>
+              <th scope="col">Pattern</th>
+              <th scope="col">Dir</th>
+              <th scope="col">Score</th>
+              <th scope="col">Zone</th>
+              <th scope="col">Action</th>
+            </tr>
           </thead>
           <tbody></tbody>
         </table>
+        <div id="journal-empty" class="empty-state">
+          <i class="ti ti-file-off" aria-hidden="true"></i>
+          <p>No interpretations yet</p>
+          <span>Signals get journaled here the moment they're confirmed.</span>
+        </div>
       </div>
     </aside>
   </main>
