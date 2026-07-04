@@ -1,0 +1,182 @@
+"""
+The orchestrator — wires timeframe bars into: indicators (already computed by
+TimeframeStore) -> swings -> patterns (candlestick + SMC; chart_patterns.py is
+Phase 2) -> confluence + SMC zone gate -> composite score -> journal -> Claude
+rationale -> optional paper trade -> broadcast. See plan doc's Core Engine §7
+for the composite score formula this implements.
+"""
+import logging
+from typing import Callable, Dict, List, Optional
+
+from engine import confluence, smc
+from engine.candlestick_patterns import CANDLESTICK_PATTERNS
+from engine.smc import SMCEngine
+from engine.swing_detector import SwingDetector
+from engine.levels import LevelTracker
+from engine.timeframe_store import EXECUTION_TIMEFRAME, TimeframeStore
+from journal.recorder import log_bar, write_interpretation
+from settings import (
+    AUTO_PAPER_TRADE, RTC_SIGNAL_THRESHOLD, WEIGHT_MTF_CONFLUENCE,
+    WEIGHT_PATTERN_CONFIDENCE, WEIGHT_SMC_ZONE_QUALITY, WEIGHT_TREND_ALIGNMENT,
+    WEIGHT_VOLUME_CONFIRMATION,
+)
+
+logger = logging.getLogger(__name__)
+
+CONTEXT_BIAS_TIMEFRAMES = ("5m", "15m")
+
+
+def trend_alignment_score(ind: Dict) -> float:
+    """0-100, mirrors ai_engine/technical_engine.py's _ema_crossover/_adx blend."""
+    if not ind.get("ema20") or not ind.get("ema50"):
+        return 50.0
+    ema20, ema50, price = ind["ema20"][-1], ind["ema50"][-1], ind["closes"][-1]
+    adx_val = ind["adx"][-1] if ind.get("adx") else 0.0
+    trend_strength = min(adx_val / 40 * 50, 50)
+    if ema20 > ema50 and price > ema20:
+        return 50 + trend_strength
+    if ema20 < ema50 and price < ema20:
+        return 50 - trend_strength
+    return 50.0
+
+
+def volume_confirmation_score(ind: Dict, i: int) -> float:
+    """0-100, mirrors ai_engine/technical_engine.py's _volume_spike. Volume
+    Profile POC/VAH-VAL proximity is folded in during Phase 2 once
+    engine/volume_profile.py exists."""
+    vol = ind["volumes"][i]
+    avg = ind["vol_avg_20"][i] if ind.get("vol_avg_20") else vol
+    ratio = vol / avg if avg else 1.0
+    if ratio >= 3.0:
+        return 90.0
+    if ratio >= 2.0:
+        return 75.0
+    if ratio >= 1.3:
+        return 60.0
+    if ratio < 0.5:
+        return 35.0
+    return 50.0
+
+
+class SignalEngine:
+    def __init__(self, ticker: str, store: TimeframeStore, data_source_name: str):
+        self.ticker = ticker
+        self.store = store
+        self.data_source_name = data_source_name
+        self.swing_detector = SwingDetector()
+        self.smc_engine = SMCEngine()
+        self.level_tracker = LevelTracker()
+        self._signal_callbacks: List[Callable[[Dict], None]] = []
+        self._bar_callbacks: List[Callable[[str, str, Dict], None]] = []
+
+        self.store.on_bar_closed(self._handle_bar_closed)
+
+    def on_signal(self, callback: Callable[[Dict], None]) -> None:
+        self._signal_callbacks.append(callback)
+
+    def on_bar(self, callback: Callable[[str, str, Dict], None]) -> None:
+        """For broadcasting candle_update regardless of whether a pattern fired."""
+        self._bar_callbacks.append(callback)
+
+    def _handle_bar_closed(self, ticker: str, timeframe: str, ind: Dict) -> None:
+        log_bar(ticker, timeframe, ind)
+        for cb in self._bar_callbacks:
+            cb(ticker, timeframe, ind)
+
+        if timeframe != EXECUTION_TIMEFRAME:
+            return
+
+        i = len(ind["closes"]) - 1
+        self.swing_detector.update(ind)
+        atr = ind["atr"][i] if ind.get("atr") else 0.0
+        self.level_tracker.rebuild(list(self.swing_detector.swings), atr)
+
+        fired = self._evaluate_patterns(ind, i)
+        if not fired:
+            return
+
+        dealing_range = self.swing_detector.dealing_range()
+        biases = {
+            tf: confluence.bias_for(self.store.latest_ind(tf))
+            for tf in CONTEXT_BIAS_TIMEFRAMES
+        }
+        for signal in fired:
+            self._process_signal(signal, ind, i, dealing_range, biases)
+
+    def _evaluate_patterns(self, ind: Dict, i: int) -> List[Dict]:
+        fired = []
+        for pattern in CANDLESTICK_PATTERNS:
+            result = pattern.fires(ind, i)
+            if result:
+                result["pattern_name"] = pattern.name
+                result["direction"] = pattern.direction
+                result["pattern_type"] = pattern.pattern_type
+                fired.append(result)
+        fired.extend(self.smc_engine.evaluate(ind, i, list(self.swing_detector.swings)))
+        return fired
+
+    def _process_signal(self, signal: Dict, ind: Dict, i: int,
+                         dealing_range: Optional[tuple], biases: Dict[str, str]) -> None:
+        direction = signal["direction"]
+        price = ind["closes"][i]
+
+        conf = confluence.check_confluence(direction, biases)
+        zone = smc.zone_for_price(price, dealing_range)
+        zone_quality = smc.zone_quality(direction, zone)
+
+        composite = (
+            WEIGHT_PATTERN_CONFIDENCE * (signal["confidence"] * 100)
+            + WEIGHT_TREND_ALIGNMENT * trend_alignment_score(ind)
+            + WEIGHT_VOLUME_CONFIRMATION * volume_confirmation_score(ind, i)
+            + WEIGHT_MTF_CONFLUENCE * conf["bonus"]
+            + WEIGHT_SMC_ZONE_QUALITY * zone_quality
+        )
+
+        nearest = self.level_tracker.nearest(price)
+        nearest_desc = f"{nearest.kind} @ {nearest.price:.3f} ({nearest.touches} touches)" if nearest else "none tracked yet"
+        volume_ratio = ind["volumes"][i] / ind["vol_avg_20"][i] if ind.get("vol_avg_20") and ind["vol_avg_20"][i] else 1.0
+
+        interpretation_payload = {
+            "ticker": self.ticker,
+            "bar_ts": ind["timestamps"][i],
+            "timeframe": EXECUTION_TIMEFRAME,
+            "data_source": self.data_source_name,
+            "pattern_name": signal["pattern_name"],
+            "pattern_type": signal["pattern_type"],
+            "direction": direction,
+            "confidence": signal["confidence"],
+            "composite_score": round(composite, 2),
+            "rule_reason": signal["reason"],
+            "mtf_confluence": conf["confirmed"],
+            "mtf_summary": conf["summary"],
+            "smc_zone": zone,
+            "smc_context": signal["pattern_name"] if signal["pattern_type"] == "smc" else None,
+            "price_at_signal": price,
+        }
+
+        from ai.rationale import generate_rationale
+        rationale = generate_rationale(interpretation_payload, {
+            "mtf_summary": conf["summary"], "smc_zone": zone,
+            "smc_context": interpretation_payload["smc_context"] or "none",
+            "nearest_levels": nearest_desc, "volume_ratio": round(volume_ratio, 2),
+        })
+        interpretation_payload["claude_rationale"] = rationale["text"]
+        interpretation_payload["claude_model"] = rationale["model"]
+
+        interpretation_id = write_interpretation(dict(interpretation_payload))
+        logger.info(
+            "[%s] %s %s fired — composite=%.1f (threshold %.0f) zone=%s",
+            self.ticker, signal["pattern_name"], direction, composite, RTC_SIGNAL_THRESHOLD, zone,
+        )
+
+        trade_action = None
+        if composite >= RTC_SIGNAL_THRESHOLD and AUTO_PAPER_TRADE:
+            from trading.paper_or_live_bridge import maybe_enter_trade
+            trade_action = maybe_enter_trade(interpretation_id, self.ticker, direction, price)
+
+        broadcast_payload = dict(interpretation_payload)
+        broadcast_payload["interpretation_id"] = interpretation_id
+        broadcast_payload["trade_action"] = trade_action
+        broadcast_payload["bar_ts"] = broadcast_payload["bar_ts"].isoformat()
+        for cb in self._signal_callbacks:
+            cb(broadcast_payload)

@@ -1,0 +1,23 @@
+# realtime_chart_ai — isolated dependency set (kept separate from root requirements.txt
+# on purpose: this is a standalone parallel project, see README.md / plan doc)
+
+# ── Data source ───────────────────────────────────────────────────────────────
+ib_insync>=0.9.86
+yfinance>=0.2.40          # emergency delayed fallback only
+
+# ── Server ────────────────────────────────────────────────────────────────────
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+websockets>=15.0
+
+# ── AI ────────────────────────────────────────────────────────────────────────
+anthropic>=0.40.0
+
+# ── Storage ───────────────────────────────────────────────────────────────────
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.9
+
+# ── Core ──────────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+numpy>=1.26.0
+pandas>=2.2.0
