@@ -20,6 +20,13 @@ if DATABASE_URL.startswith("sqlite"):
 else:
     _engine_kwargs["pool_size"] = 5
     _engine_kwargs["max_overflow"] = 10
+    # Without this, a bad/unreachable DATABASE_URL (wrong host, IPv6-only
+    # Supabase direct connection instead of the pooler, paused project) hangs
+    # the TCP connect for the OS's default retry window (60-130s+) instead of
+    # failing fast — and since init_db() runs synchronously in FastAPI's
+    # lifespan before anything else, that hang blocks the entire service from
+    # ever starting (found investigating a deploy that never responded).
+    _engine_kwargs["connect_args"] = {"connect_timeout": 10}
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
