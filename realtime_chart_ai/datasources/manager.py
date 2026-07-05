@@ -1,34 +1,65 @@
 """
 DataSourceManager — the seam that makes both the dual-provider requirement and
-the later multi-ticker generalization possible. Phase 1: IBKR only (see plan
-doc's data-source research — Twelve Data was rejected, yfinance fallback is
-Phase 2). Calling `stream()` once per ticker is exactly what Phase 3's
-multi-ticker scanner will do concurrently — no rewrite needed.
+the later multi-ticker generalization possible. Primary/fallback providers are
+built from PRIMARY_SOURCE/FALLBACK_SOURCE (settings.py) via _build_source's
+name registry: "ibkr" | "yfinance_delayed" | "scripted_mock" (the last is
+dev/verification-only, see datasources/scripted_mock_source.py). Calling
+`stream()` once per ticker is exactly what Phase 3's multi-ticker scanner will
+do concurrently — no rewrite needed.
 """
 import logging
 from typing import Awaitable, Callable, Optional
 
 from datasources.base import Candle, CandleDataSource
-from datasources.ibkr_source import IBKRSource
 from journal.recorder import log_event
+from settings import FALLBACK_SOURCE, PRIMARY_SOURCE
 
 logger = logging.getLogger(__name__)
 
 
+def _build_source(name: str) -> Optional[CandleDataSource]:
+    """Name -> CandleDataSource factory, keyed by the same strings used in
+    PRIMARY_SOURCE/FALLBACK_SOURCE. Imports are local so an unused provider's
+    dependency (e.g. ib_insync) is never required to be installed."""
+    if name == "ibkr":
+        from datasources.ibkr_source import IBKRSource
+        return IBKRSource()
+    if name == "yfinance_delayed":
+        from datasources.yfinance_fallback import YFinanceFallbackSource
+        return YFinanceFallbackSource()
+    if name == "scripted_mock":
+        from datasources.scripted_mock_source import ScriptedMockSource
+        return ScriptedMockSource()
+    if not name:
+        return None
+    raise ValueError(f"Unknown data source name: {name!r} (expected ibkr/yfinance_delayed/scripted_mock)")
+
+
 class DataSourceManager:
     def __init__(self):
-        self.primary: CandleDataSource = IBKRSource()
-        self.fallback: Optional[CandleDataSource] = None  # wired in Phase 2 (yfinance_fallback)
+        self.primary: CandleDataSource = _build_source(PRIMARY_SOURCE)
+        self.fallback: Optional[CandleDataSource] = _build_source(FALLBACK_SOURCE)
         self._active: Optional[CandleDataSource] = None
 
     async def start(self) -> None:
         ok = await self.primary.connect()
         if ok:
             self._active = self.primary
-            log_event("connect", source=self.primary.name, detail="IBKR connected")
-        else:
-            log_event("error", source=self.primary.name, detail="IBKR connect failed, no fallback available yet")
-            raise ConnectionError("No data source available (IBKR unreachable, no fallback configured)")
+            log_event("connect", source=self.primary.name, detail=f"{self.primary.name} connected")
+            return
+        log_event("error", source=self.primary.name, detail=f"{self.primary.name} connect failed")
+        if self.fallback is not None:
+            ok = await self.fallback.connect()
+            if ok:
+                self._active = self.fallback
+                log_event("failover", source=self.fallback.name, detail="primary failed at startup, using fallback")
+                return
+            log_event("error", source=self.fallback.name, detail=f"{self.fallback.name} connect also failed")
+        raise ConnectionError(
+            f"No data source available (primary={self.primary.name} unreachable"
+            + (f", fallback={self.fallback.name} unreachable" if self.fallback else ", no fallback configured")
+            + ")"
+        )
 
     async def stream(self, ticker: str, on_candle: Callable[[Candle], Awaitable[None]]) -> None:
         if self._active is None:

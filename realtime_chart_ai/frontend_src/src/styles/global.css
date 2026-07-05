@@ -1,0 +1,60 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+#rcai-root ::-webkit-scrollbar { width: 9px; height: 9px; }
+#rcai-root ::-webkit-scrollbar-thumb { background: #2c2c30; border-radius: 6px; }
+#rcai-root ::-webkit-scrollbar-thumb:hover { background: #3c3c42; }
+#rcai-root ::-webkit-scrollbar-track { background: transparent; }
+
+@keyframes rcaiPulse {
+  0% { box-shadow: 0 0 0 0 rgba(0, 196, 140, .55); }
+  100% { box-shadow: 0 0 0 9px rgba(0, 196, 140, 0); }
+}
+@keyframes rcaiIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes rcaiBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .3; }
+}
+@keyframes rcaiDots {
+  0%, 80%, 100% { opacity: .25; }
+  40% { opacity: 1; }
+}
+
+@media (max-width: 900px) {
+  #rcai-root { height: auto !important; min-height: 100vh !important; overflow: auto !important; }
+  #rcai-main { flex-direction: column !important; }
+  #rcai-rail { width: 100% !important; border-left: none !important; border-top: 1px solid var(--border) !important; height: auto !important; }
+  #rcai-chartwrap { min-height: 56vh !important; }
+  #rcai-tabcontent { height: 520px !important; }
+}
+
+@media (max-width: 600px) {
+  #rcai-brandtag { display: none !important; }
+  #rcai-tfpills { display: none !important; }
+  #rcai-header { padding: 0 12px !important; }
+}
+
+/* Below ~460px the header's two flex groups no longer fit on one line even with
+   the tf pills and tagline hidden above; min-width:0 lets them shrink to nothing
+   and their content overlaps. Wrap onto a second row instead of collapsing. */
+@media (max-width: 460px) {
+  #rcai-header { height: auto !important; flex-wrap: wrap; row-gap: 8px; padding: 10px 12px !important; }
+  #rcai-header > div { flex-shrink: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .001ms !important; }
+}

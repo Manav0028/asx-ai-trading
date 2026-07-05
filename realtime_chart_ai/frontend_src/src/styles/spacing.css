@@ -1,0 +1,51 @@
+/* ============================================================================
+   SPACING, RADIUS, ELEVATION — Manav AI Trading
+   This is a FLAT, border-driven UI: elevation comes from surface color +
+   1px hairline borders, NOT drop shadows. The only "shadows" in the product
+   are coloured GLOWS on live status (open-market dot, firing pulse).
+   ============================================================================ */
+
+:root {
+  /* ── Spacing scale (px) ──────────────────────────────────────────────── */
+  --space-0:  0;
+  --space-1:  4px;
+  --space-2:  6px;
+  --space-3:  8px;
+  --space-4:  10px;
+  --space-5:  12px;
+  --space-6:  14px;
+  --space-7:  16px;
+  --space-8:  20px;
+  --space-9:  24px;
+  --space-10: 28px;
+  --space-12: 40px;
+  --space-16: 64px;
+
+  /* ── Radius — small and consistent; nothing is very round ────────────── */
+  --radius-sm: 6px;    /* pills, chips, buttons, score tags */
+  --radius-md: 10px;   /* cards, inputs, metric tiles */
+  --radius-lg: 14px;   /* large panels */
+  --radius-pill: 999px;
+  --radius-dot: 50%;
+
+  /* ── Borders ─────────────────────────────────────────────────────────── */
+  --border-width: 1px;
+
+  /* ── Elevation: borders, not shadows. Glows signal "live". ───────────── */
+  --elev-flat:   none;
+  --elev-card:   none;                                  /* cards rely on border + bg */
+  --glow-profit: 0 0 6px var(--profit);                 /* market-open status dot */
+  --glow-firing: 0 0 0 1px var(--profit-dim);           /* firing radar card ring */
+  --glow-nearmiss: 0 0 0 1px rgba(212,160,23,0.25);     /* near-miss radar ring */
+  --focus-ring:  0 0 0 2px var(--accent-dim);
+
+  /* ── Motion — fast, functional, no bounce ────────────────────────────── */
+  --ease-out:   cubic-bezier(0.16, 1, 0.3, 1);  /* @kind other */
+  --dur-fast:   0.15s; /* @kind other */   /* hover/press color & bg transitions */
+  --dur-med:    0.2s;  /* @kind other */   /* border-color, card state */
+  --dur-slow:   0.4s;  /* @kind other */   /* allocation bar width grow */
+
+  /* ── Layout ──────────────────────────────────────────────────────────── */
+  --sidebar-width: 320px;
+  --content-max:   1280px;
+}

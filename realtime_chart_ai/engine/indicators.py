@@ -32,6 +32,8 @@ class IndicatorEngine:
         self.lows: deque = deque(maxlen=MAXLEN)
         self.volumes: deque = deque(maxlen=MAXLEN)
         self.timestamps: deque = deque(maxlen=MAXLEN)
+        self.sources: deque = deque(maxlen=MAXLEN)    # per-bar provenance ('ibkr'/'yfinance_delayed'/...)
+        self.delayed: deque = deque(maxlen=MAXLEN)    # per-bar delayed flag — honesty requirement, see plan doc
 
         # Computed series (parallel to the above, one value appended per bar)
         self.rsi: deque = deque(maxlen=MAXLEN)
@@ -88,6 +90,8 @@ class IndicatorEngine:
         self.lows.append(candle.low)
         self.volumes.append(candle.volume)
         self.timestamps.append(candle.ts)
+        self.sources.append(candle.source)
+        self.delayed.append(candle.delayed)
 
         # ── EMAs ──────────────────────────────────────────────────────────
         self._ema20_val = self._ema_step(self._ema20_val, candle.close, 20)
@@ -208,6 +212,7 @@ class IndicatorEngine:
             "closes": list(self.closes), "opens": list(self.opens),
             "highs": list(self.highs), "lows": list(self.lows),
             "volumes": list(self.volumes), "timestamps": list(self.timestamps),
+            "sources": list(self.sources), "delayed": list(self.delayed),
             "rsi": list(self.rsi), "ema20": list(self.ema20), "ema50": list(self.ema50),
             "ema200": list(self.ema200), "macd": list(self.macd),
             "macd_signal": list(self.macd_signal), "macd_hist": list(self.macd_hist),

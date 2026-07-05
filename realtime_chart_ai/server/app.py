@@ -19,7 +19,7 @@ from journal.db import init_db
 from journal.recorder import get_open_positions, log_event, query_history
 from server.schemas import AutoTradeToggleRequest
 from server.ws_hub import hub
-from settings import CONTEXT_TIMEFRAMES, RTC_TICKERS
+from settings import CONTEXT_TIMEFRAMES, RTC_SIGNAL_THRESHOLD, RTC_TICKERS
 from trading import state
 from trading.position_tracker import tracker as position_tracker
 
@@ -39,6 +39,8 @@ def _candle_update_payload(ticker: str, timeframe: str, ind: dict) -> dict:
         "ts": ts.isoformat() if isinstance(ts, datetime) else str(ts),
         "open": ind["opens"][i], "high": ind["highs"][i], "low": ind["lows"][i],
         "close": ind["closes"][i], "volume": ind["volumes"][i],
+        "source": ind["sources"][i] if ind.get("sources") else "unknown",
+        "delayed": ind["delayed"][i] if ind.get("delayed") else False,
     }
 
 
@@ -91,7 +93,10 @@ def get_journal(ticker: str = None, limit: int = 50):
 
 @app.get("/api/tickers")
 def get_tickers():
-    return {"tickers": RTC_TICKERS, "active_source": manager.current_source_name()}
+    return {
+        "tickers": RTC_TICKERS, "active_source": manager.current_source_name(),
+        "signal_threshold": RTC_SIGNAL_THRESHOLD,
+    }
 
 
 @app.get("/api/auto-trade")
@@ -111,6 +116,30 @@ def get_positions(ticker: str = None):
     # truth), not the in-memory tracker — reflects reality even right after
     # a restart or from a different process.
     return get_open_positions(ticker=ticker)
+
+
+@app.get("/api/candles/{ticker}")
+def get_candles(ticker: str, limit: int = 200):
+    # There's no separate historical-candles store — TimeframeStore's
+    # execution-timeframe IndicatorEngine already holds up to MAXLEN closed
+    # bars in memory, which is exactly what a freshly-connected frontend
+    # needs to hydrate its chart before the first live candle_update arrives.
+    store = stores.get(ticker)
+    if store is None:
+        return {"ticker": ticker, "timeframe": EXECUTION_TIMEFRAME, "candles": []}
+    ind = store.latest_ind(EXECUTION_TIMEFRAME)
+    if not ind:
+        return {"ticker": ticker, "timeframe": EXECUTION_TIMEFRAME, "candles": []}
+    n = len(ind["closes"])
+    idx = range(max(0, n - limit), n)
+    candles = [{
+        "ts": ind["timestamps"][i].isoformat() if isinstance(ind["timestamps"][i], datetime) else str(ind["timestamps"][i]),
+        "open": ind["opens"][i], "high": ind["highs"][i], "low": ind["lows"][i],
+        "close": ind["closes"][i], "volume": ind["volumes"][i],
+        "source": ind["sources"][i] if ind.get("sources") else "unknown",
+        "delayed": ind["delayed"][i] if ind.get("delayed") else False,
+    } for i in idx]
+    return {"ticker": ticker, "timeframe": EXECUTION_TIMEFRAME, "candles": candles}
 
 
 @app.websocket("/ws/candles/{ticker}")

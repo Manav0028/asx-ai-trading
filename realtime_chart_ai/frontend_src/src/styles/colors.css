@@ -1,0 +1,55 @@
+/* ============================================================================
+   COLORS — Manav AI Trading
+   Lifted verbatim from the live dashboard (dashboard/app_v2.py). This is a
+   dark-first, data-dense fintech palette: near-black surfaces, hairline
+   borders, one calm blue accent, and a semantic profit/loss/warning triad.
+   ============================================================================ */
+
+:root {
+  /* ── Surfaces (dark, stacked by elevation) ───────────────────────────── */
+  --bg-primary:    #121214;   /* app background — deepest */
+  --bg-secondary:  #1a1a1e;   /* cards, sidebar, panels */
+  --bg-tertiary:   #222226;   /* elevated surfaces, pills, table headers */
+  --bg-hover:      #282830;   /* row / item hover */
+
+  /* ── Borders (hairline, low-contrast) ────────────────────────────────── */
+  --border:        #2c2c30;   /* default 1px divider / card edge */
+  --border-strong: #3c3c42;   /* hover / focus edge */
+  --border-subtle: rgba(255, 255, 255, 0.04); /* table inner rows */
+
+  /* ── Text (WCAG-checked on --bg-primary) ─────────────────────────────── */
+  --text-primary:   #eaeaed;  /* 14:1  — headings, values */
+  --text-secondary: #a0a0a6;  /* 5.8:1 — body, labels */
+  --text-tertiary:  #78787e;  /* 4.0:1 — captions, ≥16px only */
+
+  /* ── Accent (links, active, selection) ───────────────────────────────── */
+  --accent:        #6993ff;
+  --accent-dim:    rgba(105, 147, 255, 0.12);
+
+  /* ── Semantic — the heart of a trading UI ────────────────────────────── */
+  --profit:        #00c48c;   /* gains, long, market-open, pass */
+  --profit-dim:    rgba(0, 196, 140, 0.10);
+  --loss:          #ff5a5a;   /* losses, short, stop-loss, fail */
+  --loss-dim:      rgba(255, 90, 90, 0.10);
+  --warning:       #ffb347;   /* caution, paper-mode, near-miss */
+  --warning-dim:   rgba(255, 179, 71, 0.12);
+  --gold:          #d4a017;   /* near-miss radar accent */
+  --gold-dim:      rgba(212, 160, 23, 0.15);
+
+  /* ── Categorical — allocation bars, multi-series charts ──────────────── */
+  --cat-1:  #6993ff;  --cat-2:  #00c48c;  --cat-3:  #ffb347;  --cat-4:  #ff5a5a;
+  --cat-5:  #a78bfa;  --cat-6:  #22d3ee;  --cat-7:  #f472b6;  --cat-8:  #84cc16;
+  --cat-9:  #fbbf24;  --cat-10: #64748b;  --cat-11: #e879f9;  --cat-12: #818cf8;
+  --cat-13: #2dd4bf;  --cat-14: #fb923c;  --cat-15: #94a3b8;  --cat-16: #38bdf8;
+
+  /* ── Semantic aliases (use these in components) ──────────────────────── */
+  --surface-app:    var(--bg-primary);
+  --surface-card:   var(--bg-secondary);
+  --surface-raised: var(--bg-tertiary);
+  --text-body:      var(--text-secondary);
+  --text-heading:   var(--text-primary);
+  --text-muted:     var(--text-tertiary);
+  --link:           var(--accent);
+  --up:             var(--profit);
+  --down:           var(--loss);
+}

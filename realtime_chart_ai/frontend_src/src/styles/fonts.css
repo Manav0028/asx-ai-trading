@@ -1,0 +1,9 @@
+/* ============================================================================
+   FONTS — Manav AI Trading
+   Inter is the product's real UI typeface (from dashboard/app_v2.py).
+   JetBrains Mono is a tasteful technical accent for tickers/prices/code —
+   it echoes the Telegram bot's backtick `code` formatting and the
+   "mono accents" brand direction. Loaded from Google Fonts.
+   ============================================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');

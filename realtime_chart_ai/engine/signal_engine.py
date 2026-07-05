@@ -149,12 +149,21 @@ class SignalEngine:
         zone_quality = smc.zone_quality(direction, zone)
         vp_proximity = self.volume_profile.proximity_score(price)
 
+        # Named so the raw (0-100, pre-weight) sub-scores can be broadcast for
+        # the frontend's composite-score breakdown bars, not just the final
+        # weighted total.
+        pattern_confidence_raw = signal["confidence"] * 100
+        trend_alignment_raw = trend_alignment_score(ind)
+        volume_confirmation_raw = volume_confirmation_score(ind, i, vp_proximity)
+        mtf_confluence_raw = conf["bonus"]
+        zone_quality_raw = zone_quality
+
         composite = (
-            WEIGHT_PATTERN_CONFIDENCE * (signal["confidence"] * 100)
-            + WEIGHT_TREND_ALIGNMENT * trend_alignment_score(ind)
-            + WEIGHT_VOLUME_CONFIRMATION * volume_confirmation_score(ind, i, vp_proximity)
-            + WEIGHT_MTF_CONFLUENCE * conf["bonus"]
-            + WEIGHT_SMC_ZONE_QUALITY * zone_quality
+            WEIGHT_PATTERN_CONFIDENCE * pattern_confidence_raw
+            + WEIGHT_TREND_ALIGNMENT * trend_alignment_raw
+            + WEIGHT_VOLUME_CONFIRMATION * volume_confirmation_raw
+            + WEIGHT_MTF_CONFLUENCE * mtf_confluence_raw
+            + WEIGHT_SMC_ZONE_QUALITY * zone_quality_raw
         )
 
         nearest = self.level_tracker.nearest(price)
@@ -216,9 +225,31 @@ class SignalEngine:
                     signal["stop_mult"], signal["target_mult"], signal["max_hold_bars"],
                 )
 
+        # Entry/stop/target preview — computed regardless of auto-trade so the
+        # frontend can render "here's what would fire" even when nothing was
+        # actually taken (the plan's "shown, not taken" UX). Broadcast-only:
+        # never merged into interpretation_payload, since write_interpretation
+        # passes that dict straight into RtcChartInterpretation(**signal) and
+        # these aren't columns on that table.
+        from trading.stops import compute_stop_target
+        atr_preview = ind["atr"][i] if ind.get("atr") else 0.0
+        preview = compute_stop_target(price, atr_preview, direction, signal["stop_mult"], signal["target_mult"])
+
         broadcast_payload = dict(interpretation_payload)
+        broadcast_payload["type"] = "pattern_signal"
         broadcast_payload["interpretation_id"] = interpretation_id
         broadcast_payload["trade_action"] = trade_action
+        broadcast_payload["entry_price"] = price
+        broadcast_payload["stop_price"] = preview["stop_price"]
+        broadcast_payload["target_price"] = preview["target_price"]
+        broadcast_payload["rr_ratio"] = round(preview["target_pct"] / preview["stop_pct"], 2) if preview["stop_pct"] else None
+        broadcast_payload["breakdown"] = {
+            "pattern_confidence": round(pattern_confidence_raw, 1),
+            "trend_alignment": round(trend_alignment_raw, 1),
+            "volume_confirmation": round(volume_confirmation_raw, 1),
+            "mtf_confluence": round(mtf_confluence_raw, 1),
+            "zone_quality": round(zone_quality_raw, 1),
+        }
         broadcast_payload["bar_ts"] = broadcast_payload["bar_ts"].isoformat()
         for cb in self._signal_callbacks:
             cb(broadcast_payload)

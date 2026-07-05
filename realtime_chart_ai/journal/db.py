@@ -11,7 +11,17 @@ from sqlalchemy.orm import sessionmaker
 from journal.models import Base
 from settings import DATABASE_URL
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
+# SQLite (used for local/dev runs without a Postgres server) is served by
+# SQLAlchemy's NullPool/SingletonThreadPool, which don't accept the
+# QueuePool-only pool_size/max_overflow kwargs — only pass those for Postgres.
+_engine_kwargs = {"pool_pre_ping": True}
+if DATABASE_URL.startswith("sqlite"):
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    _engine_kwargs["pool_size"] = 5
+    _engine_kwargs["max_overflow"] = 10
+
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
 

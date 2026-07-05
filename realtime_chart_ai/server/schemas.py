@@ -17,6 +17,7 @@ class CandleUpdate(BaseModel):
     close: float
     volume: float
     source: str
+    delayed: bool = False
 
 
 class PatternSignalMessage(BaseModel):
@@ -35,6 +36,12 @@ class PatternSignalMessage(BaseModel):
     claude_model: Optional[str] = None
     price_at_signal: float
     interpretation_id: int
+    entry_price: float
+    stop_price: float
+    target_price: float
+    rr_ratio: Optional[float] = None
+    trade_action: Optional[dict] = None
+    breakdown: Optional[dict] = None
 
 
 class JournalEntry(BaseModel):

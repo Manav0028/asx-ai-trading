@@ -32,3 +32,9 @@ param_scan_report.json
 regression_report.json
 skills-lock.json
 graphify-out/
+
+# realtime_chart_ai — Python venv, sqlite dev DB, and the frontend's node_modules
+realtime_chart_ai/.venv/
+realtime_chart_ai/*.db
+realtime_chart_ai/frontend_src/node_modules/
+realtime_chart_ai/frontend_src/dist/

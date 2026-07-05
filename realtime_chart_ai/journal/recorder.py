@@ -23,7 +23,8 @@ def log_bar(ticker: str, timeframe: str, ind: Dict) -> None:
             ticker=ticker, timeframe=timeframe, bar_ts=ind["timestamps"][i],
             open=ind["opens"][i], high=ind["highs"][i], low=ind["lows"][i],
             close=ind["closes"][i], volume=ind["volumes"][i],
-            source="ibkr", delayed=False,
+            source=ind["sources"][i] if ind.get("sources") else "unknown",
+            delayed=ind["delayed"][i] if ind.get("delayed") else False,
         ))
 
 
@@ -157,8 +158,10 @@ def query_history(ticker: Optional[str] = None, limit: int = 50) -> List[Dict]:
                 "composite_score": row.composite_score, "rule_reason": row.rule_reason,
                 "smc_zone": row.smc_zone, "claude_rationale": row.claude_rationale,
                 "action": {"action_type": action.action_type, "mode": action.mode,
-                           "entry_price": action.entry_price} if action else None,
+                           "entry_price": action.entry_price, "shares": action.shares,
+                           "stop_price": action.stop_price, "target_price": action.target_price} if action else None,
                 "outcome": {"exit_price": outcome.exit_price, "exit_reason": outcome.exit_reason,
-                            "net_pnl": outcome.net_pnl} if outcome else None,
+                            "gross_pnl": outcome.gross_pnl, "net_pnl": outcome.net_pnl,
+                            "bars_held": outcome.bars_held} if outcome else None,
             })
         return results
