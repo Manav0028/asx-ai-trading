@@ -33,6 +33,13 @@ _INTERVAL = {"1m": "1m", "5m": "5m", "15m": "15m", "1d": "1d"}
 # Yahoo's own caps on how far back each intraday interval can be queried.
 _MAX_PERIOD = {"1m": "7d", "5m": "60d", "15m": "60d", "1d": "2y"}
 _POLL_SECONDS = 30
+# Yahoo silently rate-limits/blocks many cloud-provider IP ranges (Render,
+# AWS, GCP) without a clean error — the underlying request can just hang.
+# yfinance's requests session has no default timeout, so every call here
+# must be wrapped in asyncio.wait_for; without this, a stuck probe during
+# DataSourceManager.start() blocks FastAPI's lifespan startup forever and
+# the whole service never responds to anything (found via a real deploy).
+_HTTP_TIMEOUT_SECONDS = 15
 
 
 class YFinanceFallbackSource(CandleDataSource):
@@ -50,11 +57,14 @@ class YFinanceFallbackSource(CandleDataSource):
             self._healthy = False
             return False
         # A cheap reachability probe; failures here (including this sandbox's
-        # "host not in allowlist" 403) are expected/handled, not raised.
+        # "host not in allowlist" 403, or Yahoo silently hanging on a
+        # cloud-provider IP) are expected/handled, not raised — bounded by
+        # an explicit timeout so a hang here can never block the caller
+        # (DataSourceManager.start(), called from FastAPI's lifespan) forever.
         try:
-            ok = await asyncio.to_thread(self._probe)
+            ok = await asyncio.wait_for(asyncio.to_thread(self._probe), timeout=_HTTP_TIMEOUT_SECONDS)
         except Exception as e:
-            logger.warning("yfinance reachability probe failed: %s", e)
+            logger.warning("yfinance reachability probe failed or timed out: %s", e)
             ok = False
         self._healthy = ok
         return ok
@@ -82,7 +92,13 @@ class YFinanceFallbackSource(CandleDataSource):
                 "yfinance intraday history is capped by Yahoo at period=%s for interval=%s "
                 "(requested lookback=%s cannot be honoured exactly)", period, timeframe, lookback,
             )
-        df = await asyncio.to_thread(self._fetch_sync, ticker, timeframe, period)
+        try:
+            df = await asyncio.wait_for(
+                asyncio.to_thread(self._fetch_sync, ticker, timeframe, period), timeout=_HTTP_TIMEOUT_SECONDS,
+            )
+        except Exception as e:
+            logger.warning("yfinance fetch_historical failed or timed out for %s/%s: %s", ticker, timeframe, e)
+            return []
         if df is None or df.empty:
             return []
         candles = [
@@ -105,7 +121,9 @@ class YFinanceFallbackSource(CandleDataSource):
     async def _poll_loop(self, ticker: str, on_candle: Callable[[Candle], Awaitable[None]]) -> None:
         while self._healthy:
             try:
-                df = await asyncio.to_thread(self._fetch_sync, ticker, "1m", "1d")
+                df = await asyncio.wait_for(
+                    asyncio.to_thread(self._fetch_sync, ticker, "1m", "1d"), timeout=_HTTP_TIMEOUT_SECONDS,
+                )
                 if df is not None and not df.empty:
                     last_seen: Optional[datetime] = self._last_ts.get(ticker)
                     for idx, row in df.iterrows():
