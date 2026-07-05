@@ -63,7 +63,10 @@ def generate_rationale(signal: Dict, context: Dict) -> Dict:
         return {"text": _rule_based_rationale(signal, context), "model": "rule_fallback"}
 
     import anthropic
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    # Bounded so a slow/stuck Claude call can never hang indefinitely — this
+    # runs on a per-ticker worker thread (see server/app.py), not the main
+    # event loop, but still needs its own ceiling.
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=20.0)
     try:
         resp = client.messages.create(
             model=CLAUDE_MODEL,

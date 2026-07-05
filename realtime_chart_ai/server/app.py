@@ -4,7 +4,9 @@ FastAPI app — REST (journal query, static frontend) + WebSocket
 decision. Startup wires: DataSourceManager -> per-ticker TimeframeStore ->
 SignalEngine -> historical backfill -> live subscription -> ws_hub broadcast.
 """
+import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +31,15 @@ logger = logging.getLogger(__name__)
 manager = DataSourceManager()
 stores = {}
 signal_engines = {}
+# One single-worker executor per ticker: ingest_raw() -> pattern evaluation ->
+# Claude rationale call -> journal writes are all synchronous and can take
+# seconds (Claude's HTTP round-trip). Running that inline in on_candle (an
+# async coroutine with no awaits) would freeze the whole event loop —
+# including WebSocket connections and Render's health check — every time a
+# signal fires (this caused the deployed instance to be marked unhealthy and
+# cycled repeatedly). A single worker keeps per-ticker bar order intact while
+# fully decoupling this work from the request-serving loop.
+_ticker_executors: dict = {}
 
 
 def _candle_update_payload(ticker: str, timeframe: str, ind: dict) -> dict:
@@ -63,14 +74,19 @@ async def _bootstrap_ticker(ticker: str) -> None:
     log_event("backfill_complete", source=manager.current_source_name(), ticker=ticker,
               detail=f"{len(minute_candles)} 1m bars backfilled")
 
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"rtc-{ticker}")
+    _ticker_executors[ticker] = executor
+    loop = asyncio.get_running_loop()
+
     async def on_candle(candle):
-        store.ingest_raw(candle)
+        await loop.run_in_executor(executor, store.ingest_raw, candle)
 
     await manager.stream(ticker, on_candle)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    hub.set_loop(asyncio.get_running_loop())
     init_db()
     position_tracker.load_open_positions()  # recover any position still open from before a restart
     await manager.start()
@@ -81,6 +97,8 @@ async def lifespan(app: FastAPI):
     for source in (manager.primary, manager.fallback):
         if source is not None:
             await source.disconnect()
+    for executor in _ticker_executors.values():
+        executor.shutdown(wait=False)
 
 
 app = FastAPI(title="realtime_chart_ai", lifespan=lifespan)
