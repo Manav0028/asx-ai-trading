@@ -36,11 +36,15 @@ services:
       - key: FALLBACK_SOURCE
         value: scripted_mock
 
-      # ── Watchlist — a handful of liquid ASX blue chips across sectors
-      #    (mining, banking x2, healthcare, retail) so the demo isn't
-      #    dependent on any single name's pattern activity ──────────────────
+      # ── Watchlist — temporarily back to a single ticker. Yahoo rate-limited
+      #    this deploy (YFRateLimitError) after repeated restarts tonight;
+      #    each restart does 1 probe + 2 historical fetches per ticker, so 5
+      #    tickers meant 11 requests per restart instead of 3. Re-expand once
+      #    real data is confirmed stable and the rate limit has headroom —
+      #    see PLAN.md / session notes for the full list to restore
+      #    (BHP.AX,CBA.AX,CSL.AX,NAB.AX,WES.AX) ───────────────────────────────
       - key: RTC_TICKERS
-        value: BHP.AX,CBA.AX,CSL.AX,NAB.AX,WES.AX
+        value: BHP.AX
 
       # ── Auto-trade stays off by default on a public demo deployment; the
       #    frontend switch (confirm-to-enable) is still there if wanted ────

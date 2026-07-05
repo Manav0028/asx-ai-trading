@@ -146,7 +146,11 @@ class YFinanceFallbackSource(CandleDataSource):
                         ))
                         self._last_ts[ticker] = ts
             except Exception as e:
-                logger.warning("yfinance poll failed for %s: %s", ticker, e)
-                self._healthy = False
-                return
+                # A single failed poll (e.g. a transient Yahoo rate limit)
+                # used to permanently kill this loop — it would never emit
+                # another candle for the rest of the process's life even
+                # after the underlying issue cleared. Log and keep retrying
+                # on the normal interval instead; only stop if the process
+                # itself is shutting down (self._healthy flips False there).
+                logger.warning("yfinance poll failed for %s: %s — retrying in %ss", ticker, e, _POLL_SECONDS)
             await asyncio.sleep(_POLL_SECONDS)
