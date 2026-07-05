@@ -1,0 +1,9 @@
+frontend_src/
+scripts/
+__pycache__/
+**/__pycache__/
+*.pyc
+.env
+.git
+.pytest_cache
+*.log

@@ -1,0 +1,46 @@
+# Render Blueprint for the standalone realtime_chart_ai deployment.
+# https://render.com/docs/blueprint-spec
+#
+# IBKR TWS and the local dev Postgres are both localhost-only and unreachable
+# from a cloud host, so this deployment intentionally runs on a different
+# data-source/DB config than local dev — see the env vars below and PLAN.md's
+# "Automated Trading Capability" section for the underlying isolation model.
+#
+# Secrets (DATABASE_URL, ANTHROPIC_API_KEY) are NOT set here — Render's own
+# dashboard is where those get pasted in directly, never through a file
+# committed to the repo.
+
+services:
+  - type: web
+    name: ms-aicharttrading
+    runtime: docker
+    rootDir: realtime_chart_ai
+    dockerfilePath: ./Dockerfile
+    plan: free
+    autoDeploy: true
+    envVars:
+      # ── Secrets — fill in via the Render dashboard, not here ─────────────
+      - key: DATABASE_URL
+        sync: false   # postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      # ── Cloud-safe data source: IBKR needs a localhost TWS connection, so
+      #    it can't run here. yfinance_delayed is real (~15-20min delayed)
+      #    data with normal internet access on Render's side (unlike this
+      #    dev sandbox, whose egress is restricted — see
+      #    datasources/yfinance_fallback.py's docstring). scripted_mock is
+      #    the last-resort fallback so the demo never just goes dark. ──────
+      - key: PRIMARY_SOURCE
+        value: yfinance_delayed
+      - key: FALLBACK_SOURCE
+        value: scripted_mock
+
+      # ── Default watchlist for the demo ───────────────────────────────────
+      - key: RTC_TICKERS
+        value: BHP.AX
+
+      # ── Auto-trade stays off by default on a public demo deployment; the
+      #    frontend switch (confirm-to-enable) is still there if wanted ────
+      - key: AUTO_TRADE_ENABLED_DEFAULT
+        value: "false"
