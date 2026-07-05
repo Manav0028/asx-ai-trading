@@ -11,17 +11,20 @@ from typing import Callable, Dict, List, Optional
 from engine import confluence, smc
 from engine.candlestick_patterns import CANDLESTICK_PATTERNS
 from engine.chart_patterns import ChartPatternEngine
+from engine.pattern_risk_defaults import apply_risk_defaults
 from engine.smc import SMCEngine
 from engine.swing_detector import SwingDetector
 from engine.levels import LevelTracker
 from engine.timeframe_store import EXECUTION_TIMEFRAME, TimeframeStore
 from engine.volume_profile import VolumeProfileTracker
-from journal.recorder import log_bar, write_interpretation
+from journal.recorder import log_bar, log_event, write_interpretation
 from settings import (
-    AUTO_PAPER_TRADE, RTC_SIGNAL_THRESHOLD, WEIGHT_MTF_CONFLUENCE,
+    RTC_SIGNAL_THRESHOLD, WEIGHT_MTF_CONFLUENCE,
     WEIGHT_PATTERN_CONFIDENCE, WEIGHT_SMC_ZONE_QUALITY, WEIGHT_TREND_ALIGNMENT,
     WEIGHT_VOLUME_CONFIRMATION,
 )
+from trading import state
+from trading.position_tracker import tracker as position_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +102,13 @@ class SignalEngine:
         self.level_tracker.rebuild(list(self.swing_detector.swings), atr)
         self.volume_profile.update(ind, i)
 
+        # Exit check runs before pattern evaluation so a close on this bar is
+        # settled before any new entry for the same ticker is considered.
+        exit_result = position_tracker.check_exit(self.ticker, ind, i)
+        if exit_result:
+            for cb in self._signal_callbacks:
+                cb(exit_result)
+
         fired = self._evaluate_patterns(ind, i)
         if not fired:
             return
@@ -119,9 +129,14 @@ class SignalEngine:
                 result["pattern_name"] = pattern.name
                 result["direction"] = pattern.direction
                 result["pattern_type"] = pattern.pattern_type
+                result["stop_mult"] = pattern.stop_mult
+                result["target_mult"] = pattern.target_mult
+                result["max_hold_bars"] = pattern.max_hold_bars
                 fired.append(result)
-        fired.extend(self.smc_engine.evaluate(ind, i, list(self.swing_detector.swings)))
-        fired.extend(self.chart_pattern_engine.evaluate(ind, i, list(self.swing_detector.swings)))
+        for result in self.smc_engine.evaluate(ind, i, list(self.swing_detector.swings)):
+            fired.append(apply_risk_defaults(result))
+        for result in self.chart_pattern_engine.evaluate(ind, i, list(self.swing_detector.swings)):
+            fired.append(apply_risk_defaults(result))
         return fired
 
     def _process_signal(self, signal: Dict, ind: Dict, i: int,
@@ -186,9 +201,20 @@ class SignalEngine:
         )
 
         trade_action = None
-        if composite >= RTC_SIGNAL_THRESHOLD and AUTO_PAPER_TRADE:
-            from trading.paper_or_live_bridge import maybe_enter_trade
-            trade_action = maybe_enter_trade(interpretation_id, self.ticker, direction, price)
+        if composite >= RTC_SIGNAL_THRESHOLD and state.is_enabled():
+            if position_tracker.has_open_position(self.ticker):
+                log_event(
+                    "entry_skipped_position_open", ticker=self.ticker,
+                    detail=f"{signal['pattern_name']} ({direction}) skipped — "
+                           f"composite={composite:.1f}, position already open",
+                )
+            else:
+                from trading.paper_or_live_bridge import maybe_enter_trade
+                atr = ind["atr"][i] if ind.get("atr") else 0.0
+                trade_action = maybe_enter_trade(
+                    interpretation_id, self.ticker, direction, price, atr, composite,
+                    signal["stop_mult"], signal["target_mult"], signal["max_hold_bars"],
+                )
 
         broadcast_payload = dict(interpretation_payload)
         broadcast_payload["interpretation_id"] = interpretation_id

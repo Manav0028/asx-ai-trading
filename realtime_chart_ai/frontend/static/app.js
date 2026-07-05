@@ -9,6 +9,9 @@
   const commentaryEmpty = document.getElementById("commentary-empty");
   const journalBody = document.querySelector("#journal-table tbody");
   const journalEmpty = document.getElementById("journal-empty");
+  const autoTradeControl = document.getElementById("auto-trade-control");
+  const autoTradeSwitch = document.getElementById("auto-trade-switch");
+  const autoTradeLabel = document.getElementById("auto-trade-label");
 
   let chart, candleSeries, markers = [];
   let commentaryCount = 0;
@@ -71,6 +74,26 @@
     commentaryFeed.prepend(div);
   }
 
+  function handleTradeExit(msg) {
+    commentaryEmpty.classList.remove("visible");
+    const win = msg.net_pnl >= 0;
+    const div = document.createElement("div");
+    div.className = "commentary-item";
+    div.innerHTML = `
+      <div class="cm-header">
+        <span>${new Date().toLocaleTimeString()}</span>
+        <span class="cm-zone-chip">${msg.exit_reason}</span>
+      </div>
+      <div class="cm-pattern ${win ? "long" : "short"}">
+        <i class="ti ${win ? "ti-circle-check" : "ti-circle-x"}" aria-hidden="true"></i>
+        Position closed — ${msg.direction.toUpperCase()} ${msg.ticker}
+      </div>
+      <div class="cm-text">Exited at ${msg.exit_price.toFixed(3)} after ${msg.bars_held} bars (entry ${msg.entry_price.toFixed(3)}).</div>
+      <div class="cm-score"><span>net P&amp;L ${msg.net_pnl >= 0 ? "+" : ""}${msg.net_pnl.toFixed(2)}</span><span>${msg.shares.toFixed(2)} shares</span></div>
+    `;
+    commentaryFeed.prepend(div);
+  }
+
   function setStatus(state) {
     statusEl.classList.remove("connected", "disconnected");
     if (state === "live") {
@@ -96,6 +119,7 @@
       const msg = JSON.parse(event.data);
       if (msg.type === "candle_update") handleCandleUpdate(msg);
       else if (msg.type === "pattern_signal") handlePatternSignal(msg);
+      else if (msg.type === "trade_exit") handleTradeExit(msg);
     };
   }
 
@@ -122,6 +146,39 @@
           journalBody.appendChild(tr);
         });
       });
+  }
+
+  function setAutoTradeUI(enabled) {
+    autoTradeSwitch.checked = enabled;
+    autoTradeSwitch.setAttribute("aria-checked", String(enabled));
+    autoTradeControl.classList.toggle("on", enabled);
+    autoTradeLabel.textContent = `Auto-trade: ${enabled ? "ON" : "OFF"}`;
+  }
+
+  function initAutoTradeToggle() {
+    fetch("/api/auto-trade")
+      .then((r) => r.json())
+      .then((data) => setAutoTradeUI(data.enabled))
+      .catch(() => setAutoTradeUI(false));
+
+    autoTradeSwitch.addEventListener("change", () => {
+      const turningOn = autoTradeSwitch.checked;
+      if (turningOn && !confirm(
+        "Turn on auto-trade? The system will automatically simulate paper trades " +
+        "on signals that clear the composite-score threshold."
+      )) {
+        autoTradeSwitch.checked = false;
+        return;
+      }
+      fetch("/api/auto-trade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: turningOn }),
+      })
+        .then((r) => r.json())
+        .then((data) => setAutoTradeUI(data.enabled))
+        .catch(() => setAutoTradeUI(!turningOn)); // revert on failure
+    });
   }
 
   function initTabs() {
@@ -151,6 +208,7 @@
     // indication why.
     initChart();
     initTabs();
+    initAutoTradeToggle();
 
     fetch("/api/tickers")
       .then((r) => {

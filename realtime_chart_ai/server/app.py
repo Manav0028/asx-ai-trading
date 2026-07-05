@@ -16,9 +16,12 @@ from datasources.manager import DataSourceManager
 from engine.signal_engine import SignalEngine
 from engine.timeframe_store import EXECUTION_TIMEFRAME, TimeframeStore
 from journal.db import init_db
-from journal.recorder import log_event, query_history
+from journal.recorder import get_open_positions, log_event, query_history
+from server.schemas import AutoTradeToggleRequest
 from server.ws_hub import hub
 from settings import CONTEXT_TIMEFRAMES, RTC_TICKERS
+from trading import state
+from trading.position_tracker import tracker as position_tracker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -67,6 +70,7 @@ async def _bootstrap_ticker(ticker: str) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    position_tracker.load_open_positions()  # recover any position still open from before a restart
     await manager.start()
     for ticker in RTC_TICKERS:
         await _bootstrap_ticker(ticker)
@@ -88,6 +92,25 @@ def get_journal(ticker: str = None, limit: int = 50):
 @app.get("/api/tickers")
 def get_tickers():
     return {"tickers": RTC_TICKERS, "active_source": manager.current_source_name()}
+
+
+@app.get("/api/auto-trade")
+def get_auto_trade_status():
+    return {"enabled": state.is_enabled()}
+
+
+@app.post("/api/auto-trade")
+def set_auto_trade(body: AutoTradeToggleRequest):
+    new_state = state.set_enabled(body.enabled, actor="api")
+    return {"enabled": new_state}
+
+
+@app.get("/api/positions")
+def get_positions(ticker: str = None):
+    # Queried directly from rtc_open_positions (the DB is the source of
+    # truth), not the in-memory tracker — reflects reality even right after
+    # a restart or from a different process.
+    return get_open_positions(ticker=ticker)
 
 
 @app.websocket("/ws/candles/{ticker}")

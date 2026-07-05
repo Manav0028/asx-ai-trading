@@ -1,8 +1,9 @@
 """
 Journal schema — own declarative Base, isolated from storage/models.py.
-Five `rtc_`-prefixed tables (see plan doc): every closed bar, every confirmed
-signal interpretation (rule + Claude), every trade action/outcome, and a
-system event log — "keep track of everything" is a first-class requirement,
+Six `rtc_`-prefixed tables (see plan doc): every closed bar, every confirmed
+signal interpretation (rule + Claude), every trade action/outcome, the current
+open-position state (retrievable, DB-backed — not just an in-memory dict), and
+a system event log — "keep track of everything" is a first-class requirement,
 not an afterthought.
 """
 from datetime import datetime
@@ -65,6 +66,12 @@ class RtcTradeAction(Base):
     entry_price = Column(Float)
     shares = Column(Float)
     order_id = Column(String(40))
+    stop_price = Column(Float)
+    target_price = Column(Float)
+    composite_score_at_entry = Column(Float)
+    dollar_risk = Column(Float)
+    score_multiplier = Column(Float)
+    atr_at_entry = Column(Float)
     executed_at = Column(DateTime, default=datetime.utcnow)
     __table_args__ = (Index("ix_rtc_action_interp", "interpretation_id"),)
 
@@ -75,10 +82,36 @@ class RtcTradeOutcome(Base):
     trade_action_id = Column(Integer, ForeignKey("rtc_trade_actions.id"), nullable=False, unique=True)
     exit_price = Column(Float)
     exit_ts = Column(DateTime)
-    exit_reason = Column(String(50))           # 'stop_loss' | 'target' | 'manual' | 'session_close'
+    exit_reason = Column(String(50))           # 'stop_loss' | 'target' | 'max_hold'
     gross_pnl = Column(Float)
     net_pnl = Column(Float)
+    bars_held = Column(Integer)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class RtcOpenPosition(Base):
+    """Source of truth for 'what's open right now' — continuously updated (not
+    append-only), so open positions survive a process restart and are directly
+    queryable via GET /api/positions rather than living only in a Python dict."""
+    __tablename__ = "rtc_open_positions"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticker = Column(String(20), nullable=False)
+    trade_action_id = Column(Integer, ForeignKey("rtc_trade_actions.id"), nullable=False, unique=True)
+    direction = Column(String(8))
+    entry_price = Column(Float)
+    shares = Column(Float)
+    stop_price = Column(Float)          # current, ratchets over time
+    target_price = Column(Float)
+    peak_price = Column(Float)
+    atr_at_entry = Column(Float)
+    trail_activate_pct = Column(Float)
+    trail_distance_pct = Column(Float)
+    max_hold_bars = Column(Integer)
+    bars_held = Column(Integer, default=0)
+    status = Column(String(10), default="open")   # 'open' | 'closed'
+    opened_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    __table_args__ = (Index("ix_rtc_open_pos_ticker_status", "ticker", "status"),)
 
 
 class RtcEvent(Base):

@@ -118,6 +118,48 @@ header {
 
 .chip-muted { text-transform: uppercase; font-size: 11px; letter-spacing: 0.03em; }
 
+.chip-toggle { gap: 8px; }
+.chip-toggle #auto-trade-label { color: var(--text-muted); }
+.chip-toggle.on { background: rgba(240, 168, 63, 0.14); border-color: transparent; }
+.chip-toggle.on #auto-trade-label { color: var(--amber); }
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 18px;
+  cursor: pointer;
+}
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+.switch-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--border-strong);
+  border-radius: 999px;
+  transition: background 150ms ease-out;
+}
+.switch-slider::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  transition: transform 150ms ease-out;
+}
+.switch input:checked + .switch-slider { background: var(--amber); }
+.switch input:checked + .switch-slider::before { transform: translateX(16px); }
+.switch input:focus-visible + .switch-slider { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 main {
   flex: 1;
   display: flex;

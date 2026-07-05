@@ -7,7 +7,9 @@ import logging
 from typing import Dict, List, Optional
 
 from journal.db import get_session
-from journal.models import RtcBar, RtcChartInterpretation, RtcEvent, RtcTradeAction, RtcTradeOutcome
+from journal.models import (
+    RtcBar, RtcChartInterpretation, RtcEvent, RtcOpenPosition, RtcTradeAction, RtcTradeOutcome,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +50,17 @@ def write_interpretation(signal: Dict) -> int:
 
 def record_action(interpretation_id: int, action_type: str, mode: str,
                    entry_price: Optional[float] = None, shares: Optional[float] = None,
-                   order_id: Optional[str] = None) -> int:
+                   order_id: Optional[str] = None, stop_price: Optional[float] = None,
+                   target_price: Optional[float] = None, composite_score_at_entry: Optional[float] = None,
+                   dollar_risk: Optional[float] = None, score_multiplier: Optional[float] = None,
+                   atr_at_entry: Optional[float] = None) -> int:
     with get_session() as session:
         row = RtcTradeAction(
             interpretation_id=interpretation_id, action_type=action_type, mode=mode,
             entry_price=entry_price, shares=shares, order_id=order_id,
+            stop_price=stop_price, target_price=target_price,
+            composite_score_at_entry=composite_score_at_entry, dollar_risk=dollar_risk,
+            score_multiplier=score_multiplier, atr_at_entry=atr_at_entry,
         )
         session.add(row)
         session.flush()
@@ -60,13 +68,66 @@ def record_action(interpretation_id: int, action_type: str, mode: str,
 
 
 def record_outcome(trade_action_id: int, exit_price: float, exit_reason: str,
-                    gross_pnl: Optional[float] = None, net_pnl: Optional[float] = None) -> None:
+                    gross_pnl: Optional[float] = None, net_pnl: Optional[float] = None,
+                    bars_held: Optional[int] = None) -> None:
     from datetime import datetime
     with get_session() as session:
         session.add(RtcTradeOutcome(
             trade_action_id=trade_action_id, exit_price=exit_price, exit_ts=datetime.utcnow(),
-            exit_reason=exit_reason, gross_pnl=gross_pnl, net_pnl=net_pnl,
+            exit_reason=exit_reason, gross_pnl=gross_pnl, net_pnl=net_pnl, bars_held=bars_held,
         ))
+
+
+def open_position_row(ticker: str, trade_action_id: int, direction: str, entry_price: float,
+                       shares: float, stop_price: float, target_price: float, peak_price: float,
+                       atr_at_entry: float, trail_activate_pct: float, trail_distance_pct: float,
+                       max_hold_bars: int) -> int:
+    with get_session() as session:
+        row = RtcOpenPosition(
+            ticker=ticker, trade_action_id=trade_action_id, direction=direction,
+            entry_price=entry_price, shares=shares, stop_price=stop_price, target_price=target_price,
+            peak_price=peak_price, atr_at_entry=atr_at_entry, trail_activate_pct=trail_activate_pct,
+            trail_distance_pct=trail_distance_pct, max_hold_bars=max_hold_bars, bars_held=0, status="open",
+        )
+        session.add(row)
+        session.flush()
+        return row.id
+
+
+def update_open_position(position_id: int, stop_price: Optional[float] = None,
+                          peak_price: Optional[float] = None, bars_held: Optional[int] = None) -> None:
+    with get_session() as session:
+        row = session.get(RtcOpenPosition, position_id)
+        if row is None:
+            return
+        if stop_price is not None:
+            row.stop_price = stop_price
+        if peak_price is not None:
+            row.peak_price = peak_price
+        if bars_held is not None:
+            row.bars_held = bars_held
+
+
+def close_open_position(position_id: int) -> None:
+    with get_session() as session:
+        row = session.get(RtcOpenPosition, position_id)
+        if row is not None:
+            row.status = "closed"
+
+
+def get_open_positions(ticker: Optional[str] = None) -> List[Dict]:
+    with get_session() as session:
+        q = session.query(RtcOpenPosition).filter(RtcOpenPosition.status == "open")
+        if ticker:
+            q = q.filter(RtcOpenPosition.ticker == ticker)
+        return [{
+            "id": r.id, "ticker": r.ticker, "trade_action_id": r.trade_action_id,
+            "direction": r.direction, "entry_price": r.entry_price, "shares": r.shares,
+            "stop_price": r.stop_price, "target_price": r.target_price, "peak_price": r.peak_price,
+            "atr_at_entry": r.atr_at_entry, "trail_activate_pct": r.trail_activate_pct,
+            "trail_distance_pct": r.trail_distance_pct, "max_hold_bars": r.max_hold_bars,
+            "bars_held": r.bars_held, "opened_at": r.opened_at.isoformat(),
+        } for r in q.all()]
 
 
 def query_history(ticker: Optional[str] = None, limit: int = 50) -> List[Dict]:

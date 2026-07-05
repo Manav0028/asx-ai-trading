@@ -49,3 +49,20 @@ class JournalEntry(BaseModel):
     rule_reason: Optional[str] = None
     smc_zone: Optional[str] = None
     claude_rationale: Optional[str] = None
+
+
+class AutoTradeToggleRequest(BaseModel):
+    enabled: bool
+
+
+class TradeExitMessage(BaseModel):
+    type: str = "trade_exit"
+    ticker: str
+    direction: str
+    entry_price: float
+    exit_price: float
+    exit_reason: str
+    shares: float
+    gross_pnl: float
+    net_pnl: float
+    bars_held: int
