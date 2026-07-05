@@ -48,6 +48,11 @@ class YFinanceFallbackSource(CandleDataSource):
     def __init__(self):
         self._healthy = False
         self._last_ts: dict = {}   # ticker -> last emitted bar timestamp
+        # Surfaced by DataSourceManager.start() into the rtc_events row it
+        # writes on failure, so the actual reason is queryable straight from
+        # the journal DB — no application-log/dashboard access needed to
+        # diagnose why the cloud deploy fell back to the mock source.
+        self._last_error: Optional[str] = None
 
     async def connect(self) -> bool:
         try:
@@ -55,6 +60,7 @@ class YFinanceFallbackSource(CandleDataSource):
         except ImportError:
             logger.error("yfinance is not installed — cannot use the delayed fallback source")
             self._healthy = False
+            self._last_error = "yfinance package not installed"
             return False
         # A cheap reachability probe; failures here (including this sandbox's
         # "host not in allowlist" 403, or Yahoo silently hanging on a
@@ -63,9 +69,12 @@ class YFinanceFallbackSource(CandleDataSource):
         # (DataSourceManager.start(), called from FastAPI's lifespan) forever.
         try:
             ok = await asyncio.wait_for(asyncio.to_thread(self._probe), timeout=_HTTP_TIMEOUT_SECONDS)
+            if not ok:
+                self._last_error = "probe returned no data (empty/None dataframe from yfinance)"
         except Exception as e:
             logger.warning("yfinance reachability probe failed or timed out: %s", e)
             ok = False
+            self._last_error = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
         self._healthy = ok
         return ok
 

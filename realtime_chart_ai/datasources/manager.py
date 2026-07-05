@@ -47,7 +47,9 @@ class DataSourceManager:
             self._active = self.primary
             log_event("connect", source=self.primary.name, detail=f"{self.primary.name} connected")
             return
-        log_event("error", source=self.primary.name, detail=f"{self.primary.name} connect failed")
+        reason = getattr(self.primary, "_last_error", None)
+        detail = f"{self.primary.name} connect failed" + (f": {reason}" if reason else "")
+        log_event("error", source=self.primary.name, detail=detail)
         if self.fallback is not None:
             ok = await self.fallback.connect()
             if ok:
