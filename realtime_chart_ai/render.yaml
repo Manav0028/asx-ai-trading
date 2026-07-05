@@ -36,9 +36,11 @@ services:
       - key: FALLBACK_SOURCE
         value: scripted_mock
 
-      # ── Default watchlist for the demo ───────────────────────────────────
+      # ── Watchlist — a handful of liquid ASX blue chips across sectors
+      #    (mining, banking x2, healthcare, retail) so the demo isn't
+      #    dependent on any single name's pattern activity ──────────────────
       - key: RTC_TICKERS
-        value: BHP.AX
+        value: BHP.AX,CBA.AX,CSL.AX,NAB.AX,WES.AX
 
       # ── Auto-trade stays off by default on a public demo deployment; the
       #    frontend switch (confirm-to-enable) is still there if wanted ────
