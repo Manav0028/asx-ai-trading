@@ -124,7 +124,20 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
         setHasOpenPosition(true);
         setPhase('active');
         setChartStatus('active');
-        setSignal((s) => s ?? { patternName: '', direction: pos.direction, entry: pos.entry_price, stop: pos.stop_price, target: pos.target_price, rr: null });
+        // Always synced from the position (not just seeded once when null)
+        // — the backend's stop/target can change after the initial signal
+        // fire, either via the trailing stop ratcheting or a manual edit
+        // through ManualControls, and this poll (every 5s, or immediately
+        // after a manual save via refreshCurrentPosition) is what's supposed
+        // to surface that. Only seeding once made a successful manual edit
+        // silently invisible — the backend updated, but the signal card kept
+        // showing the original stop/target forever, reading as "the button
+        // isn't working."
+        setSignal((s) => ({
+          patternName: s?.patternName ?? '', direction: pos.direction,
+          entry: pos.entry_price, stop: pos.stop_price, target: pos.target_price,
+          rr: s?.rr ?? null,
+        }));
         setPosMeta(`${pos.shares.toFixed(0)} sh · $${(pos.shares * pos.entry_price).toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
         setPosShares(pos.shares);
         // P&L used to only recompute inside the WS candle_update handler —

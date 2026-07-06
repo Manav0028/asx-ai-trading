@@ -209,14 +209,6 @@ async def prioritize_ticker(ticker: str):
     return {"ticker": ticker, "prioritized": ok}
 
 
-@app.get("/api/positions")
-def get_positions(ticker: str = None):
-    # Queried directly from rtc_open_positions (the DB is the source of
-    # truth), not the in-memory tracker — reflects reality even right after
-    # a restart or from a different process.
-    return get_open_positions(ticker=ticker)
-
-
 def _latest_price_and_atr(ticker: str):
     store = stores.get(ticker)
     if store is None:
@@ -227,6 +219,30 @@ def _latest_price_and_atr(ticker: str):
     price = ind["closes"][-1]
     atr = ind["atr"][-1] if ind.get("atr") else 0.0
     return price, atr
+
+
+@app.get("/api/positions")
+def get_positions(ticker: str = None):
+    # Queried directly from rtc_open_positions (the DB is the source of
+    # truth), not the in-memory tracker — reflects reality even right after
+    # a restart or from a different process.
+    positions = get_open_positions(ticker=ticker)
+    # Enriched here (not in journal/recorder.py, which is DB-only and has no
+    # access to the in-memory `stores`) so every caller — the current
+    # ticker's SignalCard, the held-tickers poll, and the global Trades tab —
+    # gets live unrealized P&L without each doing its own extra per-ticker
+    # fetch. `current_price`/`unrealized_pnl` are null if that ticker's store
+    # has no bars yet (e.g. still waiting its round-robin turn).
+    for p in positions:
+        price, _ = _latest_price_and_atr(p["ticker"])
+        if price is None:
+            p["current_price"] = None
+            p["unrealized_pnl"] = None
+        else:
+            diff = (price - p["entry_price"]) if p["direction"] == "long" else (p["entry_price"] - price)
+            p["current_price"] = price
+            p["unrealized_pnl"] = diff * p["shares"]
+    return positions
 
 
 @app.post("/api/positions/manual-entry")

@@ -58,6 +58,8 @@ export interface ApiPosition {
   max_hold_bars: number;
   bars_held: number;
   opened_at: string;
+  current_price: number | null;
+  unrealized_pnl: number | null;
 }
 
 export interface WsCandleUpdate {

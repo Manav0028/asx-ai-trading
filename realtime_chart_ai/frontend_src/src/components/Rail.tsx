@@ -55,18 +55,27 @@ export function Rail(props: {
         display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto',
       }}
     >
-      <SignalCard
-        phase={phase} dispScore={dispScore} bd={bd} pnl={pnl}
-        patternName={props.patternName} direction={props.direction}
-        entry={props.entry} stop={props.stop} target={props.target} rr={props.rr} posMeta={props.posMeta}
-        hasOpenPosition={props.hasOpenPosition}
-      />
+      {/* Trades is a portfolio-wide view across every ticker — pinning the
+          currently-selected ticker's Live Signal/Manual override above it
+          would be misleading (it's not what Trades is showing) and just
+          eats vertical space. Give Trades its own full-height view instead,
+          a peer of Live Signal rather than nested under it. */}
+      {tab !== 'trades' && (
+        <>
+          <SignalCard
+            phase={phase} dispScore={dispScore} bd={bd} pnl={pnl}
+            patternName={props.patternName} direction={props.direction}
+            entry={props.entry} stop={props.stop} target={props.target} rr={props.rr} posMeta={props.posMeta}
+            hasOpenPosition={props.hasOpenPosition}
+          />
 
-      <ManualControls
-        ticker={props.ticker} price={props.price} hasOpenPosition={props.hasOpenPosition ?? false}
-        entry={props.entry ?? 0} stop={props.stop ?? 0} target={props.target ?? 0} shares={props.shares}
-        onChanged={props.onPositionChanged}
-      />
+          <ManualControls
+            ticker={props.ticker} price={props.price} hasOpenPosition={props.hasOpenPosition ?? false}
+            entry={props.entry ?? 0} stop={props.stop ?? 0} target={props.target ?? 0} shares={props.shares}
+            pnl={pnl} onChanged={props.onPositionChanged}
+          />
+        </>
+      )}
 
       <div style={{ flex: 'none', display: 'flex', borderBottom: '1px solid var(--border)' }}>
         {TABS.map((t) => (

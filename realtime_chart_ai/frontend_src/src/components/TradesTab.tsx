@@ -84,12 +84,12 @@ export function TradesTab() {
           direction: p.direction,
           pattern: 'open position',
           entry: p.entry_price,
-          exit: null,
+          exit: p.current_price,
           stop: p.stop_price,
           target: p.target_price,
           shares: p.shares,
           investment: p.shares * p.entry_price,
-          netPnl: null,
+          netPnl: p.unrealized_pnl, // live unrealized — null only if this ticker has no price data yet
           exitReason: null,
           barsHeld: p.bars_held,
           score: null,
@@ -128,6 +128,7 @@ export function TradesTab() {
   const closedFiltered = filtered.filter((r) => r.status === 'closed');
   const openFiltered = filtered.filter((r) => r.status === 'open');
   const realizedPnl = closedFiltered.reduce((a, r) => a + (r.netPnl ?? 0), 0);
+  const unrealizedPnl = openFiltered.reduce((a, r) => a + (r.netPnl ?? 0), 0);
   const totalInvested = openFiltered.reduce((a, r) => a + r.investment, 0);
   const winRate = closedFiltered.length
     ? Math.round((100 * closedFiltered.filter((r) => (r.netPnl ?? 0) >= 0).length) / closedFiltered.length) + '%'
@@ -143,10 +144,14 @@ export function TradesTab() {
         Every trade execution across all tickers — open and closed.
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 11 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 11 }}>
         <div style={card}>
           <div style={cardLabel}>Realized P&amp;L</div>
           <div style={{ ...cardValue, color: realizedPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{fmtMoney(realizedPnl)}</div>
+        </div>
+        <div style={card}>
+          <div style={cardLabel}>Unrealised P&amp;L</div>
+          <div style={{ ...cardValue, color: unrealizedPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{fmtMoney(unrealizedPnl)}</div>
         </div>
         <div style={card}>
           <div style={cardLabel}>Invested (open)</div>
@@ -226,10 +231,12 @@ export function TradesTab() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 'none' }}>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 600, color: isOpen ? 'var(--text-secondary)' : (win ? 'var(--profit)' : 'var(--loss)'), fontVariantNumeric: 'tabular-nums' }}>
-                    {isOpen ? `$${t.investment.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : fmtMoney(t.netPnl ?? 0)}
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 600, color: t.netPnl == null ? 'var(--text-tertiary)' : (win ? 'var(--profit)' : 'var(--loss)'), fontVariantNumeric: 'tabular-nums' }}>
+                    {t.netPnl == null ? '—' : fmtMoney(t.netPnl)}
                   </div>
-                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{isOpen ? 'invested' : (t.exitReason ?? '')}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
+                    {isOpen ? (t.netPnl == null ? 'no price yet' : 'unrealised') : (t.exitReason ?? '')}
+                  </div>
                 </div>
                 <span style={{ color: 'var(--text-tertiary)', fontSize: 10 }}>{isExpanded ? '▲' : '▼'}</span>
               </div>
