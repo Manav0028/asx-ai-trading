@@ -19,9 +19,21 @@ def _clamp(value: float, lo: float, hi: float) -> float:
 
 def compute_stop_target(entry_price: float, atr: float, direction: str,
                          stop_mult: float, target_mult: float) -> Dict:
-    atr = atr or entry_price * 0.01  # fallback if ATR isn't warmed up yet
-    stop_pct = _clamp((stop_mult * atr) / entry_price, RTC_MIN_STOP_PCT, RTC_MAX_STOP_PCT)
-    target_pct = max((target_mult * atr) / entry_price, stop_pct * RTC_MIN_RR_RATIO)
+    # entry_price should never legitimately be <=0 for a real security, but a
+    # bad/corrupted bar from a less-liquid stock (observed repeatedly for a
+    # couple of ASX200 names once the watchlist grew past the original 5
+    # blue chips) can produce one — every division here is by entry_price,
+    # so without this guard that single bad bar raises ZeroDivisionError on
+    # every pattern fire for that ticker from then on. Falling back to the
+    # min stop/RR-implied target keeps the shape valid without pretending a
+    # meaningful price was seen.
+    if entry_price <= 0:
+        stop_pct = RTC_MIN_STOP_PCT
+        target_pct = stop_pct * RTC_MIN_RR_RATIO
+    else:
+        atr = atr or entry_price * 0.01  # fallback if ATR isn't warmed up yet
+        stop_pct = _clamp((stop_mult * atr) / entry_price, RTC_MIN_STOP_PCT, RTC_MAX_STOP_PCT)
+        target_pct = max((target_mult * atr) / entry_price, stop_pct * RTC_MIN_RR_RATIO)
     if direction == "long":
         stop_price = entry_price * (1 - stop_pct)
         target_price = entry_price * (1 + target_pct)
@@ -35,6 +47,8 @@ def compute_stop_target(entry_price: float, atr: float, direction: str,
 
 
 def compute_trail_params(entry_price: float, atr: float) -> Dict:
+    if entry_price <= 0:
+        return {"activate_pct": RTC_TRAIL_MIN_PCT, "distance_pct": RTC_TRAIL_MIN_PCT}
     atr = atr or entry_price * 0.01
     activate_pct = _clamp((RTC_TRAIL_ACTIVATE_MULT * atr) / entry_price, RTC_TRAIL_MIN_PCT, RTC_TRAIL_MAX_PCT)
     distance_pct = _clamp((RTC_TRAIL_DISTANCE_MULT * atr) / entry_price, RTC_TRAIL_MIN_PCT, RTC_TRAIL_MAX_PCT)
@@ -47,6 +61,8 @@ def update_trailing_stop(direction: str, entry_price: float, current_price: floa
     """`peak_price` tracks the best price seen since entry — the running high
     for longs, the running low for shorts. Returns {"new_stop", "new_peak",
     "activated"}. The stop only ever ratchets favorably, never loosens."""
+    if entry_price <= 0:
+        return {"new_stop": current_stop, "new_peak": peak_price, "activated": False}
     if direction == "long":
         gain_pct = (current_price - entry_price) / entry_price
         new_peak = max(peak_price, current_price)
