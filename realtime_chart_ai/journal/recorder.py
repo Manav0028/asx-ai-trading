@@ -154,20 +154,33 @@ def query_history(ticker: Optional[str] = None, limit: int = 50,
         if end is not None:
             q = q.filter(RtcChartInterpretation.bar_ts <= end)
         rows = q.limit(limit).all()
+        if not rows:
+            return []
+
+        # Batched instead of one query per row (2 extra round trips per row,
+        # e.g. up to 1000 for limit=500) — fine at limit=50 scoped to a
+        # single ticker, but against a remote Postgres this made the
+        # unfiltered global Trades-tab query (limit=500, no ticker) hang for
+        # a minute+ rather than returning. Three queries total regardless of
+        # `limit` instead of up to 2*limit+1.
+        interp_ids = [row.id for row in rows]
+        actions = (
+            session.query(RtcTradeAction)
+            .filter(RtcTradeAction.interpretation_id.in_(interp_ids))
+            .all()
+        )
+        actions_by_interp = {a.interpretation_id: a for a in actions}
+        action_ids = [a.id for a in actions]
+        outcomes = (
+            session.query(RtcTradeOutcome).filter(RtcTradeOutcome.trade_action_id.in_(action_ids)).all()
+            if action_ids else []
+        )
+        outcomes_by_action = {o.trade_action_id: o for o in outcomes}
+
         results = []
         for row in rows:
-            action = (
-                session.query(RtcTradeAction)
-                .filter(RtcTradeAction.interpretation_id == row.id)
-                .first()
-            )
-            outcome = None
-            if action:
-                outcome = (
-                    session.query(RtcTradeOutcome)
-                    .filter(RtcTradeOutcome.trade_action_id == action.id)
-                    .first()
-                )
+            action = actions_by_interp.get(row.id)
+            outcome = outcomes_by_action.get(action.id) if action else None
             results.append({
                 "id": row.id, "ticker": row.ticker, "bar_ts": row.bar_ts.isoformat(),
                 "pattern_name": row.pattern_name, "pattern_type": row.pattern_type,
