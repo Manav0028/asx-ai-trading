@@ -89,6 +89,20 @@ class SignalEngine:
         self._bar_callbacks.append(callback)
 
     def _handle_bar_closed(self, ticker: str, timeframe: str, ind: Dict) -> None:
+        # Broad guard: an unexpected data edge case (e.g. a malformed bar
+        # from a data source) anywhere in indicator/pattern/signal processing
+        # must never take down this ticker's processing thread or the
+        # yfinance poll loop that called it — log and skip this bar, next
+        # bar tries fresh. Mirrors the same resilience principle already
+        # applied to yfinance's own fetch/poll error handling.
+        try:
+            self._handle_bar_closed_inner(ticker, timeframe, ind)
+        except Exception as e:
+            logger.exception("bar processing failed for %s/%s", ticker, timeframe)
+            log_event("error", source="signal_engine", ticker=ticker,
+                       detail=f"bar processing failed ({timeframe}): {type(e).__name__}: {e}")
+
+    def _handle_bar_closed_inner(self, ticker: str, timeframe: str, ind: Dict) -> None:
         log_bar(ticker, timeframe, ind)
         for cb in self._bar_callbacks:
             cb(ticker, timeframe, ind)
