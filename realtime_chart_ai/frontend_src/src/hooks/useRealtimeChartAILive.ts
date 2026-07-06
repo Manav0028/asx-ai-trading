@@ -85,6 +85,8 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
 
   const [candles, setCandles] = useState<Candle[]>([]);
   const openPositionRef = useRef<{ direction: Direction; entry: number; shares: number } | null>(null);
+  const priceRef = useRef(0);
+  useEffect(() => { priceRef.current = price; }, [price]);
 
   const append = useCallback((msg: Omit<Message, 'id'>) => {
     const id = midRef.current++;
@@ -116,8 +118,20 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
         setChartStatus('active');
         setSignal((s) => s ?? { patternName: '', direction: pos.direction, entry: pos.entry_price, stop: pos.stop_price, target: pos.target_price, rr: null });
         setPosMeta(`${pos.shares.toFixed(0)} sh · $${(pos.shares * pos.entry_price).toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
+        // P&L used to only recompute inside the WS candle_update handler —
+        // i.e. only when a brand-new live bar arrives for THIS ticker. With
+        // the ASX200 round-robin scanner, that can be minutes away, so it
+        // sat frozen at its initial 0 the whole time a position was open
+        // (reported as a stuck "+$0.00"). Recomputing here too means it
+        // refreshes at least every 5s (this function's poll interval)
+        // against whatever price is currently known, not just on live ticks.
+        if (priceRef.current) {
+          const diff = pos.direction === 'long' ? priceRef.current - pos.entry_price : pos.entry_price - priceRef.current;
+          setPnl(diff * pos.shares);
+        }
       } else {
         openPositionRef.current = null;
+        setPnl(0);
       }
     } catch {
       // positions endpoint transiently unavailable
