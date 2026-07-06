@@ -214,7 +214,7 @@ export function LiveChart({
           <div
             style={{
               position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 12.5, color: 'var(--text-tertiary)',
+              fontSize: 12.5, color: 'var(--text-tertiary)', zIndex: 2, pointerEvents: 'none',
             }}
           >
             No data yet for {displayTicker} — still waiting its turn in the scan rotation
