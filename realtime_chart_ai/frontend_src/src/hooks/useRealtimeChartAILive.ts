@@ -308,81 +308,85 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
     setPrice(0);
     setMessages([]);
 
+    function handleWsMessage(msg: WsMessage) {
+      if (msg.type === 'candle_update') {
+        if (msg.timeframe !== '1m') return;
+        const c: Candle = { o: msg.open, c: msg.close, h: msg.high, l: msg.low };
+        candlesRef.current = [...candlesRef.current, c].slice(-260);
+        setPrice(msg.close);
+        const pos = openPositionRef.current;
+        if (pos) {
+          const diff = pos.direction === 'long' ? msg.close - pos.entry : pos.entry - msg.close;
+          setPnl(diff * pos.shares);
+        }
+      } else if (msg.type === 'pattern_signal') {
+        // Below the system's own signal threshold, this fired pattern is
+        // "observed, not actioned" — it's always in the Journal (refreshed
+        // below), but doesn't take over the prominent signal card/chart
+        // overlay/copilot narration, matching the "mostly does nothing,
+        // patience is a position" ethos when real data fires lots of noise.
+        if (msg.composite_score >= thresholdRef.current) {
+          const sig: LiveSignal = {
+            patternName: msg.pattern_name, direction: msg.direction,
+            entry: msg.entry_price, stop: msg.stop_price, target: msg.target_price, rr: msg.rr_ratio,
+          };
+          setSignal(sig);
+          setChartStatus('active');
+          const start = performance.now();
+          const targetScore = msg.composite_score;
+          const targetBd = [
+            msg.breakdown.pattern_confidence, msg.breakdown.trend_alignment,
+            msg.breakdown.volume_confirmation, msg.breakdown.mtf_confluence, msg.breakdown.zone_quality,
+          ];
+          const dur = 800;
+          const step = () => {
+            const k = Math.min(1, (performance.now() - start) / dur);
+            const e = 1 - Math.pow(1 - k, 3);
+            setDispScore(Math.round(targetScore * e));
+            setBd(targetBd.map((v) => Math.round(v * e)));
+            if (k < 1) setTimeout(step, 40);
+          };
+          step();
+          pushAI(msg.claude_rationale ?? msg.rule_reason, true);
+          if (msg.trade_action) {
+            openPositionRef.current = { direction: msg.direction, entry: msg.trade_action.entry_price, shares: msg.trade_action.shares };
+          }
+          setPhase('active');
+        }
+        refreshJournal(ticker);
+      } else if (msg.type === 'trade_exit') {
+        openPositionRef.current = null;
+        setPhase('closed');
+        setChartStatus('closed');
+        const win = msg.net_pnl >= 0;
+        pushAI(
+          `Position closed — ${msg.direction.toUpperCase()} exited at $${msg.exit_price.toFixed(3)} after ${msg.bars_held} bars (${msg.exit_reason.replace('_', ' ')}). Net ${win ? '+' : ''}$${msg.net_pnl.toFixed(2)}.`,
+          false,
+        );
+        refreshJournal(ticker);
+        setTimeout(() => { setPhase('watching'); setChartStatus('watching'); setSignal(null); setPnl(0); }, 6000);
+      }
+    }
+
+    // Opened immediately, in parallel with the REST catch-up below, instead
+    // of after — the socket doesn't depend on any of those responses, and
+    // gating it behind three sequential round trips was the main source of
+    // visible lag between picking a ticker and its signal panel filling in.
+    stopSocket = connectCandleSocket(ticker, handleWsMessage);
+    pollTimer = setInterval(() => refreshPositions(ticker), 5000);
+
     (async () => {
       const source = activeSourceRef.current;
       pushSystem(`Connected · ${source} · ${ticker} · 1-minute bars`);
       pushAI(`Reading ${ticker} live. Watching for a confirmed setup — nothing to do until a pattern, the trend and the higher timeframe all agree.`, false);
 
-      const [{ candles }, autoTradeStatus] = await Promise.all([api.getCandles(ticker, 200), api.getAutoTrade()]);
+      const [{ candles }, autoTradeStatus] = await Promise.all([
+        api.getCandles(ticker, 200), api.getAutoTrade(), refreshJournal(ticker), refreshPositions(ticker),
+      ]);
       if (cancelled) return;
       candlesRef.current = candles.map((c) => ({ o: c.open, c: c.close, h: c.high, l: c.low }));
       if (candles.length) setPrice(candles[candles.length - 1].close);
       setAutoTradeState(autoTradeStatus.enabled);
-      await refreshJournal(ticker);
-      await refreshPositions(ticker);
-      if (cancelled) return;
-
-      stopSocket = connectCandleSocket(ticker, (msg: WsMessage) => {
-        if (msg.type === 'candle_update') {
-          if (msg.timeframe !== '1m') return;
-          const c: Candle = { o: msg.open, c: msg.close, h: msg.high, l: msg.low };
-          candlesRef.current = [...candlesRef.current, c].slice(-260);
-          setPrice(msg.close);
-          const pos = openPositionRef.current;
-          if (pos) {
-            const diff = pos.direction === 'long' ? msg.close - pos.entry : pos.entry - msg.close;
-            setPnl(diff * pos.shares);
-          }
-        } else if (msg.type === 'pattern_signal') {
-          // Below the system's own signal threshold, this fired pattern is
-          // "observed, not actioned" — it's always in the Journal (refreshed
-          // below), but doesn't take over the prominent signal card/chart
-          // overlay/copilot narration, matching the "mostly does nothing,
-          // patience is a position" ethos when real data fires lots of noise.
-          if (msg.composite_score >= thresholdRef.current) {
-            const sig: LiveSignal = {
-              patternName: msg.pattern_name, direction: msg.direction,
-              entry: msg.entry_price, stop: msg.stop_price, target: msg.target_price, rr: msg.rr_ratio,
-            };
-            setSignal(sig);
-            setChartStatus('active');
-            const start = performance.now();
-            const targetScore = msg.composite_score;
-            const targetBd = [
-              msg.breakdown.pattern_confidence, msg.breakdown.trend_alignment,
-              msg.breakdown.volume_confirmation, msg.breakdown.mtf_confluence, msg.breakdown.zone_quality,
-            ];
-            const dur = 800;
-            const step = () => {
-              const k = Math.min(1, (performance.now() - start) / dur);
-              const e = 1 - Math.pow(1 - k, 3);
-              setDispScore(Math.round(targetScore * e));
-              setBd(targetBd.map((v) => Math.round(v * e)));
-              if (k < 1) setTimeout(step, 40);
-            };
-            step();
-            pushAI(msg.claude_rationale ?? msg.rule_reason, true);
-            if (msg.trade_action) {
-              openPositionRef.current = { direction: msg.direction, entry: msg.trade_action.entry_price, shares: msg.trade_action.shares };
-            }
-            setPhase('active');
-          }
-          refreshJournal(ticker);
-        } else if (msg.type === 'trade_exit') {
-          openPositionRef.current = null;
-          setPhase('closed');
-          setChartStatus('closed');
-          const win = msg.net_pnl >= 0;
-          pushAI(
-            `Position closed — ${msg.direction.toUpperCase()} exited at $${msg.exit_price.toFixed(3)} after ${msg.bars_held} bars (${msg.exit_reason.replace('_', ' ')}). Net ${win ? '+' : ''}$${msg.net_pnl.toFixed(2)}.`,
-            false,
-          );
-          refreshJournal(ticker);
-          setTimeout(() => { setPhase('watching'); setChartStatus('watching'); setSignal(null); setPnl(0); }, 6000);
-        }
-      });
-
-      pollTimer = setInterval(() => refreshPositions(ticker), 5000);
     })();
 
     return () => {
