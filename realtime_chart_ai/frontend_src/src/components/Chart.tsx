@@ -1,9 +1,9 @@
 import type { RefObject } from 'react';
-import type { Phase } from '../types';
+import type { Direction, Phase } from '../types';
 
 const STATUS_MAP: Record<Phase, { t: string; d: string }> = {
   watching: { t: 'Watching for setup', d: 'var(--warning)' },
-  active: { t: 'LONG signal firing', d: 'var(--profit)' },
+  active: { t: 'signal firing', d: 'var(--profit)' },
   closed: { t: 'Target reached', d: 'var(--profit)' },
 };
 
@@ -11,12 +11,15 @@ export function Chart({
   canvasRef,
   chartStatus,
   ticker = 'BHP',
+  direction = 'long',
 }: {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   chartStatus: Phase;
   ticker?: string;
+  direction?: Direction;
 }) {
   const st = STATUS_MAP[chartStatus] ?? STATUS_MAP.watching;
+  const label = chartStatus === 'active' ? `${direction.toUpperCase()} ${st.t}` : st.t;
   const displayTicker = ticker.replace(/\.(AX|NS)$/i, '');
 
   return (
@@ -63,7 +66,7 @@ export function Chart({
           }}
         >
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: st.d }} />
-          {st.t}
+          {label}
         </div>
       </div>
     </section>

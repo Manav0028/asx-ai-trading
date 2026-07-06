@@ -51,8 +51,12 @@ function journalRowToTrade(row: ApiJournalRow): Trade | null {
 }
 
 export function useRealtimeChartAILive(beginnerMode: boolean) {
-  const [ticker, setTicker] = useState<string>('BHP.AX');
+  const [ticker, setTicker] = useState<string>('');
+  const [availableTickers, setAvailableTickers] = useState<string[]>([]);
   const [activeSource, setActiveSource] = useState<string>('connecting');
+  const activeSourceRef = useRef('connecting');
+  useEffect(() => { activeSourceRef.current = activeSource; }, [activeSource]);
+  const thresholdRef = useRef(65);
   const [tf, setTf] = useState('1m');
   const [tab, setTab] = useState<Tab>('copilot');
   const [beginner, setBeginner] = useState(beginnerMode);
@@ -239,12 +243,10 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
     ctx.beginPath(); ctx.moveTo(padL, ly); ctx.lineTo(padL + plotW - lw, ly); ctx.stroke(); ctx.setLineDash([]);
   }, []);
 
+  // Canvas + resize-loop setup — ticker-independent, mount-once.
   useEffect(() => {
-    let cancelled = false;
     let raf = 0;
     let ro: ResizeObserver | null = null;
-    let stopSocket: (() => void) | null = null;
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
 
     const loop = () => { draw(); raf = requestAnimationFrame(loop); };
     raf = requestAnimationFrame(loop);
@@ -265,25 +267,62 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
       ro.observe(canvas.parentElement!);
     }
 
+    return () => {
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
+    };
+  }, [draw]);
+
+  // One-time: discover the tracked watchlist and pick a starting ticker.
+  useEffect(() => {
+    let cancelled = false;
     (async () => {
       const { tickers, active_source, signal_threshold } = await api.getTickers();
       if (cancelled) return;
-      const threshold = signal_threshold ?? 65;
-      const tk = tickers[0] ?? 'BHP.AX';
-      setTicker(tk);
+      thresholdRef.current = signal_threshold ?? 65;
+      setAvailableTickers(tickers);
       setActiveSource(active_source);
-      pushSystem(`Connected · ${active_source} · ${tk} · 1-minute bars`);
-      pushAI(`Reading ${tk} live. Watching for a confirmed setup — nothing to do until a pattern, the trend and the higher timeframe all agree.`, false);
+      setTicker((cur) => cur || tickers[0] || 'BHP.AX');
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
-      const [{ candles }, autoTradeStatus] = await Promise.all([api.getCandles(tk, 200), api.getAutoTrade()]);
+  const switchTicker = useCallback((tk: string) => {
+    setTicker((cur) => (cur === tk ? cur : tk));
+  }, []);
+
+  // Re-runs whenever the selected ticker changes: tears down the previous
+  // ticker's WS/candles/journal/positions and reconnects for the new one.
+  useEffect(() => {
+    if (!ticker) return;
+    let cancelled = false;
+    let stopSocket: (() => void) | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    candlesRef.current = [];
+    openPositionRef.current = null;
+    setSignal(null);
+    setPhase('watching');
+    setChartStatus('watching');
+    setPnl(0);
+    setPrice(0);
+    setMessages([]);
+
+    (async () => {
+      const source = activeSourceRef.current;
+      pushSystem(`Connected · ${source} · ${ticker} · 1-minute bars`);
+      pushAI(`Reading ${ticker} live. Watching for a confirmed setup — nothing to do until a pattern, the trend and the higher timeframe all agree.`, false);
+
+      const [{ candles }, autoTradeStatus] = await Promise.all([api.getCandles(ticker, 200), api.getAutoTrade()]);
       if (cancelled) return;
       candlesRef.current = candles.map((c) => ({ o: c.open, c: c.close, h: c.high, l: c.low }));
       if (candles.length) setPrice(candles[candles.length - 1].close);
       setAutoTradeState(autoTradeStatus.enabled);
-      await refreshJournal(tk);
-      await refreshPositions(tk);
+      await refreshJournal(ticker);
+      await refreshPositions(ticker);
+      if (cancelled) return;
 
-      stopSocket = connectCandleSocket(tk, (msg: WsMessage) => {
+      stopSocket = connectCandleSocket(ticker, (msg: WsMessage) => {
         if (msg.type === 'candle_update') {
           if (msg.timeframe !== '1m') return;
           const c: Candle = { o: msg.open, c: msg.close, h: msg.high, l: msg.low };
@@ -300,7 +339,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
           // below), but doesn't take over the prominent signal card/chart
           // overlay/copilot narration, matching the "mostly does nothing,
           // patience is a position" ethos when real data fires lots of noise.
-          if (msg.composite_score >= threshold) {
+          if (msg.composite_score >= thresholdRef.current) {
             const sig: LiveSignal = {
               patternName: msg.pattern_name, direction: msg.direction,
               entry: msg.entry_price, stop: msg.stop_price, target: msg.target_price, rr: msg.rr_ratio,
@@ -328,7 +367,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
             }
             setPhase('active');
           }
-          refreshJournal(tk);
+          refreshJournal(ticker);
         } else if (msg.type === 'trade_exit') {
           openPositionRef.current = null;
           setPhase('closed');
@@ -338,23 +377,20 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
             `Position closed — ${msg.direction.toUpperCase()} exited at $${msg.exit_price.toFixed(3)} after ${msg.bars_held} bars (${msg.exit_reason.replace('_', ' ')}). Net ${win ? '+' : ''}$${msg.net_pnl.toFixed(2)}.`,
             false,
           );
-          refreshJournal(tk);
+          refreshJournal(ticker);
           setTimeout(() => { setPhase('watching'); setChartStatus('watching'); setSignal(null); setPnl(0); }, 6000);
         }
       });
 
-      pollTimer = setInterval(() => refreshPositions(tk), 5000);
+      pollTimer = setInterval(() => refreshPositions(ticker), 5000);
     })();
 
     return () => {
       cancelled = true;
-      cancelAnimationFrame(raf);
-      ro?.disconnect();
       stopSocket?.();
       if (pollTimer) clearInterval(pollTimer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [ticker, refreshJournal, refreshPositions, pushSystem, pushAI]);
 
   return {
     tf, setTf,
@@ -365,7 +401,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
     messages, typing, draft, setDraft, feedRef, ask, send,
     journal,
     trades, expandedTrade, toggleTrade: (id: number) => setExpandedTrade((cur) => (cur === id ? null : id)),
-    ticker, activeSource,
+    ticker, availableTickers, switchTicker, activeSource,
     entry: signal?.entry ?? 0, stop: signal?.stop ?? 0, target: signal?.target ?? 0,
     rr: signal?.rr ?? null, patternName: signal?.patternName ?? '', direction: signal?.direction ?? 'long',
     posMeta,

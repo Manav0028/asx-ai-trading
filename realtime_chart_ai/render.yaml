@@ -36,15 +36,14 @@ services:
       - key: FALLBACK_SOURCE
         value: scripted_mock
 
-      # ── Watchlist — temporarily back to a single ticker. Yahoo rate-limited
-      #    this deploy (YFRateLimitError) after repeated restarts tonight;
-      #    each restart does 1 probe + 2 historical fetches per ticker, so 5
-      #    tickers meant 11 requests per restart instead of 3. Re-expand once
-      #    real data is confirmed stable and the rate limit has headroom —
-      #    see PLAN.md / session notes for the full list to restore
-      #    (BHP.AX,CBA.AX,CSL.AX,NAB.AX,WES.AX) ───────────────────────────────
+      # ── Watchlist — liquid ASX blue chips across sectors (mining, banking,
+      #    healthcare, retail). Real data + rate-limit recovery are confirmed
+      #    stable (see rtc_events), and the startup probe that contributed to
+      #    the earlier rate limit is now removed, so re-expanding here. The
+      #    frontend ticker switcher (header dropdown) makes this list
+      #    directly usable, not just backend-tracked ──────────────────────────
       - key: RTC_TICKERS
-        value: BHP.AX
+        value: BHP.AX,CBA.AX,CSL.AX,NAB.AX,WES.AX
 
       # ── Auto-trade stays off by default on a public demo deployment; the
       #    frontend switch (confirm-to-enable) is still there if wanted ────

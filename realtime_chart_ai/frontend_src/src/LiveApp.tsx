@@ -24,10 +24,13 @@ function LiveApp() {
         autoTrade={rc.autoTrade}
         toggleAutoTrade={rc.toggleAutoTrade}
         ticker={rc.ticker}
+        availableTickers={rc.availableTickers}
+        onSelectTicker={rc.switchTicker}
+        activeSource={rc.activeSource}
       />
 
       <main id="rcai-main" style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <Chart canvasRef={rc.canvasRef} chartStatus={rc.chartStatus} ticker={rc.ticker} />
+        <Chart canvasRef={rc.canvasRef} chartStatus={rc.chartStatus} ticker={rc.ticker} direction={rc.direction} />
         <Rail
           phase={rc.phase}
           dispScore={rc.dispScore}

@@ -1,6 +1,13 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 
 const TFS = ['1m', '5m', '15m', '1D'] as const;
+
+function sourceLabel(source: string): string {
+  if (source === 'yfinance_delayed') return 'Yahoo · ~15-20min delayed';
+  if (source === 'ibkr') return 'IBKR · real-time';
+  if (source === 'scripted_mock') return 'Demo data · not live';
+  return source;
+}
 
 export function Header({
   tf,
@@ -10,6 +17,9 @@ export function Header({
   autoTrade,
   toggleAutoTrade,
   ticker = 'BHP',
+  availableTickers = [],
+  onSelectTicker,
+  activeSource = 'connecting',
   exchangeLabel = 'ASX 200',
 }: {
   tf: string;
@@ -19,9 +29,24 @@ export function Header({
   autoTrade: boolean;
   toggleAutoTrade: () => void;
   ticker?: string;
+  availableTickers?: string[];
+  onSelectTicker?: (ticker: string) => void;
+  activeSource?: string;
   exchangeLabel?: string;
 }) {
   const displayTicker = ticker.replace(/\.(AX|NS)$/i, '');
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
+
   const pillStyle = (v: string): CSSProperties => ({
     border: 'none',
     background: tf === v ? 'var(--bg-secondary)' : 'transparent',
@@ -61,17 +86,52 @@ export function Header({
           </div>
         </div>
         <div style={{ width: 1, height: 26, background: 'var(--border)' }} />
-        <button
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-            borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: 'var(--text-primary)',
-          }}
-        >
-          <span style={{ fontSize: 13 }}>🇦🇺</span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 13 }}>{displayTicker}</span>
-          <span style={{ fontSize: 10.5, color: 'var(--text-tertiary)', letterSpacing: '.04em' }}>{exchangeLabel}</span>
-          <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>▾</span>
-        </button>
+        <div ref={menuRef} style={{ position: 'relative' }}>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            aria-haspopup="listbox"
+            aria-expanded={open}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: 'var(--text-primary)',
+            }}
+          >
+            <span style={{ fontSize: 13 }}>🇦🇺</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 13 }}>{displayTicker}</span>
+            <span style={{ fontSize: 10.5, color: 'var(--text-tertiary)', letterSpacing: '.04em' }}>{exchangeLabel}</span>
+            <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>▾</span>
+          </button>
+          {open && availableTickers.length > 0 && (
+            <div
+              role="listbox"
+              style={{
+                position: 'absolute', top: 'calc(100% + 6px)', left: 0, minWidth: 160, zIndex: 20,
+                background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8,
+                padding: 4, boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+              }}
+            >
+              {availableTickers.map((t) => {
+                const active = t === ticker;
+                return (
+                  <button
+                    key={t}
+                    role="option"
+                    aria-selected={active}
+                    onClick={() => { onSelectTicker?.(t); setOpen(false); }}
+                    style={{
+                      display: 'block', width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
+                      padding: '7px 10px', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 12.5,
+                      background: active ? 'var(--accent-dim)' : 'transparent',
+                      color: active ? 'var(--accent)' : 'var(--text-primary)', fontWeight: active ? 600 : 400,
+                    }}
+                  >
+                    {t.replace(/\.(AX|NS)$/i, '')}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
         <div
           id="rcai-tfpills"
           style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 8, padding: 3 }}
@@ -101,7 +161,7 @@ export function Header({
             borderRadius: 999, padding: '5px 11px', fontSize: 11, color: 'var(--text-secondary)', letterSpacing: '.03em',
           }}
         >
-          IBKR&nbsp;·&nbsp;real-time
+          {sourceLabel(activeSource)}
         </span>
         <button
           onClick={toggleBeginner}
