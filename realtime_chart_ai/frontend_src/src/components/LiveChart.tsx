@@ -89,11 +89,24 @@ export function LiveChart({
   // against real data: BHP -> MQG showed a completely empty chart despite
   // valid data loading, because the old view was scrolled to a time range
   // MQG had no bars in).
+  //
+  // Separately, an empty `candles` array (a ticker with no data yet — e.g.
+  // one still waiting its turn in the ASX200 round-robin scan, or hit a
+  // transient Yahoo rate limit) used to just skip the update entirely,
+  // leaving whichever ticker's candles were on screen BEFORE the switch
+  // still rendered — silently showing the wrong ticker's prices under the
+  // new ticker's label/header. Now explicitly clears both series when
+  // there's nothing to show, so an empty ticker reads as empty, not stale.
   useEffect(() => {
     const chart = chartRef.current;
     const candleSeries = candleSeriesRef.current;
     const volumeSeries = volumeSeriesRef.current;
-    if (!chart || !candleSeries || !volumeSeries || candles.length === 0) return;
+    if (!chart || !candleSeries || !volumeSeries) return;
+    if (candles.length === 0) {
+      candleSeries.setData([]);
+      volumeSeries.setData([]);
+      return;
+    }
     const bars = candles.filter((c) => c.time != null);
     candleSeries.setData(bars.map((c) => ({
       time: c.time as UTCTimestamp, open: c.o, high: c.h, low: c.l, close: c.c,
@@ -195,6 +208,16 @@ export function LiveChart({
             <div style={{ fontSize: 10.5, color: 'var(--text-tertiary)' }}>
               Vol {fmtVolume(stats.volume)}
             </div>
+          </div>
+        )}
+        {!stats && (
+          <div
+            style={{
+              position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 12.5, color: 'var(--text-tertiary)',
+            }}
+          >
+            No data yet for {displayTicker} — still waiting its turn in the scan rotation
           </div>
         )}
       </div>
