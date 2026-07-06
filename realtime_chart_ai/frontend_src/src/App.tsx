@@ -32,7 +32,6 @@ function App() {
           phase={rc.phase}
           dispScore={rc.dispScore}
           bd={rc.bd}
-          autoTrade={rc.autoTrade}
           pnl={rc.pnl}
           patternName="Bullish order-block retest"
           direction="long"

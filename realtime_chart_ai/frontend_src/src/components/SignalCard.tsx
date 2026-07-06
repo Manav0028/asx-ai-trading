@@ -18,7 +18,6 @@ export function SignalCard({
   phase,
   dispScore,
   bd,
-  autoTrade,
   pnl,
   patternName = 'Bullish order-block retest',
   direction = 'long',
@@ -27,11 +26,11 @@ export function SignalCard({
   target = 42.48,
   rr = 2.0,
   posMeta = '190 sh · $8,000 · risk $38',
+  hasOpenPosition = false,
 }: {
   phase: Phase;
   dispScore: number;
   bd: number[];
-  autoTrade: boolean;
   pnl: number;
   patternName?: string;
   direction?: Direction;
@@ -40,14 +39,22 @@ export function SignalCard({
   target?: number;
   rr?: number | null;
   posMeta?: string;
+  hasOpenPosition?: boolean;
 }) {
   const hasSignal = phase !== 'watching';
   const active = phase === 'active' || phase === 'closed';
   const pnlColor = pnl >= 0 ? 'var(--profit)' : 'var(--loss)';
   const pnlStr = (pnl >= 0 ? '+' : '−') + '$' + Math.abs(pnl).toFixed(2);
   const scoreColor = dispScore >= 70 ? 'var(--profit)' : dispScore >= 60 ? 'var(--warning)' : 'var(--text-primary)';
-  const showPosition = active && autoTrade;
-  const autoOff = active && !autoTrade;
+  // Whether a REAL position is open for this ticker, not whether auto-trade
+  // currently happens to be toggled on — those are different facts once a
+  // position opened while the toggle was on outlives a later toggle-off
+  // (the toggle only gates new entries, per the backend's own design; see
+  // trading/state.py). Using the live `autoTrade` flag here previously made
+  // every currently-open position wrongly render as "not taken" the moment
+  // the toggle was flipped off, hiding its real P&L.
+  const showPosition = active && hasOpenPosition;
+  const autoOff = active && !hasOpenPosition;
   const isLong = direction === 'long';
   const conv = convictionLabel(dispScore);
   const targetPct = entry ? (((target - entry) / entry) * (isLong ? 100 : -100)).toFixed(2) : '0.00';
@@ -196,7 +203,7 @@ export function SignalCard({
                 padding: '8px 11px', marginBottom: 9, lineHeight: 1.45,
               }}
             >
-              Auto-trade is off — this setup is shown, not taken. Flip it on to let the system paper-trade it.
+              This setup is shown, not taken as a paper position — either auto-trade is off or the entry conditions weren't fully met.
             </div>
           )}
 

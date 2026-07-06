@@ -77,6 +77,12 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
   const [draft, setDraft] = useState('');
   const [typing, setTyping] = useState(false);
   const [posMeta, setPosMeta] = useState('');
+  // Whether THIS ticker actually has an open (simulated) position right
+  // now — independent of the global auto-trade toggle. A position opened
+  // while auto-trade was on keeps running after the toggle is flipped off
+  // (the toggle only gates new entries), so "is a position open" and "is
+  // auto-trade currently on" are different facts and must not be conflated.
+  const [hasOpenPosition, setHasOpenPosition] = useState(false);
 
   const feedRef = useRef<HTMLDivElement | null>(null);
   const midRef = useRef(0);
@@ -114,6 +120,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
       const pos = positions[0];
       if (pos) {
         openPositionRef.current = { direction: pos.direction, entry: pos.entry_price, shares: pos.shares };
+        setHasOpenPosition(true);
         setPhase('active');
         setChartStatus('active');
         setSignal((s) => s ?? { patternName: '', direction: pos.direction, entry: pos.entry_price, stop: pos.stop_price, target: pos.target_price, rr: null });
@@ -131,6 +138,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
         }
       } else {
         openPositionRef.current = null;
+        setHasOpenPosition(false);
         setPnl(0);
       }
     } catch {
@@ -224,6 +232,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
 
     setCandles([]);
     openPositionRef.current = null;
+    setHasOpenPosition(false);
     setSignal(null);
     setPhase('watching');
     setChartStatus('watching');
@@ -273,12 +282,14 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
           pushAI(msg.claude_rationale ?? msg.rule_reason, true);
           if (msg.trade_action) {
             openPositionRef.current = { direction: msg.direction, entry: msg.trade_action.entry_price, shares: msg.trade_action.shares };
+            setHasOpenPosition(true);
           }
           setPhase('active');
         }
         refreshJournal(ticker);
       } else if (msg.type === 'trade_exit') {
         openPositionRef.current = null;
+        setHasOpenPosition(false);
         setPhase('closed');
         setChartStatus('closed');
         const win = msg.net_pnl >= 0;
@@ -344,6 +355,6 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
     ticker, availableTickers, switchTicker, activeSource, sectors, heldTickers,
     entry: signal?.entry ?? 0, stop: signal?.stop ?? 0, target: signal?.target ?? 0,
     rr: signal?.rr ?? null, patternName: signal?.patternName ?? '', direction: signal?.direction ?? 'long',
-    posMeta,
+    posMeta, hasOpenPosition,
   };
 }

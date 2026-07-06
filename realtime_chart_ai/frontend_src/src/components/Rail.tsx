@@ -15,7 +15,6 @@ export function Rail(props: {
   phase: Phase;
   dispScore: number;
   bd: number[];
-  autoTrade: boolean;
   pnl: number;
   patternName?: string;
   direction?: Direction;
@@ -24,6 +23,7 @@ export function Rail(props: {
   target?: number;
   rr?: number | null;
   posMeta?: string;
+  hasOpenPosition?: boolean;
   tab: Tab;
   setTab: (t: Tab) => void;
   messages: Message[];
@@ -38,7 +38,7 @@ export function Rail(props: {
   expandedTrade: number | null;
   toggleTrade: (id: number) => void;
 }) {
-  const { phase, dispScore, bd, autoTrade, pnl, tab, setTab } = props;
+  const { phase, dispScore, bd, pnl, tab, setTab } = props;
 
   return (
     <aside
@@ -49,9 +49,10 @@ export function Rail(props: {
       }}
     >
       <SignalCard
-        phase={phase} dispScore={dispScore} bd={bd} autoTrade={autoTrade} pnl={pnl}
+        phase={phase} dispScore={dispScore} bd={bd} pnl={pnl}
         patternName={props.patternName} direction={props.direction}
         entry={props.entry} stop={props.stop} target={props.target} rr={props.rr} posMeta={props.posMeta}
+        hasOpenPosition={props.hasOpenPosition}
       />
 
       <div style={{ flex: 'none', display: 'flex', borderBottom: '1px solid var(--border)' }}>

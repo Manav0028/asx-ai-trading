@@ -45,7 +45,6 @@ function LiveApp() {
           phase={rc.phase}
           dispScore={rc.dispScore}
           bd={rc.bd}
-          autoTrade={rc.autoTrade}
           pnl={rc.pnl}
           patternName={rc.patternName}
           direction={rc.direction}
@@ -54,6 +53,7 @@ function LiveApp() {
           target={rc.target}
           rr={rc.rr}
           posMeta={rc.posMeta}
+          hasOpenPosition={rc.hasOpenPosition}
           tab={rc.tab}
           setTab={rc.setTab}
           messages={rc.messages}
