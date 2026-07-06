@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from typing import Awaitable, Callable, List, Optional
 
 from datasources.base import Candle, CandleDataSource
+from journal.recorder import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -62,26 +63,19 @@ class YFinanceFallbackSource(CandleDataSource):
             self._healthy = False
             self._last_error = "yfinance package not installed"
             return False
-        # A cheap reachability probe; failures here (including this sandbox's
-        # "host not in allowlist" 403, or Yahoo silently hanging on a
-        # cloud-provider IP) are expected/handled, not raised — bounded by
-        # an explicit timeout so a hang here can never block the caller
-        # (DataSourceManager.start(), called from FastAPI's lifespan) forever.
-        try:
-            ok = await asyncio.wait_for(asyncio.to_thread(self._probe), timeout=_HTTP_TIMEOUT_SECONDS)
-            if not ok:
-                self._last_error = "probe returned no data (empty/None dataframe from yfinance)"
-        except Exception as e:
-            logger.warning("yfinance reachability probe failed or timed out: %s", e)
-            ok = False
-            self._last_error = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+        # No separate reachability probe anymore — it was one more Yahoo HTTP
+        # request per restart, and every restart during tonight's debugging
+        # compounded into a real YFRateLimitError from Yahoo (confirmed via
+        # rtc_events). The real health check is the historical/poll fetches
+        # that follow (fetch_historical, _poll_loop) — both already bounded
+        # and already fail soft (empty result / logged-and-retried) rather
+        # than raising, and _poll_loop now retries indefinitely (see below),
+        # so a transient Yahoo issue self-heals without needing a restart —
+        # unlike falling back to scripted_mock here, which would mask the
+        # outage behind fake data and never automatically recover.
+        ok = True
         self._healthy = ok
         return ok
-
-    def _probe(self) -> bool:
-        import yfinance as yf
-        df = yf.Ticker("BHP.AX").history(period="1d", interval="1d")
-        return df is not None and not df.empty
 
     async def disconnect(self) -> None:
         self._healthy = False
@@ -106,7 +100,9 @@ class YFinanceFallbackSource(CandleDataSource):
                 asyncio.to_thread(self._fetch_sync, ticker, timeframe, period), timeout=_HTTP_TIMEOUT_SECONDS,
             )
         except Exception as e:
+            detail = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
             logger.warning("yfinance fetch_historical failed or timed out for %s/%s: %s", ticker, timeframe, e)
+            log_event("error", source=self.name, ticker=ticker, detail=f"fetch_historical({timeframe}) failed: {detail}")
             return []
         if df is None or df.empty:
             return []
@@ -152,5 +148,16 @@ class YFinanceFallbackSource(CandleDataSource):
                 # after the underlying issue cleared. Log and keep retrying
                 # on the normal interval instead; only stop if the process
                 # itself is shutting down (self._healthy flips False there).
+                detail = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
                 logger.warning("yfinance poll failed for %s: %s — retrying in %ss", ticker, e, _POLL_SECONDS)
+                # De-duplicated against rtc_events — polling every 30s would
+                # otherwise flood the journal with an identical row for as
+                # long as an outage (e.g. a rate limit) lasts.
+                if self._last_error != detail:
+                    log_event("error", source=self.name, ticker=ticker, detail=f"poll failed: {detail}")
+                    self._last_error = detail
+            else:
+                if self._last_error is not None:
+                    log_event("connect", source=self.name, ticker=ticker, detail="poll recovered")
+                    self._last_error = None
             await asyncio.sleep(_POLL_SECONDS)
