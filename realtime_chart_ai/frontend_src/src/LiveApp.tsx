@@ -54,6 +54,10 @@ function LiveApp() {
           rr={rc.rr}
           posMeta={rc.posMeta}
           hasOpenPosition={rc.hasOpenPosition}
+          ticker={rc.ticker}
+          price={rc.price}
+          shares={rc.posShares}
+          onPositionChanged={rc.refreshCurrentPosition}
           tab={rc.tab}
           setTab={rc.setTab}
           messages={rc.messages}

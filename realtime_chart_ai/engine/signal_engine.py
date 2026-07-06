@@ -213,7 +213,7 @@ class SignalEngine:
             "smc_context": interpretation_payload["smc_context"] or "none",
             "nearest_levels": nearest_desc, "volume_ratio": round(volume_ratio, 2),
             "volume_profile": vp_desc,
-        })
+        }, use_claude=composite >= RTC_SIGNAL_THRESHOLD)
         interpretation_payload["claude_rationale"] = rationale["text"]
         interpretation_payload["claude_model"] = rationale["model"]
 

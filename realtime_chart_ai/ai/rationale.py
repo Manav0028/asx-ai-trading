@@ -56,10 +56,19 @@ def _rule_based_rationale(signal: Dict, context: Dict) -> str:
     return " ".join(parts)
 
 
-def generate_rationale(signal: Dict, context: Dict) -> Dict:
+def generate_rationale(signal: Dict, context: Dict, use_claude: bool = True) -> Dict:
     """Returns {'text': str, 'model': str}. Falls back to a rule-based
-    template if ANTHROPIC_API_KEY is unset or the API call fails."""
-    if not ANTHROPIC_API_KEY:
+    template if ANTHROPIC_API_KEY is unset, use_claude is False, or the API
+    call fails.
+
+    use_claude=False skips the API call entirely rather than just falling
+    back on error — the caller (signal_engine.py) passes this for any signal
+    below RTC_SIGNAL_THRESHOLD. Every fired pattern across ~171 round-robin
+    tickers used to get a real Claude call regardless of whether it cleared
+    the threshold, which is most of them (most fired patterns are noise that
+    never reaches a trade) — that was the actual driver of high API usage,
+    not the traded/threshold-clearing signals this feature exists to narrate."""
+    if not ANTHROPIC_API_KEY or not use_claude:
         return {"text": _rule_based_rationale(signal, context), "model": "rule_fallback"}
 
     import anthropic

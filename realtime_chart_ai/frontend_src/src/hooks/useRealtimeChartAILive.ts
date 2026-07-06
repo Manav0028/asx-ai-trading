@@ -77,6 +77,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
   const [draft, setDraft] = useState('');
   const [typing, setTyping] = useState(false);
   const [posMeta, setPosMeta] = useState('');
+  const [posShares, setPosShares] = useState(0);
   // Whether THIS ticker actually has an open (simulated) position right
   // now — independent of the global auto-trade toggle. A position opened
   // while auto-trade was on keeps running after the toggle is flipped off
@@ -125,6 +126,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
         setChartStatus('active');
         setSignal((s) => s ?? { patternName: '', direction: pos.direction, entry: pos.entry_price, stop: pos.stop_price, target: pos.target_price, rr: null });
         setPosMeta(`${pos.shares.toFixed(0)} sh · $${(pos.shares * pos.entry_price).toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
+        setPosShares(pos.shares);
         // P&L used to only recompute inside the WS candle_update handler —
         // i.e. only when a brand-new live bar arrives for THIS ticker. With
         // the ASX200 round-robin scanner, that can be minutes away, so it
@@ -140,6 +142,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
         openPositionRef.current = null;
         setHasOpenPosition(false);
         setPnl(0);
+        setPosShares(0);
       }
     } catch {
       // positions endpoint transiently unavailable
@@ -233,6 +236,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
     setCandles([]);
     openPositionRef.current = null;
     setHasOpenPosition(false);
+    setPosShares(0);
     setSignal(null);
     setPhase('watching');
     setChartStatus('watching');
@@ -283,6 +287,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
           if (msg.trade_action) {
             openPositionRef.current = { direction: msg.direction, entry: msg.trade_action.entry_price, shares: msg.trade_action.shares };
             setHasOpenPosition(true);
+            setPosShares(msg.trade_action.shares);
           }
           setPhase('active');
         }
@@ -290,6 +295,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
       } else if (msg.type === 'trade_exit') {
         openPositionRef.current = null;
         setHasOpenPosition(false);
+        setPosShares(0);
         setPhase('closed');
         setChartStatus('closed');
         const win = msg.net_pnl >= 0;
@@ -334,6 +340,14 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
     if (!ticker) return;
     let cancelled = false;
     (async () => {
+      // Forces an immediate out-of-band fetch for this ticker instead of
+      // waiting for its next turn in the ASX200 round-robin scan (which can
+      // otherwise be minutes away) — the background scan keeps covering
+      // every other ticker unchanged. Best-effort: if this is slow/fails,
+      // still fall through to the regular candle fetch below rather than
+      // blocking the chart on it.
+      await api.prioritize(ticker).catch(() => {});
+      if (cancelled) return;
       const { candles: rows } = await api.getCandles(ticker, toBackendTf(tf), 500);
       if (cancelled) return;
       const mapped = rows.map(apiCandleToCandle);
@@ -355,6 +369,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
     ticker, availableTickers, switchTicker, activeSource, sectors, heldTickers,
     entry: signal?.entry ?? 0, stop: signal?.stop ?? 0, target: signal?.target ?? 0,
     rr: signal?.rr ?? null, patternName: signal?.patternName ?? '', direction: signal?.direction ?? 'long',
-    posMeta, hasOpenPosition,
+    posMeta, hasOpenPosition, posShares,
+    refreshCurrentPosition: () => refreshPositions(ticker),
   };
 }

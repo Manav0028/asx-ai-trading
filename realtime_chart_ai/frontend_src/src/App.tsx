@@ -40,6 +40,10 @@ function App() {
           target={TARGET}
           rr={2.0}
           posMeta={`${SHARES} sh · $${NOTIONAL.toLocaleString()} · risk $${RISK}`}
+          ticker="BHP.AX"
+          price={ENTRY}
+          shares={SHARES}
+          onPositionChanged={() => {}}
           tab={rc.tab}
           setTab={rc.setTab}
           messages={rc.messages}

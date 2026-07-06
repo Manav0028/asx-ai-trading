@@ -136,8 +136,22 @@ export const api = {
     ),
   getJournal: (ticker: string, limit = 50) =>
     getJson<ApiJournalRow[]>(`/api/journal?ticker=${encodeURIComponent(ticker)}&limit=${limit}`),
+  // No ticker filter — every tracked ticker's history, for the global
+  // Trades tab. start/end are 'YYYY-MM-DD' strings (inclusive).
+  getJournalGlobal: (opts: { limit?: number; start?: string; end?: string } = {}) => {
+    const params = new URLSearchParams();
+    params.set('limit', String(opts.limit ?? 500));
+    if (opts.start) params.set('start', opts.start);
+    if (opts.end) params.set('end', opts.end);
+    return getJson<ApiJournalRow[]>(`/api/journal?${params.toString()}`);
+  },
   getPositions: (ticker: string) => getJson<ApiPosition[]>(`/api/positions?ticker=${encodeURIComponent(ticker)}`),
   getAllPositions: () => getJson<ApiPosition[]>('/api/positions'),
+  prioritize: (ticker: string) =>
+    fetch(`/api/prioritize/${encodeURIComponent(ticker)}`, { method: 'POST' }).then((res) => {
+      if (!res.ok) throw new Error(`POST /api/prioritize/${ticker} -> HTTP ${res.status}`);
+      return res.json() as Promise<{ ticker: string; prioritized: boolean }>;
+    }),
   getAutoTrade: () => getJson<{ enabled: boolean }>('/api/auto-trade'),
   setAutoTrade: async (enabled: boolean) => {
     const res = await fetch('/api/auto-trade', {
@@ -147,6 +161,32 @@ export const api = {
     });
     if (!res.ok) throw new Error(`POST /api/auto-trade -> HTTP ${res.status}`);
     return res.json() as Promise<{ enabled: boolean }>;
+  },
+  manualEntry: async (body: { ticker: string; direction: 'long' | 'short'; shares: number; stop_price?: number; target_price?: number }) => {
+    const res = await fetch('/api/positions/manual-entry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.detail ?? `POST /api/positions/manual-entry -> HTTP ${res.status}`);
+    return data as { trade_action_id: number; entry_price: number; shares: number; stop_price: number; target_price: number };
+  },
+  manualExit: async (ticker: string) => {
+    const res = await fetch(`/api/positions/${encodeURIComponent(ticker)}/exit`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.detail ?? `POST /api/positions/${ticker}/exit -> HTTP ${res.status}`);
+    return data;
+  },
+  updatePosition: async (ticker: string, body: { stop_price?: number; target_price?: number; shares?: number }) => {
+    const res = await fetch(`/api/positions/${encodeURIComponent(ticker)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.detail ?? `PATCH /api/positions/${ticker} -> HTTP ${res.status}`);
+    return data as { ticker: string; stop_price: number; target_price: number; shares: number };
   },
 };
 

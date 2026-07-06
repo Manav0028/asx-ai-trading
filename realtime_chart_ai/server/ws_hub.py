@@ -34,6 +34,12 @@ class WebSocketHub:
     def disconnect(self, ticker: str, ws: WebSocket) -> None:
         self._connections[ticker].discard(ws)
 
+    def active_tickers(self) -> Set[str]:
+        """Tickers with at least one connected WS client right now — i.e.
+        whatever's actually on someone's screen. Used to build the data
+        source's priority-refresh set (see server/app.py's periodic task)."""
+        return {t for t, conns in self._connections.items() if conns}
+
     def broadcast(self, ticker: str, message: dict) -> None:
         """Thread-safe: called from per-ticker worker threads (signal-engine
         callbacks), not the event loop thread."""

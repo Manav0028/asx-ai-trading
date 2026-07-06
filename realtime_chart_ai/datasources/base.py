@@ -71,3 +71,20 @@ class CandleDataSource(ABC):
     @abstractmethod
     def is_healthy(self) -> bool:
         """Cheap, non-blocking health check used by the manager's failover logic."""
+
+    def set_priority_tickers(self, tickers) -> None:
+        """Default no-op. Only meaningful for a shared-loop source like
+        YFinanceFallbackSource, where hundreds of tickers share one paced
+        round-robin and a handful of "currently matter" tickers (the one the
+        user has open on screen, plus anything with a live position) need a
+        much tighter refresh cadence than the rest of the background scan.
+        Providers with a genuine per-ticker real-time feed (IBKR) have
+        nothing to prioritize — every ticker already updates immediately."""
+
+    async def prioritize(self, ticker: str) -> bool:
+        """Default no-op returning False. Override to force one immediate
+        out-of-band fetch for `ticker`, bypassing whatever the normal
+        cadence would otherwise make the caller wait for — used when a user
+        selects a ticker and needs its chart populated in seconds rather
+        than waiting for its next scheduled turn."""
+        return False

@@ -62,6 +62,20 @@ class AutoTradeToggleRequest(BaseModel):
     enabled: bool
 
 
+class ManualEntryRequest(BaseModel):
+    ticker: str
+    direction: str  # 'long' | 'short'
+    shares: float
+    stop_price: Optional[float] = None
+    target_price: Optional[float] = None
+
+
+class ManualUpdateRequest(BaseModel):
+    stop_price: Optional[float] = None
+    target_price: Optional[float] = None
+    shares: Optional[float] = None
+
+
 class TradeExitMessage(BaseModel):
     type: str = "trade_exit"
     ticker: str

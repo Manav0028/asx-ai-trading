@@ -4,11 +4,14 @@ import { SignalCard } from './SignalCard';
 import { CopilotTab } from './CopilotTab';
 import { JournalTab } from './JournalTab';
 import { HistoryTab } from './HistoryTab';
+import { TradesTab } from './TradesTab';
+import { ManualControls } from './ManualControls';
 
 const TABS: { key: Tab; label: string; icon: string; iconSize: number }[] = [
   { key: 'copilot', label: 'Copilot', icon: '✦', iconSize: 13 },
   { key: 'history', label: 'History', icon: '↺', iconSize: 12 },
   { key: 'journal', label: 'Journal', icon: '▤', iconSize: 12 },
+  { key: 'trades', label: 'Trades', icon: '$', iconSize: 12 },
 ];
 
 export function Rail(props: {
@@ -24,6 +27,10 @@ export function Rail(props: {
   rr?: number | null;
   posMeta?: string;
   hasOpenPosition?: boolean;
+  ticker: string;
+  price: number;
+  shares: number;
+  onPositionChanged: () => void;
   tab: Tab;
   setTab: (t: Tab) => void;
   messages: Message[];
@@ -53,6 +60,12 @@ export function Rail(props: {
         patternName={props.patternName} direction={props.direction}
         entry={props.entry} stop={props.stop} target={props.target} rr={props.rr} posMeta={props.posMeta}
         hasOpenPosition={props.hasOpenPosition}
+      />
+
+      <ManualControls
+        ticker={props.ticker} price={props.price} hasOpenPosition={props.hasOpenPosition ?? false}
+        entry={props.entry ?? 0} stop={props.stop ?? 0} target={props.target ?? 0} shares={props.shares}
+        onChanged={props.onPositionChanged}
       />
 
       <div style={{ flex: 'none', display: 'flex', borderBottom: '1px solid var(--border)' }}>
@@ -88,6 +101,7 @@ export function Rail(props: {
         {tab === 'history' && (
           <HistoryTab trades={props.trades} expandedTrade={props.expandedTrade} toggleTrade={props.toggleTrade} />
         )}
+        {tab === 'trades' && <TradesTab />}
       </div>
     </aside>
   );

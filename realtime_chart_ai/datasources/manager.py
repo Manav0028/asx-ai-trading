@@ -81,6 +81,15 @@ class DataSourceManager:
     async def fetch_historical(self, ticker: str, timeframe: str, lookback: str):
         return await self._active.fetch_historical(ticker, timeframe, lookback)
 
+    def set_priority_tickers(self, tickers) -> None:
+        if self._active is not None:
+            self._active.set_priority_tickers(tickers)
+
+    async def prioritize_ticker(self, ticker: str) -> bool:
+        if self._active is None:
+            return False
+        return await self._active.prioritize(ticker)
+
     def current_source_name(self) -> str:
         return self._active.name if self._active else "none"
 

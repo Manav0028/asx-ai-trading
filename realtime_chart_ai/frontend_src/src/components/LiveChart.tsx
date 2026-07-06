@@ -191,9 +191,13 @@ export function LiveChart({
         {stats && (
           <div
             style={{
+              // Fully opaque (no alpha/blur) — this sits directly over the
+              // chart's own right price-scale, so a translucent background
+              // let the native axis labels ("128.100" etc.) bleed through
+              // at the box's edges/corners, reading as a visual overlap.
               position: 'absolute', top: 12, right: 12, zIndex: 2, textAlign: 'right',
-              background: 'rgba(18,18,20,0.82)', border: '1px solid var(--border)', borderRadius: 10,
-              padding: '8px 12px', backdropFilter: 'blur(2px)', fontFamily: 'var(--font-mono)',
+              background: '#1a1a1f', border: '1px solid var(--border)', borderRadius: 10,
+              padding: '8px 12px', fontFamily: 'var(--font-mono)',
             }}
           >
             <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>

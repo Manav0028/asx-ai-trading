@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from datasources.manager import DataSourceManager
@@ -20,11 +20,12 @@ from engine.signal_engine import SignalEngine
 from engine.timeframe_store import EXECUTION_TIMEFRAME, TimeframeStore
 from journal.db import init_db
 from journal.recorder import get_open_positions, log_event, query_history
-from server.schemas import AutoTradeToggleRequest
+from server.schemas import AutoTradeToggleRequest, ManualEntryRequest, ManualUpdateRequest
 from server.ws_hub import hub
 from settings import CONTEXT_TIMEFRAMES, RTC_ROUND_ROBIN_THRESHOLD, RTC_SIGNAL_THRESHOLD, RTC_TICKERS
 from trading import state
 from trading.position_tracker import tracker as position_tracker
+from trading.stops import compute_stop_target
 from watchlists import TICKER_SECTOR
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -33,6 +34,11 @@ logger = logging.getLogger(__name__)
 manager = DataSourceManager()
 stores = {}
 signal_engines = {}
+# How often the priority-refresh set (currently-viewed ticker(s) + every
+# ticker with an open position) is recomputed and pushed to the data source
+# — see YFinanceFallbackSource._priority_loop, which is what actually
+# consumes this set on a much tighter cadence than the full-watchlist scan.
+_PRIORITY_RECOMPUTE_SECONDS = 5
 # One single-worker executor per ticker: ingest_raw() -> pattern evaluation ->
 # Claude rationale call -> journal writes are all synchronous and can take
 # seconds (Claude's HTTP round-trip). Running that inline in on_candle (an
@@ -116,6 +122,22 @@ async def _bootstrap_watchlist_lean(tickers: list) -> None:
     await manager.stream_watchlist(ticker_callbacks)
 
 
+async def _priority_recompute_loop() -> None:
+    """Keeps the data source's priority-refresh set current: whichever
+    ticker(s) someone actually has open on screen (hub.active_tickers()) plus
+    every ticker with a live position (position_tracker.open_tickers()) —
+    both cheap, purely in-process lookups, no new state to maintain. See the
+    plan behind /api/prioritize/{ticker} below for the complementary
+    on-selection immediate fetch."""
+    while True:
+        try:
+            priority = hub.active_tickers() | set(position_tracker.open_tickers())
+            manager.set_priority_tickers(priority)
+        except Exception:
+            logger.exception("priority-ticker recompute failed")
+        await asyncio.sleep(_PRIORITY_RECOMPUTE_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     hub.set_loop(asyncio.get_running_loop())
@@ -127,8 +149,10 @@ async def lifespan(app: FastAPI):
     else:
         for ticker in RTC_TICKERS:
             await _bootstrap_ticker(ticker)
+    priority_task = asyncio.create_task(_priority_recompute_loop())
     logger.info("realtime_chart_ai server started — tracking %d ticker(s)", len(RTC_TICKERS))
     yield
+    priority_task.cancel()
     for source in (manager.primary, manager.fallback):
         if source is not None:
             await source.disconnect()
@@ -140,8 +164,12 @@ app = FastAPI(title="realtime_chart_ai", lifespan=lifespan)
 
 
 @app.get("/api/journal")
-def get_journal(ticker: str = None, limit: int = 50):
-    return query_history(ticker=ticker, limit=limit)
+def get_journal(ticker: str = None, limit: int = 50, start: str = None, end: str = None):
+    # start/end are ISO date or datetime strings (e.g. "2026-07-01" or a full
+    # ISO timestamp) — used by the frontend's global Trades view date filter.
+    start_dt = datetime.fromisoformat(start) if start else None
+    end_dt = datetime.fromisoformat(end) if end else None
+    return query_history(ticker=ticker, limit=limit, start=start_dt, end=end_dt)
 
 
 @app.get("/api/tickers")
@@ -169,12 +197,85 @@ def set_auto_trade(body: AutoTradeToggleRequest):
     return {"enabled": new_state}
 
 
+@app.post("/api/prioritize/{ticker}")
+async def prioritize_ticker(ticker: str):
+    """Called by the frontend the moment a ticker is selected — forces one
+    immediate out-of-band fetch instead of waiting for that ticker's next
+    turn in the round-robin scan (which, spread across the full ASX200
+    watchlist, can otherwise be minutes away). The full background scan
+    keeps running unchanged; this just jumps the queue for whatever the user
+    is looking at right now."""
+    ok = await manager.prioritize_ticker(ticker)
+    return {"ticker": ticker, "prioritized": ok}
+
+
 @app.get("/api/positions")
 def get_positions(ticker: str = None):
     # Queried directly from rtc_open_positions (the DB is the source of
     # truth), not the in-memory tracker — reflects reality even right after
     # a restart or from a different process.
     return get_open_positions(ticker=ticker)
+
+
+def _latest_price_and_atr(ticker: str):
+    store = stores.get(ticker)
+    if store is None:
+        return None, None
+    ind = store.latest_ind(EXECUTION_TIMEFRAME)
+    if not ind or not ind.get("closes"):
+        return None, None
+    price = ind["closes"][-1]
+    atr = ind["atr"][-1] if ind.get("atr") else 0.0
+    return price, atr
+
+
+@app.post("/api/positions/manual-entry")
+def manual_entry(body: ManualEntryRequest):
+    """User-initiated paper trade — bypasses the composite-score/auto-trade
+    gate entirely. Sized and priced by the caller (shares, optional
+    stop/target); if stop/target are omitted, the same ATR-based formula the
+    automated path uses fills in a sane default so a manual entry never
+    ships with an unbounded risk."""
+    if body.direction not in ("long", "short"):
+        raise HTTPException(status_code=400, detail="direction must be 'long' or 'short'")
+    if body.shares <= 0:
+        raise HTTPException(status_code=400, detail="shares must be positive")
+    price, atr = _latest_price_and_atr(body.ticker)
+    if price is None:
+        raise HTTPException(status_code=409, detail=f"no price data yet for {body.ticker}")
+    if position_tracker.has_open_position(body.ticker):
+        raise HTTPException(status_code=409, detail=f"{body.ticker} already has an open position")
+    stop_price, target_price = body.stop_price, body.target_price
+    if stop_price is None or target_price is None:
+        preview = compute_stop_target(price, atr or 0.0, body.direction, stop_mult=1.5, target_mult=3.0)
+        stop_price = stop_price if stop_price is not None else preview["stop_price"]
+        target_price = target_price if target_price is not None else preview["target_price"]
+    result = position_tracker.manual_open(body.ticker, body.direction, price, body.shares, stop_price, target_price, atr=atr or 0.0)
+    if result is None:
+        raise HTTPException(status_code=409, detail=f"{body.ticker} already has an open position")
+    return result
+
+
+@app.post("/api/positions/{ticker}/exit")
+def manual_exit(ticker: str):
+    price, _ = _latest_price_and_atr(ticker)
+    if price is None:
+        raise HTTPException(status_code=409, detail=f"no price data yet for {ticker}")
+    result = position_tracker.manual_exit(ticker, price)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"no open position for {ticker}")
+    hub.broadcast(ticker, result)
+    return result
+
+
+@app.patch("/api/positions/{ticker}")
+def manual_update(ticker: str, body: ManualUpdateRequest):
+    result = position_tracker.update_manual(
+        ticker, stop_price=body.stop_price, target_price=body.target_price, shares=body.shares,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"no open position for {ticker}")
+    return result
 
 
 @app.get("/api/candles/{ticker}")

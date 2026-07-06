@@ -96,7 +96,8 @@ def open_position_row(ticker: str, trade_action_id: int, direction: str, entry_p
 
 
 def update_open_position(position_id: int, stop_price: Optional[float] = None,
-                          peak_price: Optional[float] = None, bars_held: Optional[int] = None) -> None:
+                          peak_price: Optional[float] = None, bars_held: Optional[int] = None,
+                          target_price: Optional[float] = None, shares: Optional[float] = None) -> None:
     with get_session() as session:
         row = session.get(RtcOpenPosition, position_id)
         if row is None:
@@ -107,6 +108,14 @@ def update_open_position(position_id: int, stop_price: Optional[float] = None,
             row.peak_price = peak_price
         if bars_held is not None:
             row.bars_held = bars_held
+        # target_price/shares only ever change via a manual override (the
+        # automated exit-check path never touches either) — added here
+        # rather than a separate function so both paths write through the
+        # same row-update helper.
+        if target_price is not None:
+            row.target_price = target_price
+        if shares is not None:
+            row.shares = shares
 
 
 def close_open_position(position_id: int) -> None:
@@ -131,11 +140,19 @@ def get_open_positions(ticker: Optional[str] = None) -> List[Dict]:
         } for r in q.all()]
 
 
-def query_history(ticker: Optional[str] = None, limit: int = 50) -> List[Dict]:
+def query_history(ticker: Optional[str] = None, limit: int = 50,
+                   start=None, end=None) -> List[Dict]:
+    """`start`/`end` are datetimes (inclusive), filtered against bar_ts — for
+    the frontend's global Trades view, which needs a date-range filter across
+    every ticker rather than just the currently-selected one."""
     with get_session() as session:
         q = session.query(RtcChartInterpretation).order_by(RtcChartInterpretation.created_at.desc())
         if ticker:
             q = q.filter(RtcChartInterpretation.ticker == ticker)
+        if start is not None:
+            q = q.filter(RtcChartInterpretation.bar_ts >= start)
+        if end is not None:
+            q = q.filter(RtcChartInterpretation.bar_ts <= end)
         rows = q.limit(limit).all()
         results = []
         for row in rows:

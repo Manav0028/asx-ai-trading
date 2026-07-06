@@ -22,8 +22,9 @@ clearly rather than silently truncated.
 """
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
-from typing import Awaitable, Callable, Dict, List, Optional
+from typing import Awaitable, Callable, Dict, List, Optional, Set
 
 from datasources.base import Candle, CandleDataSource
 from journal.recorder import log_event
@@ -35,6 +36,17 @@ _INTERVAL = {"1m": "1m", "5m": "5m", "15m": "15m", "1d": "1d"}
 # Yahoo's own caps on how far back each intraday interval can be queried.
 _MAX_PERIOD = {"1m": "7d", "5m": "60d", "15m": "60d", "1d": "2y"}
 _POLL_SECONDS = 30
+# The priority set (currently-viewed ticker + anything with an open position)
+# is small by construction, so it can afford a much tighter per-ticker
+# spacing than the full-universe round robin without approaching Yahoo's
+# rate limit — a handful of tickers at this cadence is a small fraction of
+# the request budget the full 171-ticker scan already uses.
+_PRIORITY_SPACING_SECONDS = 2.0
+# Guards against re-fetching the same ticker on every rapid re-selection
+# (e.g. a user clicking through several tickers in the dropdown within a
+# couple seconds) — the priority loop is already covering anything in the
+# set this fast, so a fetch that just ran doesn't need to be forced again.
+_PRIORITIZE_MIN_INTERVAL_SECONDS = 5.0
 # Yahoo silently rate-limits/blocks many cloud-provider IP ranges (Render,
 # AWS, GCP) without a clean error — the underlying request can just hang.
 # yfinance's requests session has no default timeout, so every call here
@@ -62,6 +74,13 @@ class YFinanceFallbackSource(CandleDataSource):
         # a single shared field here would let one ticker's error mask or
         # falsely "recover" another's.
         self._last_poll_errors: Dict[str, Optional[str]] = {}
+        # Populated once by subscribe_watchlist() — kept as an instance attr
+        # (not just a local var inside _round_robin_loop) so prioritize() and
+        # _priority_loop can fetch an arbitrary tracked ticker on demand,
+        # independent of the round robin's own cursor position.
+        self._ticker_callbacks: Dict[str, Callable[[Candle], Awaitable[None]]] = {}
+        self._priority_tickers: Set[str] = set()
+        self._last_prioritize_ts: Dict[str, float] = {}
 
     async def connect(self) -> bool:
         try:
@@ -185,14 +204,20 @@ class YFinanceFallbackSource(CandleDataSource):
             await asyncio.sleep(_POLL_SECONDS)
 
     async def subscribe_watchlist(self, ticker_callbacks: Dict[str, Callable[[Candle], Awaitable[None]]]) -> None:
+        self._ticker_callbacks = dict(ticker_callbacks)
         asyncio.create_task(self._round_robin_loop(ticker_callbacks))
+        asyncio.create_task(self._priority_loop())
 
     async def _round_robin_loop(self, ticker_callbacks: Dict[str, Callable[[Candle], Awaitable[None]]]) -> None:
         """One shared loop cycling through every tracked ticker at a fixed
         request-rate budget (RTC_ROUND_ROBIN_SPACING_SECONDS between fetches,
         regardless of watchlist size) — see settings.py's comment on why
         spacing, not batching, is the actual lever for scaling to many
-        tickers against Yahoo's real per-request rate limit."""
+        tickers against Yahoo's real per-request rate limit. This keeps
+        scanning the ENTIRE watchlist continuously in the background for
+        pattern/signal detection — _priority_loop below is the separate,
+        much-faster loop that keeps whatever the user is actually looking at
+        (or holding a position in) fresh in something close to real time."""
         tickers = list(ticker_callbacks.keys())
         if not tickers:
             return
@@ -202,3 +227,43 @@ class YFinanceFallbackSource(CandleDataSource):
             await self._fetch_and_emit(ticker, ticker_callbacks[ticker])
             i += 1
             await asyncio.sleep(RTC_ROUND_ROBIN_SPACING_SECONDS)
+
+    def set_priority_tickers(self, tickers) -> None:
+        self._priority_tickers = set(tickers) & set(self._ticker_callbacks)
+
+    async def prioritize(self, ticker: str) -> bool:
+        """One immediate out-of-band fetch for `ticker`, bypassing however
+        far away its next round-robin/priority-loop turn is. Rate-guarded
+        per ticker (see _PRIORITIZE_MIN_INTERVAL_SECONDS) so rapidly
+        re-selecting the same ticker doesn't hammer Yahoo with redundant
+        requests the priority loop is already covering."""
+        cb = self._ticker_callbacks.get(ticker)
+        if cb is None:
+            return False
+        now = time.monotonic()
+        last = self._last_prioritize_ts.get(ticker)
+        if last is not None and (now - last) < _PRIORITIZE_MIN_INTERVAL_SECONDS:
+            return True
+        self._last_prioritize_ts[ticker] = now
+        await self._fetch_and_emit(ticker, cb)
+        return True
+
+    async def _priority_loop(self) -> None:
+        """Small, fast-cycling loop over whatever set_priority_tickers() has
+        most recently been given (the currently-viewed ticker plus every
+        ticker with an open position — see server/app.py's periodic
+        recompute). Runs concurrently with _round_robin_loop, which keeps
+        scanning the full watchlist unchanged — this loop only makes the
+        handful of tickers someone actually cares about right now refresh in
+        a few seconds instead of waiting out the full-scan cycle time."""
+        while self._healthy:
+            tickers = list(self._priority_tickers)
+            for ticker in tickers:
+                cb = self._ticker_callbacks.get(ticker)
+                if cb is None:
+                    continue
+                await self._fetch_and_emit(ticker, cb)
+                self._last_prioritize_ts[ticker] = time.monotonic()
+                await asyncio.sleep(_PRIORITY_SPACING_SECONDS)
+            if not tickers:
+                await asyncio.sleep(_PRIORITY_SPACING_SECONDS)

@@ -1,5 +1,5 @@
 export type Phase = 'watching' | 'active' | 'closed';
-export type Tab = 'copilot' | 'history' | 'journal';
+export type Tab = 'copilot' | 'history' | 'journal' | 'trades';
 export type Direction = 'long' | 'short';
 export type ExitReason = 'target' | 'stop' | 'time';
 

@@ -13,11 +13,12 @@ the cache from it exactly on startup.
 """
 import logging
 from dataclasses import dataclass
-from typing import Dict, Optional
+from datetime import datetime
+from typing import Dict, List, Optional
 
 from journal.recorder import (
     close_open_position, get_open_positions, log_event, open_position_row,
-    record_action, record_outcome, update_open_position,
+    record_action, record_outcome, update_open_position, write_interpretation,
 )
 from trading import pnl, sizing, stops
 
@@ -47,6 +48,13 @@ class PositionTracker:
 
     def has_open_position(self, ticker: str) -> bool:
         return ticker in self._positions
+
+    def open_tickers(self) -> List[str]:
+        """Every ticker with a currently-open position — fed into the data
+        source's priority-refresh set (see server/app.py) so a held
+        position's price/P&L keeps updating fast regardless of where it
+        sits in the full-watchlist round robin."""
+        return list(self._positions.keys())
 
     def load_open_positions(self) -> None:
         """Rebuild the in-memory cache from rtc_open_positions — called once
@@ -98,6 +106,105 @@ class PositionTracker:
             "trade_action_id": trade_action_id, "entry_price": price, "shares": pos["shares"],
             "stop_price": st["stop_price"], "target_price": st["target_price"],
             "dollar_risk": pos["dollar_risk"], "score_multiplier": pos["multiplier"],
+        }
+
+    def manual_open(self, ticker: str, direction: str, price: float, shares: float,
+                     stop_price: float, target_price: float, atr: float = 0.0,
+                     max_hold_bars: int = 60) -> Optional[Dict]:
+        """User-initiated entry, bypassing the composite-score gate entirely
+        — still goes through the same journal/position-lifecycle plumbing as
+        an automated entry (one open position per ticker, trailing stop,
+        DB-backed recovery) so it's indistinguishable from an automatic trade
+        everywhere except the journal's pattern_name/rule_reason, which
+        record that a human made the call."""
+        if self.has_open_position(ticker):
+            return None
+        from engine.timeframe_store import EXECUTION_TIMEFRAME
+        trail = stops.compute_trail_params(price, atr)
+        interpretation_id = write_interpretation({
+            "ticker": ticker, "bar_ts": datetime.utcnow(), "timeframe": EXECUTION_TIMEFRAME,
+            "data_source": "manual", "pattern_name": "manual_entry", "pattern_type": "manual",
+            "direction": direction, "confidence": None, "composite_score": None,
+            "rule_reason": "Manually opened by user", "mtf_confluence": None, "mtf_summary": None,
+            "smc_zone": None, "smc_context": None, "claude_rationale": None, "claude_model": None,
+            "price_at_signal": price,
+        })
+        trade_action_id = record_action(
+            interpretation_id, action_type="entry", mode="paper", entry_price=price, shares=shares,
+            stop_price=stop_price, target_price=target_price, composite_score_at_entry=None,
+            dollar_risk=None, score_multiplier=None, atr_at_entry=atr,
+        )
+        position_id = open_position_row(
+            ticker=ticker, trade_action_id=trade_action_id, direction=direction, entry_price=price,
+            shares=shares, stop_price=stop_price, target_price=target_price, peak_price=price,
+            atr_at_entry=atr, trail_activate_pct=trail["activate_pct"], trail_distance_pct=trail["distance_pct"],
+            max_hold_bars=max_hold_bars,
+        )
+        self._positions[ticker] = OpenPosition(
+            ticker=ticker, position_id=position_id, trade_action_id=trade_action_id,
+            direction=direction, entry_price=price, shares=shares,
+            stop_price=stop_price, target_price=target_price, peak_price=price,
+            trail_activate_pct=trail["activate_pct"], trail_distance_pct=trail["distance_pct"],
+            max_hold_bars=max_hold_bars,
+        )
+        log_event("manual_entry", ticker=ticker,
+                   detail=f"{direction} {shares:.2f} sh @ {price:.3f}, stop={stop_price:.3f}, target={target_price:.3f}")
+        logger.info("Opened MANUAL paper position: %s %s @ %.3f, shares=%.2f", direction, ticker, price, shares)
+        return {
+            "trade_action_id": trade_action_id, "entry_price": price, "shares": shares,
+            "stop_price": stop_price, "target_price": target_price,
+        }
+
+    def manual_exit(self, ticker: str, price: float) -> Optional[Dict]:
+        """User-initiated close at the current market price, regardless of
+        where price sits relative to the stop/target — same accounting path
+        as an automatic exit (check_exit below), just a different trigger
+        and exit_reason so the journal distinguishes the two."""
+        position = self._positions.get(ticker)
+        if position is None:
+            return None
+        pnl_result = pnl.compute_pnl(position.direction, position.entry_price, price, position.shares)
+        record_outcome(
+            position.trade_action_id, exit_price=price, exit_reason="manual",
+            gross_pnl=pnl_result["gross_pnl"], net_pnl=pnl_result["net_pnl"], bars_held=position.bars_held,
+        )
+        close_open_position(position.position_id)
+        del self._positions[ticker]
+        log_event("manual_exit", ticker=ticker,
+                   detail=f"closed manually @ {price:.3f}, net_pnl={pnl_result['net_pnl']:.2f}")
+        logger.info("Closed MANUAL paper position: %s %s exit=%.3f net_pnl=%.2f",
+                    position.direction, ticker, price, pnl_result["net_pnl"])
+        return {
+            "type": "trade_exit", "ticker": ticker, "direction": position.direction,
+            "entry_price": position.entry_price, "exit_price": price, "exit_reason": "manual",
+            "shares": position.shares, "gross_pnl": pnl_result["gross_pnl"], "net_pnl": pnl_result["net_pnl"],
+            "bars_held": position.bars_held,
+        }
+
+    def update_manual(self, ticker: str, stop_price: Optional[float] = None,
+                       target_price: Optional[float] = None, shares: Optional[float] = None) -> Optional[Dict]:
+        """User-initiated adjustment of an open position's risk parameters.
+        Unlike the trailing stop (which only ever ratchets favorably), a
+        manual edit can move the stop/target either direction — that's the
+        point of an override."""
+        position = self._positions.get(ticker)
+        if position is None:
+            return None
+        if stop_price is not None:
+            position.stop_price = stop_price
+        if target_price is not None:
+            position.target_price = target_price
+        if shares is not None:
+            position.shares = shares
+        update_open_position(
+            position.position_id, stop_price=position.stop_price, target_price=position.target_price,
+            shares=position.shares, peak_price=position.peak_price, bars_held=position.bars_held,
+        )
+        log_event("manual_update", ticker=ticker,
+                   detail=f"stop={position.stop_price:.3f}, target={position.target_price:.3f}, shares={position.shares:.2f}")
+        return {
+            "ticker": ticker, "stop_price": position.stop_price,
+            "target_price": position.target_price, "shares": position.shares,
         }
 
     def check_exit(self, ticker: str, ind: Dict, i: int) -> Optional[Dict]:
