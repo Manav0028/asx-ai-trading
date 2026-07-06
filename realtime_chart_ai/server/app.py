@@ -25,6 +25,7 @@ from server.ws_hub import hub
 from settings import CONTEXT_TIMEFRAMES, RTC_ROUND_ROBIN_THRESHOLD, RTC_SIGNAL_THRESHOLD, RTC_TICKERS
 from trading import state
 from trading.position_tracker import tracker as position_tracker
+from watchlists import TICKER_SECTOR
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -148,6 +149,12 @@ def get_tickers():
     return {
         "tickers": RTC_TICKERS, "active_source": manager.current_source_name(),
         "signal_threshold": RTC_SIGNAL_THRESHOLD,
+        # ticker -> sector, for the frontend's category/sector filter chips.
+        # Only populated for tickers actually in watchlists.py's ASX200
+        # mapping — a custom RTC_TICKERS list of tickers outside that
+        # snapshot just won't have a sector entry (frontend treats that as
+        # "Other"), not an error.
+        "sectors": {t: TICKER_SECTOR[t] for t in RTC_TICKERS if t in TICKER_SECTOR},
     }
 
 
@@ -171,17 +178,18 @@ def get_positions(ticker: str = None):
 
 
 @app.get("/api/candles/{ticker}")
-def get_candles(ticker: str, limit: int = 200):
+def get_candles(ticker: str, timeframe: str = EXECUTION_TIMEFRAME, limit: int = 200):
     # There's no separate historical-candles store — TimeframeStore's
-    # execution-timeframe IndicatorEngine already holds up to MAXLEN closed
-    # bars in memory, which is exactly what a freshly-connected frontend
-    # needs to hydrate its chart before the first live candle_update arrives.
+    # per-timeframe IndicatorEngines already hold up to MAXLEN closed bars in
+    # memory each, which is exactly what a freshly-connected frontend needs
+    # to hydrate its chart before the first live candle_update arrives.
+    tf = "1d" if timeframe.lower() in ("1d", "1day") else timeframe
     store = stores.get(ticker)
-    if store is None:
-        return {"ticker": ticker, "timeframe": EXECUTION_TIMEFRAME, "candles": []}
-    ind = store.latest_ind(EXECUTION_TIMEFRAME)
+    if store is None or tf not in store.engines:
+        return {"ticker": ticker, "timeframe": tf, "candles": []}
+    ind = store.latest_ind(tf)
     if not ind:
-        return {"ticker": ticker, "timeframe": EXECUTION_TIMEFRAME, "candles": []}
+        return {"ticker": ticker, "timeframe": tf, "candles": []}
     n = len(ind["closes"])
     idx = range(max(0, n - limit), n)
     candles = [{
@@ -191,7 +199,7 @@ def get_candles(ticker: str, limit: int = 200):
         "source": ind["sources"][i] if ind.get("sources") else "unknown",
         "delayed": ind["delayed"][i] if ind.get("delayed") else False,
     } for i in idx]
-    return {"ticker": ticker, "timeframe": EXECUTION_TIMEFRAME, "candles": candles}
+    return {"ticker": ticker, "timeframe": tf, "candles": candles}
 
 
 @app.websocket("/ws/candles/{ticker}")

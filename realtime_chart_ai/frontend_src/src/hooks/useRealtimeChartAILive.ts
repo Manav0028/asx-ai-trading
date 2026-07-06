@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Candle, Direction, JournalEntry, Message, Phase, Tab, Trade } from '../types';
-import { ema } from '../lib/candles';
 import { answerQuestion } from '../lib/copilot';
-import { api, connectCandleSocket, type ApiJournalRow, type WsMessage } from '../lib/liveApi';
+import { api, connectCandleSocket, type ApiCandle, type WsMessage, type ApiJournalRow } from '../lib/liveApi';
 
 interface LiveSignal {
   patternName: string;
@@ -13,14 +12,13 @@ interface LiveSignal {
   rr: number | null;
 }
 
-function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
+// Backend timeframe keys are lowercase ('1d'); the header's timeframe pills
+// use '1D' for display — normalize once at the boundary rather than
+// threading two spellings through the rest of the hook.
+const toBackendTf = (t: string) => (t === '1D' ? '1d' : t);
+
+function apiCandleToCandle(c: ApiCandle): Candle {
+  return { time: Math.floor(new Date(c.ts).getTime() / 1000), o: c.open, c: c.close, h: c.high, l: c.low, v: c.volume };
 }
 
 function journalRowToEntry(row: ApiJournalRow): JournalEntry {
@@ -53,11 +51,15 @@ function journalRowToTrade(row: ApiJournalRow): Trade | null {
 export function useRealtimeChartAILive(beginnerMode: boolean) {
   const [ticker, setTicker] = useState<string>('');
   const [availableTickers, setAvailableTickers] = useState<string[]>([]);
+  const [sectors, setSectors] = useState<Record<string, string>>({});
+  const [heldTickers, setHeldTickers] = useState<Set<string>>(new Set());
   const [activeSource, setActiveSource] = useState<string>('connecting');
   const activeSourceRef = useRef('connecting');
   useEffect(() => { activeSourceRef.current = activeSource; }, [activeSource]);
   const thresholdRef = useRef(65);
   const [tf, setTf] = useState('1m');
+  const tfRef = useRef('1m');
+  useEffect(() => { tfRef.current = tf; }, [tf]);
   const [tab, setTab] = useState<Tab>('copilot');
   const [beginner, setBeginner] = useState(beginnerMode);
   const [autoTrade, setAutoTradeState] = useState(false);
@@ -76,19 +78,13 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
   const [typing, setTyping] = useState(false);
   const [posMeta, setPosMeta] = useState('');
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
   const midRef = useRef(0);
   const beginnerRef = useRef(beginner);
   useEffect(() => { beginnerRef.current = beginner; }, [beginner]);
 
-  const candlesRef = useRef<Candle[]>([]);
+  const [candles, setCandles] = useState<Candle[]>([]);
   const openPositionRef = useRef<{ direction: Direction; entry: number; shares: number } | null>(null);
-  const signalRef = useRef<LiveSignal | null>(null);
-  useEffect(() => { signalRef.current = signal; }, [signal]);
-
-  const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
-  const sizeRef = useRef({ w: 0, h: 0 });
 
   const append = useCallback((msg: Omit<Message, 'id'>) => {
     const id = midRef.current++;
@@ -161,130 +157,43 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
     ask(t);
   }, [draft, ask]);
 
-  const draw = useCallback(() => {
-    const ctx = ctxRef.current;
-    const { w: W, h: H } = sizeRef.current;
-    const candles = candlesRef.current;
-    if (!ctx || !W || candles.length < 2) return;
-    const sig = signalRef.current;
-
-    ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#0f0f12';
-    ctx.fillRect(0, 0, W, H);
-
-    const VIS = 62;
-    const vis = candles.slice(-VIS);
-    const emaAll = ema(candles, 20);
-    const emaVis = emaAll.slice(-VIS);
-    const padL = 8, padR = 66, padT = 14, padB = 22;
-    const plotW = W - padL - padR, plotH = H - padT - padB;
-    let pmin = Infinity, pmax = -Infinity;
-    vis.forEach((c) => { pmin = Math.min(pmin, c.l); pmax = Math.max(pmax, c.h); });
-    if (sig) { pmin = Math.min(pmin, sig.stop); pmax = Math.max(pmax, sig.target); }
-    const pad = (pmax - pmin) * 0.1 || 0.1;
-    pmin -= pad; pmax += pad;
-    const slot = plotW / VIS;
-    const bodyW = Math.min(slot * 0.62, 9);
-    const X = (i: number) => padL + i * slot + slot / 2;
-    const Y = (p: number) => padT + ((pmax - p) / (pmax - pmin)) * plotH;
-
-    ctx.font = '10px "JetBrains Mono", monospace';
-    ctx.textBaseline = 'middle';
-    for (let g = 0; g <= 4; g++) {
-      const yy = padT + g * (plotH / 4);
-      const pv = pmax - (g * (pmax - pmin)) / 4;
-      ctx.strokeStyle = '#1a1a1e'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL + plotW, yy); ctx.stroke();
-      ctx.fillStyle = '#78787e'; ctx.textAlign = 'left';
-      ctx.fillText(pv.toFixed(2), padL + plotW + 6, yy);
-    }
-
-    ctx.strokeStyle = 'rgba(105,147,255,0.55)'; ctx.lineWidth = 1.3; ctx.beginPath();
-    emaVis.forEach((e, i) => { const x = X(i), y = Y(e); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
-
-    vis.forEach((c, i) => {
-      const up = c.c >= c.o;
-      const col = up ? '#00c48c' : '#ff5a5a';
-      const x = X(i);
-      ctx.strokeStyle = col; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(x, Y(c.h)); ctx.lineTo(x, Y(c.l)); ctx.stroke();
-      const yo = Y(c.o), yc = Y(c.c);
-      ctx.fillStyle = col;
-      ctx.fillRect(x - bodyW / 2, Math.min(yo, yc), bodyW, Math.max(1.5, Math.abs(yc - yo)));
-    });
-
-    if (sig) {
-      const drawLine = (pr: number, color: string, label: string) => {
-        const y = Y(pr);
-        ctx.strokeStyle = color; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
-        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + plotW, y); ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.font = '9px "JetBrains Mono", monospace';
-        const txt = label; const w = ctx.measureText(txt).width + 12;
-        ctx.fillStyle = color; ctx.beginPath();
-        rr(ctx, padL + plotW - w, y - 8, w, 16, 4); ctx.fill();
-        ctx.fillStyle = '#0b0b0d'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillText(txt, padL + plotW - w + 6, y);
-      };
-      drawLine(sig.target, '#00c48c', (sig.direction === 'long' ? '▲ ' : '▼ ') + sig.target.toFixed(2));
-      drawLine(sig.entry, '#6993ff', '• ' + sig.entry.toFixed(2));
-      drawLine(sig.stop, '#ff5a5a', (sig.direction === 'long' ? '▼ ' : '▲ ') + sig.stop.toFixed(2));
-    }
-
-    const live = candles[candles.length - 1].c;
-    const ly = Y(live);
-    ctx.fillStyle = '#6993ff'; ctx.font = '10px "JetBrains Mono", monospace';
-    const lt = live.toFixed(2); const lw = ctx.measureText(lt).width + 12;
-    rr(ctx, padL + plotW - lw, ly - 8, lw, 16, 4); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(lt, padL + plotW - lw + 6, ly);
-    ctx.strokeStyle = 'rgba(105,147,255,0.4)'; ctx.setLineDash([2, 3]); ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(padL, ly); ctx.lineTo(padL + plotW - lw, ly); ctx.stroke(); ctx.setLineDash([]);
-  }, []);
-
-  // Canvas + resize-loop setup — ticker-independent, mount-once.
-  useEffect(() => {
-    let raf = 0;
-    let ro: ResizeObserver | null = null;
-
-    const loop = () => { draw(); raf = requestAnimationFrame(loop); };
-    raf = requestAnimationFrame(loop);
-
-    const canvas = canvasRef.current;
-    if (canvas) {
-      ctxRef.current = canvas.getContext('2d');
-      const resize = () => {
-        const wrap = canvas.parentElement; if (!wrap) return;
-        const w = wrap.clientWidth, h = wrap.clientHeight;
-        const dpr = window.devicePixelRatio || 1;
-        canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
-        ctxRef.current?.setTransform(dpr, 0, 0, dpr, 0, 0);
-        sizeRef.current = { w, h };
-      };
-      resize();
-      ro = new ResizeObserver(resize);
-      ro.observe(canvas.parentElement!);
-    }
-
-    return () => {
-      cancelAnimationFrame(raf);
-      ro?.disconnect();
-    };
-  }, [draw]);
+  // Chart rendering (scroll/zoom/crosshair/price-lines) is now handled
+  // internally by LiveChart.tsx (lightweight-charts) — it re-renders off the
+  // `candles` prop like any other React data, no manual canvas/RAF loop
+  // needed here anymore.
 
   // One-time: discover the tracked watchlist and pick a starting ticker.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { tickers, active_source, signal_threshold } = await api.getTickers();
+      const { tickers, active_source, signal_threshold, sectors } = await api.getTickers();
       if (cancelled) return;
       thresholdRef.current = signal_threshold ?? 65;
       setAvailableTickers(tickers);
+      setSectors(sectors ?? {});
       setActiveSource(active_source);
       setTicker((cur) => cur || tickers[0] || 'BHP.AX');
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // Which tickers currently have an open (simulated) position, for the
+  // dropdown's "held" highlight — polled independently of whichever ticker
+  // is on screen, since a position on ticker A can open/close while the
+  // user is looking at ticker B.
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const positions = await api.getAllPositions();
+        if (!cancelled) setHeldTickers(new Set(positions.map((p) => p.ticker)));
+      } catch {
+        // transiently unavailable — keep showing the last known set
+      }
+    };
+    refresh();
+    const timer = setInterval(refresh, 8000);
+    return () => { cancelled = true; clearInterval(timer); };
   }, []);
 
   const switchTicker = useCallback((tk: string) => {
@@ -299,7 +208,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
     let stopSocket: (() => void) | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-    candlesRef.current = [];
+    setCandles([]);
     openPositionRef.current = null;
     setSignal(null);
     setPhase('watching');
@@ -310,9 +219,9 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
 
     function handleWsMessage(msg: WsMessage) {
       if (msg.type === 'candle_update') {
-        if (msg.timeframe !== '1m') return;
-        const c: Candle = { o: msg.open, c: msg.close, h: msg.high, l: msg.low };
-        candlesRef.current = [...candlesRef.current, c].slice(-260);
+        if (msg.timeframe !== toBackendTf(tfRef.current)) return;
+        const c: Candle = { time: Math.floor(new Date(msg.ts).getTime() / 1000), o: msg.open, c: msg.close, h: msg.high, l: msg.low, v: msg.volume };
+        setCandles((prev) => [...prev, c].slice(-500));
         setPrice(msg.close);
         const pos = openPositionRef.current;
         if (pos) {
@@ -380,12 +289,8 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
       pushSystem(`Connected · ${source} · ${ticker} · 1-minute bars`);
       pushAI(`Reading ${ticker} live. Watching for a confirmed setup — nothing to do until a pattern, the trend and the higher timeframe all agree.`, false);
 
-      const [{ candles }, autoTradeStatus] = await Promise.all([
-        api.getCandles(ticker, 200), api.getAutoTrade(), refreshJournal(ticker), refreshPositions(ticker),
-      ]);
+      const [autoTradeStatus] = await Promise.all([api.getAutoTrade(), refreshJournal(ticker), refreshPositions(ticker)]);
       if (cancelled) return;
-      candlesRef.current = candles.map((c) => ({ o: c.open, c: c.close, h: c.high, l: c.low }));
-      if (candles.length) setPrice(candles[candles.length - 1].close);
       setAutoTradeState(autoTradeStatus.enabled);
     })();
 
@@ -396,16 +301,33 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
     };
   }, [ticker, refreshJournal, refreshPositions, pushSystem, pushAI]);
 
+  // Candle history for the chart — separate from the ticker-connect effect
+  // above so a timeframe switch (1m/5m/15m/1D) doesn't tear down and
+  // reconnect the WebSocket, just refetches the REST history for the newly
+  // selected timeframe.
+  useEffect(() => {
+    if (!ticker) return;
+    let cancelled = false;
+    (async () => {
+      const { candles: rows } = await api.getCandles(ticker, toBackendTf(tf), 500);
+      if (cancelled) return;
+      const mapped = rows.map(apiCandleToCandle);
+      setCandles(mapped);
+      if (mapped.length) setPrice(mapped[mapped.length - 1].c);
+    })();
+    return () => { cancelled = true; };
+  }, [ticker, tf]);
+
   return {
     tf, setTf,
     beginner, autoTrade, toggleBeginner, toggleAutoTrade,
-    canvasRef, chartStatus,
+    candles, chartStatus,
     phase, dispScore, bd, price, pnl,
     tab, setTab,
     messages, typing, draft, setDraft, feedRef, ask, send,
     journal,
     trades, expandedTrade, toggleTrade: (id: number) => setExpandedTrade((cur) => (cur === id ? null : id)),
-    ticker, availableTickers, switchTicker, activeSource,
+    ticker, availableTickers, switchTicker, activeSource, sectors, heldTickers,
     entry: signal?.entry ?? 0, stop: signal?.stop ?? 0, target: signal?.target ?? 0,
     rr: signal?.rr ?? null, patternName: signal?.patternName ?? '', direction: signal?.direction ?? 'long',
     posMeta,

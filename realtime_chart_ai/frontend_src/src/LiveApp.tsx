@@ -1,6 +1,6 @@
 import { useRealtimeChartAILive } from './hooks/useRealtimeChartAILive';
 import { Header } from './components/Header';
-import { Chart } from './components/Chart';
+import { LiveChart } from './components/LiveChart';
 import { Rail } from './components/Rail';
 
 const BEGINNER_MODE_DEFAULT = true;
@@ -27,10 +27,20 @@ function LiveApp() {
         availableTickers={rc.availableTickers}
         onSelectTicker={rc.switchTicker}
         activeSource={rc.activeSource}
+        sectors={rc.sectors}
+        heldTickers={rc.heldTickers}
       />
 
       <main id="rcai-main" style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <Chart canvasRef={rc.canvasRef} chartStatus={rc.chartStatus} ticker={rc.ticker} direction={rc.direction} />
+        <LiveChart
+          candles={rc.candles}
+          chartStatus={rc.chartStatus}
+          ticker={rc.ticker}
+          direction={rc.direction}
+          entry={rc.entry}
+          stop={rc.stop}
+          target={rc.target}
+        />
         <Rail
           phase={rc.phase}
           dispScore={rc.dispScore}

@@ -126,14 +126,18 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 export const api = {
-  getTickers: () => getJson<{ tickers: string[]; active_source: string; signal_threshold: number }>('/api/tickers'),
-  getCandles: (ticker: string, limit = 200) =>
+  getTickers: () =>
+    getJson<{ tickers: string[]; active_source: string; signal_threshold: number; sectors: Record<string, string> }>(
+      '/api/tickers',
+    ),
+  getCandles: (ticker: string, timeframe = '1m', limit = 200) =>
     getJson<{ ticker: string; timeframe: string; candles: ApiCandle[] }>(
-      `/api/candles/${encodeURIComponent(ticker)}?limit=${limit}`,
+      `/api/candles/${encodeURIComponent(ticker)}?timeframe=${encodeURIComponent(timeframe)}&limit=${limit}`,
     ),
   getJournal: (ticker: string, limit = 50) =>
     getJson<ApiJournalRow[]>(`/api/journal?ticker=${encodeURIComponent(ticker)}&limit=${limit}`),
   getPositions: (ticker: string) => getJson<ApiPosition[]>(`/api/positions?ticker=${encodeURIComponent(ticker)}`),
+  getAllPositions: () => getJson<ApiPosition[]>('/api/positions'),
   getAutoTrade: () => getJson<{ enabled: boolean }>('/api/auto-trade'),
   setAutoTrade: async (enabled: boolean) => {
     const res = await fetch('/api/auto-trade', {

@@ -20,6 +20,8 @@ export function Header({
   availableTickers = [],
   onSelectTicker,
   activeSource = 'connecting',
+  sectors = {},
+  heldTickers = new Set(),
   exchangeLabel = 'ASX 200',
 }: {
   tf: string;
@@ -32,11 +34,14 @@ export function Header({
   availableTickers?: string[];
   onSelectTicker?: (ticker: string) => void;
   activeSource?: string;
+  sectors?: Record<string, string>;
+  heldTickers?: Set<string>;
   exchangeLabel?: string;
 }) {
   const displayTicker = ticker.replace(/\.(AX|NS)$/i, '');
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('');
+  const [sectorFilter, setSectorFilter] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -49,12 +54,15 @@ export function Header({
   }, [open]);
 
   useEffect(() => {
-    if (!open) setFilter('');
+    if (!open) { setFilter(''); setSectorFilter(null); }
   }, [open]);
 
-  const filteredTickers = filter
-    ? availableTickers.filter((t) => t.toLowerCase().includes(filter.toLowerCase()))
-    : availableTickers;
+  const sectorList = Array.from(new Set(Object.values(sectors))).sort();
+  const filteredTickers = availableTickers.filter((t) => {
+    if (sectorFilter && sectors[t] !== sectorFilter) return false;
+    if (filter && !t.toLowerCase().includes(filter.toLowerCase())) return false;
+    return true;
+  });
 
   const pillStyle = (v: string): CSSProperties => ({
     border: 'none',
@@ -113,7 +121,7 @@ export function Header({
           {open && availableTickers.length > 0 && (
             <div
               style={{
-                position: 'absolute', top: 'calc(100% + 6px)', left: 0, minWidth: 180, zIndex: 20,
+                position: 'absolute', top: 'calc(100% + 6px)', left: 0, width: 260, zIndex: 20,
                 background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8,
                 padding: 4, boxShadow: '0 8px 24px rgba(0,0,0,.35)',
               }}
@@ -131,23 +139,51 @@ export function Header({
                   }}
                 />
               )}
+              {sectorList.length > 1 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4, maxWidth: 280 }}>
+                  {['All', ...sectorList].map((s) => {
+                    const active = s === 'All' ? sectorFilter === null : sectorFilter === s;
+                    return (
+                      <button
+                        key={s}
+                        onClick={() => setSectorFilter(s === 'All' ? null : s)}
+                        style={{
+                          border: 'none', cursor: 'pointer', borderRadius: 999, padding: '3px 8px', fontSize: 10.5,
+                          fontWeight: 500, background: active ? 'var(--accent-dim)' : 'var(--bg-tertiary)',
+                          color: active ? 'var(--accent)' : 'var(--text-tertiary)',
+                        }}
+                      >
+                        {s}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <div role="listbox" style={{ maxHeight: 320, overflowY: 'auto' }}>
                 {filteredTickers.map((t) => {
                   const active = t === ticker;
+                  const held = heldTickers.has(t);
                   return (
                     <button
                       key={t}
                       role="option"
                       aria-selected={active}
                       onClick={() => { onSelectTicker?.(t); setOpen(false); }}
+                      title={held ? 'Open position' : undefined}
                       style={{
-                        display: 'block', width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
                         padding: '7px 10px', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 12.5,
-                        background: active ? 'var(--accent-dim)' : 'transparent',
+                        background: active ? 'var(--accent-dim)' : held ? 'var(--profit-dim)' : 'transparent',
                         color: active ? 'var(--accent)' : 'var(--text-primary)', fontWeight: active ? 600 : 400,
                       }}
                     >
+                      {held && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--profit)', flex: 'none' }} />}
                       {t.replace(/\.(AX|NS)$/i, '')}
+                      {sectors[t] && (
+                        <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-tertiary)', fontWeight: 400 }}>
+                          {sectors[t]}
+                        </span>
+                      )}
                     </button>
                   );
                 })}

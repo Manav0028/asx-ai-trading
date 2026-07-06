@@ -8,6 +8,10 @@ export interface Candle {
   c: number;
   h: number;
   l: number;
+  // Only populated on the live path (LiveChart.tsx) — the static demo
+  // (App.tsx/candles.ts) doesn't need a real time axis or volume.
+  time?: number; // unix seconds — required by lightweight-charts for the time axis
+  v?: number;
 }
 
 export interface TeachNote {

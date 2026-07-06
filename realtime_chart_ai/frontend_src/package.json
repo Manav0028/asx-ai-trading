@@ -11,6 +11,7 @@
     "deploy": "npm run build && rm -rf ../frontend/assets ../frontend/index.html && cp -r dist/* ../frontend/"
   },
   "dependencies": {
+    "lightweight-charts": "^5.2.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
