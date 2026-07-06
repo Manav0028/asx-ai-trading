@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -21,7 +22,7 @@ from journal.db import init_db
 from journal.recorder import get_open_positions, log_event, query_history
 from server.schemas import AutoTradeToggleRequest
 from server.ws_hub import hub
-from settings import CONTEXT_TIMEFRAMES, RTC_SIGNAL_THRESHOLD, RTC_TICKERS
+from settings import CONTEXT_TIMEFRAMES, RTC_ROUND_ROBIN_THRESHOLD, RTC_SIGNAL_THRESHOLD, RTC_TICKERS
 from trading import state
 from trading.position_tracker import tracker as position_tracker
 
@@ -55,13 +56,34 @@ def _candle_update_payload(ticker: str, timeframe: str, ind: dict) -> dict:
     }
 
 
-async def _bootstrap_ticker(ticker: str) -> None:
+def _setup_ticker(ticker: str) -> Callable:
+    """Synchronous, no network calls: creates the TimeframeStore/SignalEngine,
+    wires broadcast callbacks, and returns the on_candle callback to hand to
+    whichever subscription path is used (per-ticker stream() or the shared
+    stream_watchlist() round-robin)."""
     store = TimeframeStore(ticker)
     engine = SignalEngine(ticker, store, data_source_name=manager.current_source_name())
     engine.on_signal(lambda payload, t=ticker: hub.broadcast(t, payload))
     engine.on_bar(lambda tk, tf, ind, t=ticker: hub.broadcast(t, _candle_update_payload(tk, tf, ind)))
     stores[ticker] = store
     signal_engines[ticker] = engine
+
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"rtc-{ticker}")
+    _ticker_executors[ticker] = executor
+    loop = asyncio.get_running_loop()
+
+    async def on_candle(candle):
+        await loop.run_in_executor(executor, store.ingest_raw, candle)
+
+    return on_candle
+
+
+async def _bootstrap_ticker(ticker: str) -> None:
+    """Small-watchlist path (<= RTC_ROUND_ROBIN_THRESHOLD tickers, the
+    original/still-default behavior): full historical backfill awaited
+    during startup, then its own dedicated stream()."""
+    on_candle = _setup_ticker(ticker)
+    store = stores[ticker]
 
     # Historical backfill: 1m for ~30 days (chained requests inside ibkr_source),
     # daily for 2 years (matches the EOD system's existing backfill convention).
@@ -74,14 +96,23 @@ async def _bootstrap_ticker(ticker: str) -> None:
     log_event("backfill_complete", source=manager.current_source_name(), ticker=ticker,
               detail=f"{len(minute_candles)} 1m bars backfilled")
 
-    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"rtc-{ticker}")
-    _ticker_executors[ticker] = executor
-    loop = asyncio.get_running_loop()
-
-    async def on_candle(candle):
-        await loop.run_in_executor(executor, store.ingest_raw, candle)
-
     await manager.stream(ticker, on_candle)
+
+
+async def _bootstrap_watchlist_lean(tickers: list) -> None:
+    """Large-watchlist path (> RTC_ROUND_ROBIN_THRESHOLD tickers, e.g.
+    RTC_TICKERS=ASX200): skips the per-ticker historical-fetch-then-subscribe
+    sequence entirely — with hundreds of tickers, awaiting two Yahoo requests
+    each before startup completes would take minutes and almost certainly
+    burst well past Yahoo's rate limit right at boot. Instead: set up all
+    ticker stores/engines synchronously (no network calls, near-instant even
+    for hundreds of tickers) and hand the whole batch to
+    DataSourceManager.stream_watchlist(), whose round-robin scanner naturally
+    backfills each ticker's first cycle (up to ~1 day of 1m bars) the same
+    way it emits every subsequent live update — one shared, paced loop
+    instead of N separate ones."""
+    ticker_callbacks = {ticker: _setup_ticker(ticker) for ticker in tickers}
+    await manager.stream_watchlist(ticker_callbacks)
 
 
 @asynccontextmanager
@@ -90,9 +121,12 @@ async def lifespan(app: FastAPI):
     init_db()
     position_tracker.load_open_positions()  # recover any position still open from before a restart
     await manager.start()
-    for ticker in RTC_TICKERS:
-        await _bootstrap_ticker(ticker)
-    logger.info("realtime_chart_ai server started — tracking %s", RTC_TICKERS)
+    if len(RTC_TICKERS) > RTC_ROUND_ROBIN_THRESHOLD:
+        await _bootstrap_watchlist_lean(RTC_TICKERS)
+    else:
+        for ticker in RTC_TICKERS:
+            await _bootstrap_ticker(ticker)
+    logger.info("realtime_chart_ai server started — tracking %d ticker(s)", len(RTC_TICKERS))
     yield
     for source in (manager.primary, manager.fallback):
         if source is not None:

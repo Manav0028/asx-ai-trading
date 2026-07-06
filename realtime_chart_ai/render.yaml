@@ -36,14 +36,20 @@ services:
       - key: FALLBACK_SOURCE
         value: scripted_mock
 
-      # ── Watchlist — liquid ASX blue chips across sectors (mining, banking,
-      #    healthcare, retail). Real data + rate-limit recovery are confirmed
-      #    stable (see rtc_events), and the startup probe that contributed to
-      #    the earlier rate limit is now removed, so re-expanding here. The
-      #    frontend ticker switcher (header dropdown) makes this list
-      #    directly usable, not just backend-tracked ──────────────────────────
+      # ── Watchlist — "ASX200" expands to watchlists.py's ~170-ticker
+      #    snapshot (server/app.py, settings.py). Above RTC_ROUND_ROBIN_
+      #    THRESHOLD, the server skips per-ticker historical backfill at
+      #    startup and instead runs one shared round-robin scanner across the
+      #    whole list (datasources/yfinance_fallback.py) — each ticker
+      #    refreshes roughly every (N * RTC_ROUND_ROBIN_SPACING_SECONDS), ~8
+      #    minutes at this size, since Yahoo's real rate limit doesn't
+      #    improve with batching (one HTTP request per ticker either way) —
+      #    spacing requests over time is the only safe lever for many
+      #    tickers. Verified locally: real data flows for tickers across the
+      #    list, ~65MB RSS after 90s of real yfinance polling (Render free
+      #    tier is 512MB) ───────────────────────────────────────────────────
       - key: RTC_TICKERS
-        value: BHP.AX,CBA.AX,CSL.AX,NAB.AX,WES.AX
+        value: ASX200
 
       # ── Auto-trade stays off by default on a public demo deployment; the
       #    frontend switch (confirm-to-enable) is still there if wanted ────

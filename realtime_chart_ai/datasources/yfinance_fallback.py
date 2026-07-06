@@ -23,10 +23,11 @@ clearly rather than silently truncated.
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Awaitable, Callable, List, Optional
+from typing import Awaitable, Callable, Dict, List, Optional
 
 from datasources.base import Candle, CandleDataSource
 from journal.recorder import log_event
+from settings import RTC_ROUND_ROBIN_SPACING_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,14 @@ class YFinanceFallbackSource(CandleDataSource):
         # writes on failure, so the actual reason is queryable straight from
         # the journal DB — no application-log/dashboard access needed to
         # diagnose why the cloud deploy fell back to the mock source.
+        # (connect()-level only — not per-ticker; see _last_poll_errors below.)
         self._last_error: Optional[str] = None
+        # Per-ticker, so concurrent poll loops (small-watchlist path, one per
+        # ticker) or the round-robin scanner (large-watchlist path, one
+        # shared loop) each get correct error/recovery de-dup independently —
+        # a single shared field here would let one ticker's error mask or
+        # falsely "recover" another's.
+        self._last_poll_errors: Dict[str, Optional[str]] = {}
 
     async def connect(self) -> bool:
         try:
@@ -120,44 +128,77 @@ class YFinanceFallbackSource(CandleDataSource):
             self._last_ts[ticker] = candles[-1].ts
         return candles
 
+    async def _fetch_and_emit(self, ticker: str, on_candle: Callable[[Candle], Awaitable[None]]) -> None:
+        """Fetch the latest bars for one ticker and emit any new ones. Shared
+        by both the small-watchlist per-ticker poll loop and the large-
+        watchlist round-robin scanner — same fetch/emit/error-dedup logic
+        either way, just a different caller cadence."""
+        try:
+            df = await asyncio.wait_for(
+                asyncio.to_thread(self._fetch_sync, ticker, "1m", "1d"), timeout=_HTTP_TIMEOUT_SECONDS,
+            )
+        except Exception as e:
+            # A single failed fetch (e.g. a transient Yahoo rate limit) must
+            # never permanently kill the caller's loop — it would never emit
+            # another candle for the rest of the process's life even after
+            # the underlying issue cleared. Log (de-duplicated per ticker
+            # against rtc_events so a sustained outage doesn't flood the
+            # journal) and let the caller just retry next cycle.
+            detail = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+            logger.warning("yfinance fetch failed for %s: %s", ticker, e)
+            if self._last_poll_errors.get(ticker) != detail:
+                log_event("error", source=self.name, ticker=ticker, detail=f"poll failed: {detail}")
+                self._last_poll_errors[ticker] = detail
+            return
+        if df is not None and not df.empty:
+            # No prior _last_ts entry means this is genuinely the first time
+            # this ticker has ever been fetched here — true for the
+            # round-robin scanner's first cycle per ticker (no separate
+            # historical backfill precedes it), but NOT for the small-
+            # watchlist path (whose earlier explicit fetch_historical() call
+            # already populated _last_ts before this ever runs) — so this
+            # naturally only silences the round-robin's own backfill pass,
+            # same principle as seed_historical(), without a separate code
+            # path or flag threaded in from the caller.
+            first_time = ticker not in self._last_ts
+            last_seen: Optional[datetime] = self._last_ts.get(ticker)
+            for idx, row in df.iterrows():
+                ts = idx.to_pydatetime() if hasattr(idx, "to_pydatetime") else idx
+                if last_seen is not None and ts <= last_seen:
+                    continue
+                await on_candle(Candle(
+                    ticker=ticker, ts=ts, open=float(row["Open"]), high=float(row["High"]),
+                    low=float(row["Low"]), close=float(row["Close"]), volume=float(row["Volume"]),
+                    source=self.name, delayed=True, is_backfill=first_time,
+                ))
+                self._last_ts[ticker] = ts
+        if self._last_poll_errors.get(ticker) is not None:
+            log_event("connect", source=self.name, ticker=ticker, detail="poll recovered")
+            self._last_poll_errors[ticker] = None
+
     async def subscribe(self, ticker: str, on_candle: Callable[[Candle], Awaitable[None]]) -> None:
         asyncio.create_task(self._poll_loop(ticker, on_candle))
 
     async def _poll_loop(self, ticker: str, on_candle: Callable[[Candle], Awaitable[None]]) -> None:
         while self._healthy:
-            try:
-                df = await asyncio.wait_for(
-                    asyncio.to_thread(self._fetch_sync, ticker, "1m", "1d"), timeout=_HTTP_TIMEOUT_SECONDS,
-                )
-                if df is not None and not df.empty:
-                    last_seen: Optional[datetime] = self._last_ts.get(ticker)
-                    for idx, row in df.iterrows():
-                        ts = idx.to_pydatetime() if hasattr(idx, "to_pydatetime") else idx
-                        if last_seen is not None and ts <= last_seen:
-                            continue
-                        await on_candle(Candle(
-                            ticker=ticker, ts=ts, open=float(row["Open"]), high=float(row["High"]),
-                            low=float(row["Low"]), close=float(row["Close"]), volume=float(row["Volume"]),
-                            source=self.name, delayed=True,
-                        ))
-                        self._last_ts[ticker] = ts
-            except Exception as e:
-                # A single failed poll (e.g. a transient Yahoo rate limit)
-                # used to permanently kill this loop — it would never emit
-                # another candle for the rest of the process's life even
-                # after the underlying issue cleared. Log and keep retrying
-                # on the normal interval instead; only stop if the process
-                # itself is shutting down (self._healthy flips False there).
-                detail = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
-                logger.warning("yfinance poll failed for %s: %s — retrying in %ss", ticker, e, _POLL_SECONDS)
-                # De-duplicated against rtc_events — polling every 30s would
-                # otherwise flood the journal with an identical row for as
-                # long as an outage (e.g. a rate limit) lasts.
-                if self._last_error != detail:
-                    log_event("error", source=self.name, ticker=ticker, detail=f"poll failed: {detail}")
-                    self._last_error = detail
-            else:
-                if self._last_error is not None:
-                    log_event("connect", source=self.name, ticker=ticker, detail="poll recovered")
-                    self._last_error = None
+            await self._fetch_and_emit(ticker, on_candle)
             await asyncio.sleep(_POLL_SECONDS)
+
+    async def subscribe_watchlist(self, ticker_callbacks: Dict[str, Callable[[Candle], Awaitable[None]]]) -> None:
+        asyncio.create_task(self._round_robin_loop(ticker_callbacks))
+
+    async def _round_robin_loop(self, ticker_callbacks: Dict[str, Callable[[Candle], Awaitable[None]]]) -> None:
+        """One shared loop cycling through every tracked ticker at a fixed
+        request-rate budget (RTC_ROUND_ROBIN_SPACING_SECONDS between fetches,
+        regardless of watchlist size) — see settings.py's comment on why
+        spacing, not batching, is the actual lever for scaling to many
+        tickers against Yahoo's real per-request rate limit."""
+        tickers = list(ticker_callbacks.keys())
+        if not tickers:
+            return
+        i = 0
+        while self._healthy:
+            ticker = tickers[i % len(tickers)]
+            await self._fetch_and_emit(ticker, ticker_callbacks[ticker])
+            i += 1
+            await asyncio.sleep(RTC_ROUND_ROBIN_SPACING_SECONDS)

@@ -8,7 +8,7 @@ dev/verification-only, see datasources/scripted_mock_source.py). Calling
 do concurrently — no rewrite needed.
 """
 import logging
-from typing import Awaitable, Callable, Optional
+from typing import Awaitable, Callable, Dict, Optional
 
 from datasources.base import Candle, CandleDataSource
 from journal.recorder import log_event
@@ -68,6 +68,15 @@ class DataSourceManager:
             raise RuntimeError("DataSourceManager.start() must be called before stream()")
         await self._active.subscribe(ticker, on_candle)
         log_event("subscribe", source=self._active.name, ticker=ticker, detail="live subscription started")
+
+    async def stream_watchlist(self, ticker_callbacks: Dict[str, Callable[[Candle], Awaitable[None]]]) -> None:
+        """Many-ticker variant of stream() — see CandleDataSource.subscribe_watchlist
+        for why this exists as a separate path rather than N calls to stream()."""
+        if self._active is None:
+            raise RuntimeError("DataSourceManager.start() must be called before stream_watchlist()")
+        await self._active.subscribe_watchlist(ticker_callbacks)
+        log_event("subscribe", source=self._active.name, ticker=None,
+                   detail=f"round-robin watchlist subscription started ({len(ticker_callbacks)} tickers)")
 
     async def fetch_historical(self, ticker: str, timeframe: str, lookback: str):
         return await self._active.fetch_historical(ticker, timeframe, lookback)

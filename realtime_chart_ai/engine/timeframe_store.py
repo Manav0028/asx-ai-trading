@@ -44,13 +44,15 @@ class _Bucket:
         if self.bucket_key is None:
             self.bucket_key = key
             self.bar = Candle(candle.ticker, candle.ts, candle.open, candle.high,
-                               candle.low, candle.close, candle.volume, candle.source, candle.delayed)
+                               candle.low, candle.close, candle.volume, candle.source, candle.delayed,
+                               candle.is_backfill)
             return None
         if key != self.bucket_key:
             finalized = self.bar
             self.bucket_key = key
             self.bar = Candle(candle.ticker, candle.ts, candle.open, candle.high,
-                               candle.low, candle.close, candle.volume, candle.source, candle.delayed)
+                               candle.low, candle.close, candle.volume, candle.source, candle.delayed,
+                               candle.is_backfill)
         else:
             b = self.bar
             b.high = max(b.high, candle.high)
@@ -107,18 +109,26 @@ class TimeframeStore:
     def ingest_raw(self, candle: Candle) -> None:
         """Feed one raw tick/5s-bar from the data source. Rolls it up into the
         execution timeframe, and every closed execution bar is further rolled
-        into each context timeframe."""
+        into each context timeframe. candle.is_backfill (set by the
+        round-robin scanner's first fetch per ticker, which doubles as
+        backfill) suppresses callbacks the same way seed_historical() does —
+        indicators/swings still get seeded, but no pattern evaluation,
+        journal writes, or paper trades fire against bars that already
+        happened hours ago."""
+        silent = candle.is_backfill
         finalized_exec = self._exec_bucket.add(candle)
         if finalized_exec is not None:
-            self._close_bar(EXECUTION_TIMEFRAME, finalized_exec)
+            self._close_bar(EXECUTION_TIMEFRAME, finalized_exec, silent=silent)
             for tf, bucket in self._buckets.items():
                 finalized_ctx = bucket.add(finalized_exec)
                 if finalized_ctx is not None:
-                    self._close_bar(tf, finalized_ctx)
+                    self._close_bar(tf, finalized_ctx, silent=silent)
 
-    def _close_bar(self, timeframe: str, bar: Candle) -> None:
+    def _close_bar(self, timeframe: str, bar: Candle, silent: bool = False) -> None:
         engine = self.engines[timeframe]
         ind = engine.update(bar)
+        if silent:
+            return
         for cb in self._on_bar_closed_callbacks:
             cb(self.ticker, timeframe, ind)
 

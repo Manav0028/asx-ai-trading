@@ -70,8 +70,30 @@ RTC_TRAIL_DISTANCE_MULT = float(os.getenv("RTC_TRAIL_DISTANCE_MULT", 1.5))
 RTC_TRAIL_MIN_PCT = float(os.getenv("RTC_TRAIL_MIN_PCT", 0.01))
 RTC_TRAIL_MAX_PCT = float(os.getenv("RTC_TRAIL_MAX_PCT", 0.05))
 
-# ── Watchlist (Phase 1: single ticker; Phase 3: multiple, comma-separated) ────────
-RTC_TICKERS = [t.strip() for t in os.getenv("RTC_TICKERS", "BHP.AX").split(",") if t.strip()]
+# ── Watchlist (Phase 1: single ticker; Phase 3: multiple, comma-separated, or a
+# named list from watchlists.py e.g. RTC_TICKERS=ASX200) ─────────────────────────
+from watchlists import NAMED_WATCHLISTS  # noqa: E402 — after os.getenv-based config above by convention
+
+_raw_tickers = os.getenv("RTC_TICKERS", "BHP.AX").strip()
+if _raw_tickers in NAMED_WATCHLISTS:
+    RTC_TICKERS = NAMED_WATCHLISTS[_raw_tickers]
+else:
+    RTC_TICKERS = [t.strip() for t in _raw_tickers.split(",") if t.strip()]
+
+# Above this many tickers, server/app.py switches from the per-ticker
+# bootstrap+subscribe path (historical backfill before startup completes, one
+# dedicated yfinance poll per ticker every EXECUTION_TIMEFRAME_SECONDS) to a
+# lean-startup + shared round-robin scan (see datasources/yfinance_fallback.py
+# and server/app.py) — necessary because Yahoo's real per-request rate limit
+# doesn't improve with batching (yfinance issues one HTTP request per ticker
+# regardless), so the only safe way to track many tickers is spreading
+# requests over time rather than firing one burst per ticker at once.
+RTC_ROUND_ROBIN_THRESHOLD = int(os.getenv("RTC_ROUND_ROBIN_THRESHOLD", 10))
+# Fixed request budget for the round-robin scanner: one Yahoo request every
+# this many seconds, regardless of watchlist size — so a bigger watchlist
+# means each individual ticker refreshes less often (cycle_time = N * this),
+# not that Yahoo gets hit harder. 200 tickers * 3s ≈ 10 minutes per ticker.
+RTC_ROUND_ROBIN_SPACING_SECONDS = float(os.getenv("RTC_ROUND_ROBIN_SPACING_SECONDS", 3.0))
 
 # ── Composite score weights (must sum to 1.0) — see plan doc §7 ──────────────────
 WEIGHT_PATTERN_CONFIDENCE = 0.35

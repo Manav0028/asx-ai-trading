@@ -36,6 +36,7 @@ export function Header({
 }) {
   const displayTicker = ticker.replace(/\.(AX|NS)$/i, '');
   const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState('');
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -46,6 +47,14 @@ export function Header({
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [open]);
+
+  useEffect(() => {
+    if (!open) setFilter('');
+  }, [open]);
+
+  const filteredTickers = filter
+    ? availableTickers.filter((t) => t.toLowerCase().includes(filter.toLowerCase()))
+    : availableTickers;
 
   const pillStyle = (v: string): CSSProperties => ({
     border: 'none',
@@ -103,32 +112,49 @@ export function Header({
           </button>
           {open && availableTickers.length > 0 && (
             <div
-              role="listbox"
               style={{
-                position: 'absolute', top: 'calc(100% + 6px)', left: 0, minWidth: 160, zIndex: 20,
+                position: 'absolute', top: 'calc(100% + 6px)', left: 0, minWidth: 180, zIndex: 20,
                 background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8,
                 padding: 4, boxShadow: '0 8px 24px rgba(0,0,0,.35)',
               }}
             >
-              {availableTickers.map((t) => {
-                const active = t === ticker;
-                return (
-                  <button
-                    key={t}
-                    role="option"
-                    aria-selected={active}
-                    onClick={() => { onSelectTicker?.(t); setOpen(false); }}
-                    style={{
-                      display: 'block', width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
-                      padding: '7px 10px', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 12.5,
-                      background: active ? 'var(--accent-dim)' : 'transparent',
-                      color: active ? 'var(--accent)' : 'var(--text-primary)', fontWeight: active ? 600 : 400,
-                    }}
-                  >
-                    {t.replace(/\.(AX|NS)$/i, '')}
-                  </button>
-                );
-              })}
+              {availableTickers.length > 12 && (
+                <input
+                  autoFocus
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="Filter…"
+                  style={{
+                    width: '100%', boxSizing: 'border-box', border: '1px solid var(--border)', borderRadius: 6,
+                    background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: 12.5,
+                    fontFamily: 'var(--font-mono)', padding: '6px 8px', marginBottom: 4,
+                  }}
+                />
+              )}
+              <div role="listbox" style={{ maxHeight: 320, overflowY: 'auto' }}>
+                {filteredTickers.map((t) => {
+                  const active = t === ticker;
+                  return (
+                    <button
+                      key={t}
+                      role="option"
+                      aria-selected={active}
+                      onClick={() => { onSelectTicker?.(t); setOpen(false); }}
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer',
+                        padding: '7px 10px', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 12.5,
+                        background: active ? 'var(--accent-dim)' : 'transparent',
+                        color: active ? 'var(--accent)' : 'var(--text-primary)', fontWeight: active ? 600 : 400,
+                      }}
+                    >
+                      {t.replace(/\.(AX|NS)$/i, '')}
+                    </button>
+                  );
+                })}
+                {filteredTickers.length === 0 && (
+                  <div style={{ padding: '10px', fontSize: 12, color: 'var(--text-tertiary)' }}>No match</div>
+                )}
+              </div>
             </div>
           )}
         </div>
