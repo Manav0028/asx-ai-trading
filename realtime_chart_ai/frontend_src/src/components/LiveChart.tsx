@@ -81,12 +81,19 @@ export function LiveChart({
     };
   }, []);
 
-  // Data updates — full replace on ticker/timeframe switch or bulk backfill;
-  // lightweight-charts diffs/keeps the view position sane on its own.
+  // Data updates — full replace on ticker/timeframe switch or bulk backfill.
+  // lightweight-charts keeps whatever time-scale range the user last had —
+  // it does NOT auto-fit to new data. Switching tickers/timeframes without
+  // fitContent() left the chart visually blank whenever the new series'
+  // bars didn't overlap the previous ticker's view window (found testing
+  // against real data: BHP -> MQG showed a completely empty chart despite
+  // valid data loading, because the old view was scrolled to a time range
+  // MQG had no bars in).
   useEffect(() => {
+    const chart = chartRef.current;
     const candleSeries = candleSeriesRef.current;
     const volumeSeries = volumeSeriesRef.current;
-    if (!candleSeries || !volumeSeries || candles.length === 0) return;
+    if (!chart || !candleSeries || !volumeSeries || candles.length === 0) return;
     const bars = candles.filter((c) => c.time != null);
     candleSeries.setData(bars.map((c) => ({
       time: c.time as UTCTimestamp, open: c.o, high: c.h, low: c.l, close: c.c,
@@ -94,6 +101,7 @@ export function LiveChart({
     volumeSeries.setData(bars.map((c) => ({
       time: c.time as UTCTimestamp, value: c.v ?? 0, color: c.c >= c.o ? 'rgba(0,196,140,0.5)' : 'rgba(255,90,90,0.5)',
     })));
+    chart.timeScale().fitContent();
   }, [candles]);
 
   // Entry/stop/target price lines — redrawn whenever the active signal changes.
