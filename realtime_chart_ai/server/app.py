@@ -154,7 +154,21 @@ async def _eod_force_close_loop() -> None:
     while True:
         try:
             now = datetime.now(_SYDNEY_TZ)
-            past_close = (now.hour, now.minute) >= (RTC_EOD_FORCE_CLOSE_HOUR, RTC_EOD_FORCE_CLOSE_MINUTE)
+            # BUG (found in production verification): comparing (hour, minute)
+            # tuples directly only correctly detects "past close" for the
+            # SAME calendar day (16:xx-23:xx) — once past midnight, now.hour
+            # wraps back to 0, so e.g. 00:22 compared against a 16:10 close
+            # evaluated as "before close" and silently stopped force-closing
+            # positions overnight, exactly the case this loop exists to
+            # cover. The market is closed for the entire span from
+            # RTC_EOD_FORCE_CLOSE_HOUR:MINUTE through to the 10:00 ASX open
+            # the NEXT morning — expressed here as minutes-since-midnight
+            # either past the close point or before the open point, which
+            # correctly spans the midnight wraparound.
+            minutes_since_midnight = now.hour * 60 + now.minute
+            close_point = RTC_EOD_FORCE_CLOSE_HOUR * 60 + RTC_EOD_FORCE_CLOSE_MINUTE
+            market_open_point = 10 * 60
+            past_close = minutes_since_midnight >= close_point or minutes_since_midnight < market_open_point
             if past_close:
                 for ticker in position_tracker.open_tickers():
                     price, _ = _latest_price_and_atr(ticker)
