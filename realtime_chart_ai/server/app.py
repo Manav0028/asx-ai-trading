@@ -11,7 +11,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
-from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -21,6 +20,7 @@ from engine.signal_engine import SignalEngine
 from engine.timeframe_store import EXECUTION_TIMEFRAME, TimeframeStore
 from journal.db import init_db
 from journal.recorder import get_open_positions, log_event, query_history
+from market_hours import SYDNEY_TZ
 from server.schemas import AutoTradeToggleRequest, ManualEntryRequest, ManualUpdateRequest
 from server.ws_hub import hub
 from settings import (
@@ -31,8 +31,6 @@ from trading import state
 from trading.position_tracker import tracker as position_tracker
 from trading.stops import compute_stop_target
 from watchlists import TICKER_SECTOR
-
-_SYDNEY_TZ = ZoneInfo("Australia/Sydney")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -154,7 +152,7 @@ async def _eod_force_close_loop() -> None:
     already-closed position is never touched again."""
     while True:
         try:
-            now = datetime.now(_SYDNEY_TZ)
+            now = datetime.now(SYDNEY_TZ)
             # BUG (found in production verification): comparing (hour, minute)
             # tuples directly only correctly detects "past close" for the
             # SAME calendar day (16:xx-23:xx) — once past midnight, now.hour

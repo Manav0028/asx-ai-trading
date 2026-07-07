@@ -57,6 +57,19 @@ RTC_MAX_POSITION_PCT = float(os.getenv("RTC_MAX_POSITION_PCT", 0.40))  # cap pos
 RTC_SCORE_MULT_FLOOR = float(os.getenv("RTC_SCORE_MULT_FLOOR", 0.5))   # composite == threshold -> 0.5x risk
 RTC_SCORE_MULT_CEIL = float(os.getenv("RTC_SCORE_MULT_CEIL", 1.5))     # composite == 100 -> 1.5x risk
 
+# RTC_CAPITAL_POOL above is a per-trade SIZING REFERENCE only (each new
+# position is sized against it independently — it's never decremented as
+# positions open, by original design, matching how the EOD system's own
+# PORTFOLIO_CAPITAL works). At ASX200 scale that meant dozens of
+# simultaneous positions could each be sized as if they had the full pool to
+# themselves, with no cap on aggregate exposure at all. This is a genuine
+# PORTFOLIO-WIDE ceiling enforced in trading/position_tracker.py: total
+# (shares * entry_price) summed across every currently-open position can
+# never exceed this, regardless of how many tickers are open at once. A new
+# entry that would breach it gets sized down to whatever room remains, or
+# rejected outright if there's no room left.
+RTC_MAX_TOTAL_INVESTED_AUD = float(os.getenv("RTC_MAX_TOTAL_INVESTED_AUD", 25000.0))
+
 # ── Automated trading: simulated fill ─────────────────────────────────────────────
 RTC_PAPER_SLIPPAGE = float(os.getenv("RTC_PAPER_SLIPPAGE", 0.001))     # 0.1%
 RTC_PAPER_BROKERAGE = float(os.getenv("RTC_PAPER_BROKERAGE", 9.95))    # flat fee per leg

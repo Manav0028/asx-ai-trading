@@ -18,6 +18,7 @@ from engine.levels import LevelTracker
 from engine.timeframe_store import EXECUTION_TIMEFRAME, TimeframeStore
 from engine.volume_profile import VolumeProfileTracker
 from journal.recorder import log_bar, log_event, write_interpretation
+from market_hours import is_asx_market_open
 from settings import (
     CONTEXT_TIMEFRAMES, RTC_SIGNAL_THRESHOLD, WEIGHT_MTF_CONFLUENCE,
     WEIGHT_PATTERN_CONFIDENCE, WEIGHT_SMC_ZONE_QUALITY, WEIGHT_TREND_ALIGNMENT,
@@ -339,7 +340,18 @@ class SignalEngine:
 
         trade_action = None
         if composite >= RTC_SIGNAL_THRESHOLD and state.is_enabled():
-            if position_tracker.has_open_position(self.ticker):
+            if not is_asx_market_open():
+                # Found via direct user report: automated entries had no
+                # market-hours check at all — only the manual auto-trade
+                # toggle gated them, so a signal firing well after close
+                # (against stale/after-hours delayed data) could still open
+                # a position if the toggle happened to be left on overnight.
+                log_event(
+                    "entry_skipped_market_closed", ticker=self.ticker,
+                    detail=f"{signal['pattern_name']} ({direction}) skipped — "
+                           f"composite={composite:.1f}, outside ASX trading hours",
+                )
+            elif position_tracker.has_open_position(self.ticker):
                 log_event(
                     "entry_skipped_position_open", ticker=self.ticker,
                     detail=f"{signal['pattern_name']} ({direction}) skipped — "
