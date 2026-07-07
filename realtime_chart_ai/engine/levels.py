@@ -23,6 +23,14 @@ class LevelTracker:
     def __init__(self, atr_tolerance_mult: float = 0.3):
         self.atr_tolerance_mult = atr_tolerance_mult
         self.levels: List[Level] = []
+        # Non-swing-derived levels (prior session's close/high/low — see
+        # SignalEngine.refresh_daily_reference_levels) that must survive
+        # every rebuild() call even though rebuild() otherwise replaces
+        # self.levels wholesale from just the live swing list each time.
+        self._reference_levels: List[Level] = []
+
+    def set_reference_levels(self, levels: List[Level]) -> None:
+        self._reference_levels = levels
 
     def rebuild(self, swings: List[SwingPoint], atr: float) -> List[Level]:
         tolerance = self.atr_tolerance_mult * atr if atr else 0.0
@@ -36,7 +44,7 @@ class LevelTracker:
                 match["touches"] = new_touches
             else:
                 clusters.append({"price": sp.price, "kind": kind, "touches": 1})
-        self.levels = [Level(**c) for c in clusters]
+        self.levels = [Level(**c) for c in clusters] + self._reference_levels
         self.levels.sort(key=lambda l: -l.touches)
         return self.levels
 

@@ -45,6 +45,7 @@ export interface Message {
 
 export interface JournalEntry {
   time: string;
+  timeframe: string;
   pattern: string;
   dir: Direction;
   score: number;

@@ -99,7 +99,7 @@ export function useRealtimeChartAI(beginnerMode: boolean, autoTradeDefault: bool
 
   const addJournal = useCallback((pattern: string, dir: Direction, score: number, zone: string, action: JournalEntry['action']) => {
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    setJournal((s) => [{ pattern, dir, score, zone, action, time }, ...s]);
+    setJournal((s) => [{ pattern, dir, score, zone, action, time, timeframe: '1m' }, ...s]);
   }, []);
 
   const toggleTrade = useCallback((id: number) => {

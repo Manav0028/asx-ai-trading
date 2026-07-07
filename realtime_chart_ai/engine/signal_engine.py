@@ -19,7 +19,7 @@ from engine.timeframe_store import EXECUTION_TIMEFRAME, TimeframeStore
 from engine.volume_profile import VolumeProfileTracker
 from journal.recorder import log_bar, log_event, write_interpretation
 from settings import (
-    RTC_SIGNAL_THRESHOLD, WEIGHT_MTF_CONFLUENCE,
+    CONTEXT_TIMEFRAMES, RTC_SIGNAL_THRESHOLD, WEIGHT_MTF_CONFLUENCE,
     WEIGHT_PATTERN_CONFIDENCE, WEIGHT_SMC_ZONE_QUALITY, WEIGHT_TREND_ALIGNMENT,
     WEIGHT_VOLUME_CONFIRMATION,
 )
@@ -28,7 +28,13 @@ from trading.position_tracker import tracker as position_tracker
 
 logger = logging.getLogger(__name__)
 
-CONTEXT_BIAS_TIMEFRAMES = ("5m", "15m")
+CONTEXT_BIAS_TIMEFRAMES = tuple(CONTEXT_TIMEFRAMES)
+# How many of a context timeframe's OWN bars a pattern that just fired on it
+# stays "active" for confluence purposes — see bias_for()'s recent_pattern_
+# direction. 3 bars is deliberately short: on 15m that's 45 minutes, long
+# enough to matter for an intraday confluence check without a pattern from
+# hours ago still silently biasing new signals.
+RECENT_PATTERN_DECAY_BARS = 3
 
 
 def trend_alignment_score(ind: Dict) -> float:
@@ -76,6 +82,22 @@ class SignalEngine:
         self.level_tracker = LevelTracker()
         self.chart_pattern_engine = ChartPatternEngine()
         self.volume_profile = VolumeProfileTracker()
+        # Every context timeframe (5m/15m/1d) gets its OWN pattern-detector
+        # state — previously these timeframes were only ever read as a raw
+        # EMA20/50 crossover for the confluence bias; every actual pattern
+        # detector (candlestick/chart/SMC) ran exclusively against 1-minute
+        # bars, so a real setup forming cleanly on the 15-minute or daily
+        # chart was invisible to the system unless it ALSO happened to look
+        # like a pattern on 1m bars at the same moment. Separate instances
+        # per timeframe (not shared with the 1m ones above) so swing history
+        # and SMC structure/order-block state never mix across timeframes.
+        self.context_swing_detectors: Dict[str, SwingDetector] = {tf: SwingDetector() for tf in CONTEXT_BIAS_TIMEFRAMES}
+        self.context_smc_engines: Dict[str, SMCEngine] = {tf: SMCEngine() for tf in CONTEXT_BIAS_TIMEFRAMES}
+        self.context_chart_engines: Dict[str, ChartPatternEngine] = {tf: ChartPatternEngine() for tf in CONTEXT_BIAS_TIMEFRAMES}
+        # {timeframe: {"direction": "long"|"short", "bars_ago": int}} — how
+        # confluence.bias_for() knows a REAL pattern (not just price-vs-EMA)
+        # recently confirmed on that timeframe. See RECENT_PATTERN_DECAY_BARS.
+        self.context_recent_pattern: Dict[str, Optional[Dict]] = {tf: None for tf in CONTEXT_BIAS_TIMEFRAMES}
         self._signal_callbacks: List[Callable[[Dict], None]] = []
         self._bar_callbacks: List[Callable[[str, str, Dict], None]] = []
 
@@ -87,6 +109,26 @@ class SignalEngine:
     def on_bar(self, callback: Callable[[str, str, Dict], None]) -> None:
         """For broadcasting candle_update regardless of whether a pattern fired."""
         self._bar_callbacks.append(callback)
+
+    def refresh_daily_reference_levels(self) -> None:
+        """Called by server/app.py right after it lazily backfills a
+        ticker's '1d' engine (see _seed_daily_context) — seed_historical()
+        deliberately fires no bar-closed callback (so historical warmup
+        doesn't flood the journal), so nothing inside SignalEngine otherwise
+        learns that real daily data just became available. Prior session's
+        high/low become genuine reference support/resistance levels — a
+        prior day's high/low is a well-known intraday reference point
+        (yesterday's range), independent of whatever swings have or haven't
+        formed yet today."""
+        from engine.levels import Level
+        ind = self.store.latest_ind("1d")
+        if not ind or not ind.get("closes"):
+            return
+        prev_high, prev_low = ind["highs"][-1], ind["lows"][-1]
+        self.level_tracker.set_reference_levels([
+            Level(price=prev_high, kind="resistance", touches=2),
+            Level(price=prev_low, kind="support", touches=2),
+        ])
 
     def _handle_bar_closed(self, ticker: str, timeframe: str, ind: Dict) -> None:
         # Broad guard: an unexpected data edge case (e.g. a malformed bar
@@ -107,9 +149,78 @@ class SignalEngine:
         for cb in self._bar_callbacks:
             cb(ticker, timeframe, ind)
 
-        if timeframe != EXECUTION_TIMEFRAME:
-            return
+        if timeframe == EXECUTION_TIMEFRAME:
+            self._handle_execution_bar(ind)
+        elif timeframe in self.context_swing_detectors:
+            self._handle_context_bar(timeframe, ind)
 
+    def _handle_context_bar(self, timeframe: str, ind: Dict) -> None:
+        """Runs the SAME pattern families (candlestick/chart/SMC) against a
+        higher timeframe's own closed bar. Never enters a trade from here —
+        execution stays 1-minute-granular, since that's the cadence stops/
+        targets/trailing-stops/max-hold are actually monitored against — but
+        a real confirmed pattern here is journaled (auditable via the
+        Journal tab) and remembered for RECENT_PATTERN_DECAY_BARS so the
+        confluence gate a 1m signal is checked against reflects an ACTUAL
+        higher-timeframe pattern, not just which side of its moving averages
+        price happens to be on."""
+        i = len(ind["closes"]) - 1
+        swing_detector = self.context_swing_detectors[timeframe]
+        swing_detector.update(ind)
+        swings = list(swing_detector.swings)
+
+        fired: List[Dict] = []
+        for pattern in CANDLESTICK_PATTERNS:
+            result = pattern.fires(ind, i)
+            if result:
+                result["pattern_name"] = pattern.name
+                result["direction"] = pattern.direction
+                result["pattern_type"] = pattern.pattern_type
+                fired.append(result)
+        for result in self.context_smc_engines[timeframe].evaluate(ind, i, swings):
+            fired.append(result)
+        for result in self.context_chart_engines[timeframe].evaluate(ind, i, swings):
+            fired.append(result)
+
+        if fired:
+            self.context_recent_pattern[timeframe] = {"direction": fired[-1]["direction"], "bars_ago": 0}
+            for signal in fired:
+                self._journal_context_pattern(timeframe, signal, ind, i)
+        else:
+            recent = self.context_recent_pattern.get(timeframe)
+            if recent is not None:
+                recent["bars_ago"] += 1
+                if recent["bars_ago"] > RECENT_PATTERN_DECAY_BARS:
+                    self.context_recent_pattern[timeframe] = None
+
+    def _journal_context_pattern(self, timeframe: str, signal: Dict, ind: Dict, i: int) -> None:
+        """Lightweight journal-only path for a context-timeframe pattern
+        fire — no Claude call (these are frequent across 5m/15m/1d and
+        never trade-actioned, so paying for narration on every one would
+        reintroduce the exact API-cost problem already fixed for 1m signals
+        below threshold) and no broadcast to the live signal card, since
+        these don't represent an actionable-right-now setup the way a 1m
+        fire does. Still fully auditable via /api/journal — "always
+        journal, only sometimes act" applies here too."""
+        price = ind["closes"][i]
+        composite = (
+            WEIGHT_PATTERN_CONFIDENCE * signal["confidence"] * 100
+            + WEIGHT_TREND_ALIGNMENT * trend_alignment_score(ind)
+            + WEIGHT_VOLUME_CONFIRMATION * volume_confirmation_score(ind, i)
+            + WEIGHT_MTF_CONFLUENCE * 50.0
+            + WEIGHT_SMC_ZONE_QUALITY * 50.0
+        )
+        write_interpretation({
+            "ticker": self.ticker, "bar_ts": ind["timestamps"][i], "timeframe": timeframe,
+            "data_source": self.data_source_name, "pattern_name": signal["pattern_name"],
+            "pattern_type": signal["pattern_type"], "direction": signal["direction"],
+            "confidence": signal["confidence"], "composite_score": round(composite, 2),
+            "rule_reason": signal["reason"], "mtf_confluence": None, "mtf_summary": None,
+            "smc_zone": None, "smc_context": signal["pattern_name"] if signal["pattern_type"] == "smc" else None,
+            "claude_rationale": None, "claude_model": None, "price_at_signal": price,
+        })
+
+    def _handle_execution_bar(self, ind: Dict) -> None:
         i = len(ind["closes"]) - 1
         self.swing_detector.update(ind)
         atr = ind["atr"][i] if ind.get("atr") else 0.0
@@ -129,7 +240,10 @@ class SignalEngine:
 
         dealing_range = self.swing_detector.dealing_range()
         biases = {
-            tf: confluence.bias_for(self.store.latest_ind(tf))
+            tf: confluence.bias_for(
+                self.store.latest_ind(tf),
+                recent_pattern_direction=(self.context_recent_pattern[tf]["direction"] if self.context_recent_pattern.get(tf) else None),
+            )
             for tf in CONTEXT_BIAS_TIMEFRAMES
         }
         for signal in fired:

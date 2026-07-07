@@ -29,6 +29,7 @@ export function JournalTab({ journal }: { journal: JournalEntry[] }) {
           <thead>
             <tr>
               <th style={{ ...th, textAlign: 'left' }}>Time</th>
+              <th style={{ ...th, textAlign: 'left' }}>TF</th>
               <th style={{ ...th, textAlign: 'left' }}>Pattern</th>
               <th style={{ ...th, textAlign: 'right' }}>Score</th>
               <th style={{ ...th, textAlign: 'left' }}>Zone</th>
@@ -49,9 +50,19 @@ export function JournalTab({ journal }: { journal: JournalEntry[] }) {
                   ? { background: 'var(--bg-primary)', border: '1px solid var(--border)', color: 'var(--text-tertiary)' }
                   : { background: 'var(--accent-dim)', color: 'var(--accent)' }),
               };
+              const tfStyle: CSSProperties = {
+                display: 'inline-block', padding: '1px 6px', borderRadius: 5, fontSize: 10,
+                fontFamily: 'var(--font-mono)', fontWeight: 600,
+                background: j.timeframe === '1m' ? 'var(--bg-primary)' : 'var(--accent-dim)',
+                color: j.timeframe === '1m' ? 'var(--text-tertiary)' : 'var(--accent)',
+                border: j.timeframe === '1m' ? '1px solid var(--border)' : 'none',
+              };
               return (
                 <tr key={i}>
                   <td style={{ ...td, fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)', fontSize: 11 }}>{j.time}</td>
+                  <td style={td}>
+                    <span style={tfStyle}>{j.timeframe}</span>
+                  </td>
                   <td style={{ ...td, color: 'var(--text-secondary)' }}>
                     <span style={{ color: dirColor, fontWeight: 600 }}>{dirArrow}</span> {j.pattern}
                   </td>

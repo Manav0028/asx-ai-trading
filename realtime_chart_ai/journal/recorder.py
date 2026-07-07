@@ -183,6 +183,13 @@ def query_history(ticker: Optional[str] = None, limit: int = 50,
             outcome = outcomes_by_action.get(action.id) if action else None
             results.append({
                 "id": row.id, "ticker": row.ticker, "bar_ts": row.bar_ts.isoformat(),
+                # Which timeframe this pattern fired on — now meaningfully
+                # "1m" | "5m" | "15m" | "1d" instead of always "1m", since
+                # signal_engine.py evaluates patterns on every tracked
+                # timeframe, not just the execution one. Exposed so the
+                # frontend can actually show this rather than it being
+                # silently dropped from the API response.
+                "timeframe": row.timeframe,
                 "pattern_name": row.pattern_name, "pattern_type": row.pattern_type,
                 "direction": row.direction, "confidence": row.confidence,
                 "composite_score": row.composite_score, "rule_reason": row.rule_reason,

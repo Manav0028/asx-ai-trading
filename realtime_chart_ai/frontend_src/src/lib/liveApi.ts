@@ -34,6 +34,7 @@ export interface ApiJournalRow {
   id: number;
   ticker: string;
   bar_ts: string;
+  timeframe: string;
   pattern_name: string;
   pattern_type: string | null;
   direction: 'long' | 'short' | null;

@@ -32,7 +32,7 @@ function journalRowToEntry(row: ApiJournalRow): JournalEntry {
       : 'exit'
     : 'watch';
   return {
-    time, pattern: row.pattern_name, dir: (row.direction ?? 'long') as Direction,
+    time, timeframe: row.timeframe, pattern: row.pattern_name, dir: (row.direction ?? 'long') as Direction,
     score: Math.round(row.composite_score ?? 0), zone: row.smc_zone ?? 'equilibrium', action,
   };
 }

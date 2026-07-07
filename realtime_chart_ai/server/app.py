@@ -111,6 +111,7 @@ async def _bootstrap_ticker(ticker: str) -> None:
     if "1d" in CONTEXT_TIMEFRAMES:
         daily_candles = await manager.fetch_historical(ticker, "1d", "2 Y")
         store.seed_historical("1d", daily_candles)
+        signal_engines[ticker].refresh_daily_reference_levels()
     log_event("backfill_complete", source=manager.current_source_name(), ticker=ticker,
               detail=f"{len(minute_candles)} 1m bars backfilled")
 
@@ -294,6 +295,9 @@ async def _seed_daily_context(ticker: str) -> None:
         daily_candles = await manager.fetch_historical(ticker, "1d", "2 Y")
         if daily_candles:
             store.seed_historical("1d", daily_candles)
+            engine = signal_engines.get(ticker)
+            if engine is not None:
+                engine.refresh_daily_reference_levels()
             log_event("backfill_complete", ticker=ticker, detail=f"{len(daily_candles)} daily bars seeded on-demand")
     except Exception:
         logger.exception("daily-context seed failed for %s", ticker)
