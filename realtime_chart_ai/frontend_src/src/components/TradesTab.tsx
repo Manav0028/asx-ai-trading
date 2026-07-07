@@ -241,8 +241,13 @@ export function TradesTab({
                     onClick={(e) => {
                       if (!onSelectTicker) return;
                       e.stopPropagation();
+                      // Only switches the main chart/Live Signal to this
+                      // ticker — deliberately does NOT touch tickerFilter,
+                      // which stays purely under the user's own control. The
+                      // active-ticker row still gets a visual highlight
+                      // (isActiveTicker below) without hiding every other
+                      // row out from under the list.
                       onSelectTicker(t.ticker);
-                      setTickerFilter(t.ticker);
                     }}
                     style={{
                       fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 12.5,
