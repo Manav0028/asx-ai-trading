@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -22,11 +23,16 @@ from journal.db import init_db
 from journal.recorder import get_open_positions, log_event, query_history
 from server.schemas import AutoTradeToggleRequest, ManualEntryRequest, ManualUpdateRequest
 from server.ws_hub import hub
-from settings import CONTEXT_TIMEFRAMES, RTC_ROUND_ROBIN_THRESHOLD, RTC_SIGNAL_THRESHOLD, RTC_TICKERS
+from settings import (
+    CONTEXT_TIMEFRAMES, RTC_EOD_FORCE_CLOSE_HOUR, RTC_EOD_FORCE_CLOSE_MINUTE,
+    RTC_ROUND_ROBIN_THRESHOLD, RTC_SIGNAL_THRESHOLD, RTC_TICKERS,
+)
 from trading import state
 from trading.position_tracker import tracker as position_tracker
 from trading.stops import compute_stop_target
 from watchlists import TICKER_SECTOR
+
+_SYDNEY_TZ = ZoneInfo("Australia/Sydney")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -60,6 +66,11 @@ def _candle_update_payload(ticker: str, timeframe: str, ind: dict) -> dict:
         "close": ind["closes"][i], "volume": ind["volumes"][i],
         "source": ind["sources"][i] if ind.get("sources") else "unknown",
         "delayed": ind["delayed"][i] if ind.get("delayed") else False,
+        # Trend context for the chart's EMA overlay — already computed by
+        # IndicatorEngine for the composite score's trend_alignment term;
+        # exposing it here is free (no extra computation), just wiring.
+        "ema20": ind["ema20"][i] if ind.get("ema20") else None,
+        "ema50": ind["ema50"][i] if ind.get("ema50") else None,
     }
 
 
@@ -122,6 +133,41 @@ async def _bootstrap_watchlist_lean(tickers: list) -> None:
     await manager.stream_watchlist(ticker_callbacks)
 
 
+async def _eod_force_close_loop() -> None:
+    """Day-trading discipline: once past RTC_EOD_FORCE_CLOSE_HOUR/MINUTE
+    (Sydney time), book every still-open position at its latest known price
+    instead of letting it silently carry overnight. Without this, a position
+    stops advancing bars_held/checking its stop-target the moment the market
+    closes (check_exit only runs when a NEW bar closes for that ticker, and
+    no new bars arrive while the exchange is shut) — so it just sits open
+    until tomorrow's bars start arriving, well past the day-trading horizon
+    its stop/target were actually sized for.
+
+    Deliberately NOT gated to "run once per day": if a ticker's price isn't
+    available yet at the exact moment this sweep runs (e.g. still waiting
+    its round-robin turn), retrying every cycle for as long as the market
+    stays closed is what actually guarantees nothing carries overnight —
+    a one-shot sweep would leave that ticker open until tomorrow if it
+    missed the single attempt. Idempotent by construction: force_close()
+    only affects tickers still in position_tracker.open_tickers(), so an
+    already-closed position is never touched again."""
+    while True:
+        try:
+            now = datetime.now(_SYDNEY_TZ)
+            past_close = (now.hour, now.minute) >= (RTC_EOD_FORCE_CLOSE_HOUR, RTC_EOD_FORCE_CLOSE_MINUTE)
+            if past_close:
+                for ticker in position_tracker.open_tickers():
+                    price, _ = _latest_price_and_atr(ticker)
+                    if price is None:
+                        continue
+                    result = position_tracker.force_close(ticker, price, reason="eod_close")
+                    if result:
+                        hub.broadcast(ticker, result)
+        except Exception:
+            logger.exception("EOD force-close sweep failed")
+        await asyncio.sleep(60)
+
+
 async def _priority_recompute_loop() -> None:
     """Keeps the data source's priority-refresh set current: whichever
     ticker(s) someone actually has open on screen (hub.active_tickers()) plus
@@ -150,9 +196,11 @@ async def lifespan(app: FastAPI):
         for ticker in RTC_TICKERS:
             await _bootstrap_ticker(ticker)
     priority_task = asyncio.create_task(_priority_recompute_loop())
+    eod_task = asyncio.create_task(_eod_force_close_loop())
     logger.info("realtime_chart_ai server started — tracking %d ticker(s)", len(RTC_TICKERS))
     yield
     priority_task.cancel()
+    eod_task.cancel()
     for source in (manager.primary, manager.fallback):
         if source is not None:
             await source.disconnect()
@@ -206,7 +254,36 @@ async def prioritize_ticker(ticker: str):
     keeps running unchanged; this just jumps the queue for whatever the user
     is looking at right now."""
     ok = await manager.prioritize_ticker(ticker)
+    asyncio.create_task(_seed_daily_context(ticker))
     return {"ticker": ticker, "prioritized": ok}
+
+
+_daily_context_seeded: set = set()
+
+
+async def _seed_daily_context(ticker: str) -> None:
+    """Backfills the '1d' context engine with real prior-session daily bars,
+    but only once per ticker per process — not for all 171 ASX200 tickers
+    upfront (that reintroduces exactly the startup rate-limit burst
+    _bootstrap_watchlist_lean was built to avoid), only for whatever the user
+    actually selects. Without this, '1d'/5m/15m context only ever comes from
+    live bars accumulated since this process last started — on a platform
+    that redeploys as often as this one has today, that's frequently close
+    to empty, silently degrading the multi-timeframe confluence gate."""
+    if ticker in _daily_context_seeded:
+        return
+    _daily_context_seeded.add(ticker)
+    store = stores.get(ticker)
+    if store is None or "1d" not in store.engines:
+        return
+    try:
+        daily_candles = await manager.fetch_historical(ticker, "1d", "2 Y")
+        if daily_candles:
+            store.seed_historical("1d", daily_candles)
+            log_event("backfill_complete", ticker=ticker, detail=f"{len(daily_candles)} daily bars seeded on-demand")
+    except Exception:
+        logger.exception("daily-context seed failed for %s", ticker)
+        _daily_context_seeded.discard(ticker)  # allow a retry on next selection
 
 
 def _latest_price_and_atr(ticker: str):
@@ -315,8 +392,55 @@ def get_candles(ticker: str, timeframe: str = EXECUTION_TIMEFRAME, limit: int = 
         "close": ind["closes"][i], "volume": ind["volumes"][i],
         "source": ind["sources"][i] if ind.get("sources") else "unknown",
         "delayed": ind["delayed"][i] if ind.get("delayed") else False,
+        "ema20": ind["ema20"][i] if ind.get("ema20") else None,
+        "ema50": ind["ema50"][i] if ind.get("ema50") else None,
     } for i in idx]
     return {"ticker": ticker, "timeframe": tf, "candles": candles}
+
+
+@app.get("/api/zones/{ticker}")
+def get_zones(ticker: str):
+    """Active SMC order blocks / fair value gaps for the chart's zone
+    overlay — the most recent couple of each side, not every zone ever
+    formed (that grows unbounded and would clutter the chart). These are the
+    same trackers signal_engine.py already evaluates every bar; this just
+    reads their current state rather than recomputing anything."""
+    engine = signal_engines.get(ticker)
+    if engine is None:
+        return {"ticker": ticker, "zones": []}
+    smc = engine.smc_engine
+    zones = []
+    for ob in list(smc.order_blocks.bullish_obs)[-3:]:
+        zones.append({"type": "order_block", "direction": "long", "low": ob["low"], "high": ob["high"]})
+    for ob in list(smc.order_blocks.bearish_obs)[-3:]:
+        zones.append({"type": "order_block", "direction": "short", "low": ob["low"], "high": ob["high"]})
+    for gap in list(smc.fvg.bullish_fvgs)[-3:]:
+        zones.append({"type": "fvg", "direction": "long", "low": gap["low"], "high": gap["high"]})
+    for gap in list(smc.fvg.bearish_fvgs)[-3:]:
+        zones.append({"type": "fvg", "direction": "short", "low": gap["low"], "high": gap["high"]})
+    return {"ticker": ticker, "zones": zones}
+
+
+@app.get("/api/prev-close/{ticker}")
+def get_prev_close(ticker: str):
+    """Prior session's daily bar (seeded lazily — see _seed_daily_context —
+    the first time a ticker is actually selected, not for all 171 tickers
+    upfront). Used for the chart's 'prev close' reference line and as
+    genuine prior-day context for the confluence/zone gates, not just
+    whatever's accumulated from live bars since this process last
+    restarted."""
+    store = stores.get(ticker)
+    if store is None or "1d" not in store.engines:
+        return {"ticker": ticker, "prev_close": None, "prev_high": None, "prev_low": None}
+    ind = store.latest_ind("1d")
+    if not ind or len(ind["closes"]) < 1:
+        return {"ticker": ticker, "prev_close": None, "prev_high": None, "prev_low": None}
+    # The most recent daily bar here is *yesterday's* (or the last complete
+    # session's) — today's session lives in the 1m/5m/15m engines instead.
+    return {
+        "ticker": ticker, "prev_close": ind["closes"][-1],
+        "prev_high": ind["highs"][-1], "prev_low": ind["lows"][-1],
+    }
 
 
 @app.websocket("/ws/candles/{ticker}")

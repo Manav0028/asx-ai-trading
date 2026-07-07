@@ -1,15 +1,23 @@
 import { useEffect, useMemo, useRef } from 'react';
 import {
-  createChart, CandlestickSeries, HistogramSeries,
-  type IChartApi, type ISeriesApi, type UTCTimestamp,
+  createChart, createSeriesMarkers, CandlestickSeries, HistogramSeries, LineSeries,
+  type IChartApi, type ISeriesApi, type ISeriesMarkersPluginApi, type Time, type UTCTimestamp,
 } from 'lightweight-charts';
-import type { Candle, Direction, Phase } from '../types';
+import type { Candle, ChartZone, Direction, Phase } from '../types';
 
 const STATUS_LABEL: Record<Phase, string> = {
   watching: 'Watching for setup',
   active: 'signal firing',
   closed: 'Target reached',
 };
+
+export interface ChartMarker {
+  time: number;
+  position: 'aboveBar' | 'belowBar';
+  color: string;
+  shape: 'arrowUp' | 'arrowDown' | 'circle';
+  text: string;
+}
 
 function fmtVolume(v: number): string {
   if (v >= 1_000_000) return (v / 1_000_000).toFixed(2) + 'M';
@@ -25,6 +33,9 @@ export function LiveChart({
   entry = 0,
   stop = 0,
   target = 0,
+  zones = [],
+  prevClose = null,
+  markers = [],
 }: {
   candles: Candle[];
   ticker?: string;
@@ -33,12 +44,20 @@ export function LiveChart({
   entry?: number;
   stop?: number;
   target?: number;
+  zones?: ChartZone[];
+  prevClose?: number | null;
+  markers?: ChartMarker[];
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const ema20SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const ema50SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const priceLinesRef = useRef<ReturnType<ISeriesApi<'Candlestick'>['createPriceLine']>[]>([]);
+  const zoneLinesRef = useRef<ReturnType<ISeriesApi<'Candlestick'>['createPriceLine']>[]>([]);
+  const prevCloseLineRef = useRef<ReturnType<ISeriesApi<'Candlestick'>['createPriceLine']> | null>(null);
+  const markersPluginRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
 
   const displayTicker = ticker.replace(/\.(AX|NS)$/i, '');
   const label = chartStatus === 'active' ? `${direction.toUpperCase()} ${STATUS_LABEL[chartStatus]}` : STATUS_LABEL[chartStatus];
@@ -65,19 +84,36 @@ export function LiveChart({
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume',
     });
+    // Trend overlay — EMA20/EMA50, the same pair the composite score's own
+    // trend_alignment term is computed from server-side, so what the chart
+    // shows and what the engine actually reasoned about are the same lines.
+    const ema20Series = chart.addSeries(LineSeries, {
+      color: '#f5c452', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+    });
+    const ema50Series = chart.addSeries(LineSeries, {
+      color: '#c46bf5', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+    });
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
     candleSeries.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.22 } });
 
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
+    ema20SeriesRef.current = ema20Series;
+    ema50SeriesRef.current = ema50Series;
+    markersPluginRef.current = createSeriesMarkers(candleSeries, []);
 
     return () => {
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
+      ema20SeriesRef.current = null;
+      ema50SeriesRef.current = null;
+      markersPluginRef.current = null;
       priceLinesRef.current = [];
+      zoneLinesRef.current = [];
+      prevCloseLineRef.current = null;
     };
   }, []);
 
@@ -101,10 +137,14 @@ export function LiveChart({
     const chart = chartRef.current;
     const candleSeries = candleSeriesRef.current;
     const volumeSeries = volumeSeriesRef.current;
-    if (!chart || !candleSeries || !volumeSeries) return;
+    const ema20Series = ema20SeriesRef.current;
+    const ema50Series = ema50SeriesRef.current;
+    if (!chart || !candleSeries || !volumeSeries || !ema20Series || !ema50Series) return;
     if (candles.length === 0) {
       candleSeries.setData([]);
       volumeSeries.setData([]);
+      ema20Series.setData([]);
+      ema50Series.setData([]);
       return;
     }
     const bars = candles.filter((c) => c.time != null);
@@ -114,6 +154,8 @@ export function LiveChart({
     volumeSeries.setData(bars.map((c) => ({
       time: c.time as UTCTimestamp, value: c.v ?? 0, color: c.c >= c.o ? 'rgba(0,196,140,0.5)' : 'rgba(255,90,90,0.5)',
     })));
+    ema20Series.setData(bars.filter((c) => c.ema20 != null).map((c) => ({ time: c.time as UTCTimestamp, value: c.ema20 as number })));
+    ema50Series.setData(bars.filter((c) => c.ema50 != null).map((c) => ({ time: c.time as UTCTimestamp, value: c.ema50 as number })));
     chart.timeScale().fitContent();
   }, [candles]);
 
@@ -133,6 +175,50 @@ export function LiveChart({
       series.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title }),
     );
   }, [chartStatus, entry, stop, target]);
+
+  // SMC zone boundaries (order blocks / fair value gaps) — the library has
+  // no native shaded-rectangle primitive, so each zone is drawn as a pair of
+  // thin dashed boundary lines (top+bottom) rather than a filled box. Capped
+  // to the nearest few of each kind server-side (see GET /api/zones) so this
+  // doesn't clutter the chart with every zone ever formed.
+  useEffect(() => {
+    const series = candleSeriesRef.current;
+    if (!series) return;
+    zoneLinesRef.current.forEach((l) => series.removePriceLine(l));
+    zoneLinesRef.current = [];
+    zones.forEach((z) => {
+      const color = z.type === 'order_block' ? '#6993ff' : '#f5c452';
+      const label = z.type === 'order_block' ? 'order block' : 'FVG';
+      zoneLinesRef.current.push(
+        series.createPriceLine({ price: z.high, color, lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: `${label} ${z.direction}` }),
+        series.createPriceLine({ price: z.low, color, lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: '' }),
+      );
+    });
+  }, [zones]);
+
+  // Prior session's close — a standard day-trading reference level.
+  useEffect(() => {
+    const series = candleSeriesRef.current;
+    if (!series) return;
+    if (prevCloseLineRef.current) {
+      series.removePriceLine(prevCloseLineRef.current);
+      prevCloseLineRef.current = null;
+    }
+    if (prevClose != null) {
+      prevCloseLineRef.current = series.createPriceLine({
+        price: prevClose, color: '#7a7a82', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: 'prev close',
+      });
+    }
+  }, [prevClose]);
+
+  // Trade markers — "how the trade was done" highlighted directly on the
+  // candle it happened on, regardless of which timeframe is currently
+  // displayed (the marker's own bar time is what places it).
+  useEffect(() => {
+    markersPluginRef.current?.setMarkers(markers.map((m) => ({
+      time: m.time as UTCTimestamp, position: m.position, color: m.color, shape: m.shape, text: m.text,
+    })));
+  }, [markers]);
 
   const stats = useMemo(() => {
     if (candles.length === 0) return null;
@@ -160,8 +246,16 @@ export function LiveChart({
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-tertiary)' }}>
+            <span style={{ width: 16, borderTop: '1.5px solid #f5c452' }} />
+            EMA20
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-tertiary)' }}>
+            <span style={{ width: 16, borderTop: '1.5px solid #c46bf5' }} />
+            EMA50
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-tertiary)' }}>
             <span style={{ width: 14, height: 9, borderRadius: 2, background: 'var(--accent-dim)', border: '1px solid rgba(105,147,255,.4)' }} />
-            order block
+            order block / FVG
           </span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-tertiary)' }}>
             <span style={{ width: 16, borderTop: '1.5px dashed var(--profit)' }} />
@@ -181,8 +275,8 @@ export function LiveChart({
         <div
           style={{
             position: 'absolute', top: 12, left: 12, display: 'inline-flex', alignItems: 'center', gap: 7,
-            background: 'rgba(18,18,20,0.82)', border: '1px solid var(--border)', borderRadius: 999, padding: '5px 12px',
-            fontSize: 11.5, fontWeight: 600, color: 'var(--text-primary)', backdropFilter: 'blur(2px)', zIndex: 2,
+            background: '#1a1a1f', border: '1px solid var(--border)', borderRadius: 999, padding: '5px 12px',
+            fontSize: 11.5, fontWeight: 600, color: 'var(--text-primary)', zIndex: 2,
           }}
         >
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: dotColor }} />
@@ -191,11 +285,13 @@ export function LiveChart({
         {stats && (
           <div
             style={{
-              // Fully opaque (no alpha/blur) — this sits directly over the
-              // chart's own right price-scale, so a translucent background
-              // let the native axis labels ("128.100" etc.) bleed through
-              // at the box's edges/corners, reading as a visual overlap.
-              position: 'absolute', top: 12, right: 12, zIndex: 2, textAlign: 'right',
+              // Left side, stacked below the status pill above — the right
+              // side is where the chart's own price axis lives, and a
+              // translucent overlay there let axis labels bleed through at
+              // its edges/corners. Left is unused space regardless of price
+              // magnitude or axis-label width, so this is a permanent fix,
+              // not just a padding tweak.
+              position: 'absolute', top: 50, left: 12, zIndex: 2, textAlign: 'left',
               background: '#1a1a1f', border: '1px solid var(--border)', borderRadius: 10,
               padding: '8px 12px', fontFamily: 'var(--font-mono)',
             }}

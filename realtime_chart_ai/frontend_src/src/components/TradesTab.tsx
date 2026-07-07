@@ -36,7 +36,12 @@ const inputStyle: CSSProperties = {
   padding: '6px 9px', fontSize: 11.5, color: 'var(--text-primary)', fontFamily: 'var(--font-sans)',
 };
 
-export function TradesTab() {
+export function TradesTab({
+  activeTicker, onSelectTicker,
+}: {
+  activeTicker?: string;
+  onSelectTicker?: (ticker: string) => void;
+} = {}) {
   const [rows, setRows] = useState<MergedTrade[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -210,8 +215,15 @@ export function TradesTab() {
           padding: '2px 7px', borderRadius: 5,
           background: isOpen ? 'var(--warning-dim)' : 'var(--bg-tertiary)', color: isOpen ? 'var(--warning)' : 'var(--text-tertiary)',
         };
+        const isActiveTicker = activeTicker === t.ticker;
         return (
-          <div key={t.key} style={{ border: '1px solid var(--border)', borderRadius: 10, marginBottom: 9, overflow: 'hidden', background: 'var(--bg-tertiary)' }}>
+          <div
+            key={t.key}
+            style={{
+              border: '1px solid ' + (isActiveTicker ? 'var(--accent)' : 'var(--border)'), borderRadius: 10, marginBottom: 9,
+              overflow: 'hidden', background: 'var(--bg-tertiary)',
+            }}
+          >
             <button
               onClick={() => setExpanded((cur) => (cur === t.key ? null : t.key))}
               style={{
@@ -223,7 +235,24 @@ export function TradesTab() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
                   <span style={dirStyle}>{isL ? '▲ LONG' : '▼ SHORT'}</span>
                   <span style={statusStyle}>{isOpen ? '● OPEN' : 'CLOSED'}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 12.5, color: 'var(--text-primary)' }}>{t.ticker}</span>
+                  <span
+                    role={onSelectTicker ? 'button' : undefined}
+                    title={onSelectTicker ? `View ${t.ticker} on the chart` : undefined}
+                    onClick={(e) => {
+                      if (!onSelectTicker) return;
+                      e.stopPropagation();
+                      onSelectTicker(t.ticker);
+                      setTickerFilter(t.ticker);
+                    }}
+                    style={{
+                      fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 12.5,
+                      color: isActiveTicker ? 'var(--accent)' : 'var(--text-primary)',
+                      textDecoration: onSelectTicker ? 'underline' : 'none', textDecorationStyle: 'dotted',
+                      cursor: onSelectTicker ? 'pointer' : 'inherit',
+                    }}
+                  >
+                    {t.ticker}
+                  </span>
                 </div>
                 <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
                   {t.pattern} · <span style={{ color: 'var(--text-tertiary)' }}>{fmtDate(t.ts)}</span>

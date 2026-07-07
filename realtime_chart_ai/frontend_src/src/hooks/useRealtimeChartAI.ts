@@ -13,9 +13,9 @@ export const BD_TARGET = [72, 68, 62, 100, 100];
 export const SCORE_TARGET = 78;
 
 const SEED_TRADES: Trade[] = [
-  { id: 1, ticker: 'BHP', dir: 'long', pattern: 'Order-block retest', time: 'Today 11:42', entry: 41.62, exit: 42.03, stop: 41.44, target: 42.03, shares: 240, barsHeld: 34, exitReason: 'target', score: 76, zone: 'discount', netPnl: 78.45, rationale: 'Bought the demand zone with the 5-minute trend up. Buyers defended the block and price ran clean to target. Profit locked in.' },
-  { id: 2, ticker: 'CSL', dir: 'short', pattern: 'Shooting star', time: 'Today 10:18', entry: 248.1, exit: 249.95, stop: 249.95, target: 243.8, shares: 12, barsHeld: 12, exitReason: 'stop', score: 71, zone: 'premium', netPnl: -41.9, rationale: 'Shorted a shooting star into the highs, but price reclaimed the level and stopped it out. A small, planned loss — small losses protect capital.' },
-  { id: 3, ticker: 'WBC', dir: 'long', pattern: 'Hammer bounce', time: 'Yesterday 14:55', entry: 33.18, exit: 33.35, stop: 33.02, target: 33.6, shares: 110, barsHeld: 60, exitReason: 'time', score: 68, zone: 'equilibrium', netPnl: 18.6, rationale: 'Hammer at the lows bounced but lost momentum before target. Closed at max hold to free up capital rather than let it drift.' },
+  { id: 1, ticker: 'BHP', dir: 'long', pattern: 'Order-block retest', time: 'Today 11:42', ts: new Date().toISOString(), entry: 41.62, exit: 42.03, stop: 41.44, target: 42.03, shares: 240, barsHeld: 34, exitReason: 'target', score: 76, zone: 'discount', netPnl: 78.45, rationale: 'Bought the demand zone with the 5-minute trend up. Buyers defended the block and price ran clean to target. Profit locked in.' },
+  { id: 2, ticker: 'CSL', dir: 'short', pattern: 'Shooting star', time: 'Today 10:18', ts: new Date().toISOString(), entry: 248.1, exit: 249.95, stop: 249.95, target: 243.8, shares: 12, barsHeld: 12, exitReason: 'stop', score: 71, zone: 'premium', netPnl: -41.9, rationale: 'Shorted a shooting star into the highs, but price reclaimed the level and stopped it out. A small, planned loss — small losses protect capital.' },
+  { id: 3, ticker: 'WBC', dir: 'long', pattern: 'Hammer bounce', time: 'Yesterday 14:55', ts: new Date(Date.now() - 86400000).toISOString(), entry: 33.18, exit: 33.35, stop: 33.02, target: 33.6, shares: 110, barsHeld: 60, exitReason: 'time', score: 68, zone: 'equilibrium', netPnl: 18.6, rationale: 'Hammer at the lows bounced but lost momentum before target. Closed at max hold to free up capital rather than let it drift.' },
 ];
 
 interface Sim {
@@ -139,6 +139,7 @@ export function useRealtimeChartAI(beginnerMode: boolean, autoTradeDefault: bool
           dir: 'long',
           pattern: 'Order-block retest',
           time: 'Just now',
+          ts: new Date().toISOString(),
           entry: ENTRY,
           exit: TARGET,
           stop: STOP,

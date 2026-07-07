@@ -1,5 +1,5 @@
 export type Phase = 'watching' | 'active' | 'closed';
-export type Tab = 'copilot' | 'history' | 'journal' | 'trades';
+export type Tab = 'copilot' | 'history' | 'journal';
 export type Direction = 'long' | 'short';
 export type ExitReason = 'target' | 'stop' | 'time';
 
@@ -12,6 +12,17 @@ export interface Candle {
   // (App.tsx/candles.ts) doesn't need a real time axis or volume.
   time?: number; // unix seconds — required by lightweight-charts for the time axis
   v?: number;
+  // Trend overlay — same EMA20/50 the composite score's trend_alignment
+  // term already uses server-side; undefined until enough bars exist.
+  ema20?: number;
+  ema50?: number;
+}
+
+export interface ChartZone {
+  type: 'order_block' | 'fvg';
+  direction: Direction;
+  low: number;
+  high: number;
 }
 
 export interface TeachNote {
@@ -47,6 +58,7 @@ export interface Trade {
   dir: Direction;
   pattern: string;
   time: string;
+  ts: string; // ISO bar_ts — the display-formatted `time` above isn't usable for chart marker positioning
   entry: number;
   exit: number;
   stop: number;

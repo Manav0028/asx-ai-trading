@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Candle, Direction, JournalEntry, Message, Phase, Tab, Trade } from '../types';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Candle, ChartZone, Direction, JournalEntry, Message, Phase, Tab, Trade } from '../types';
 import { answerQuestion } from '../lib/copilot';
 import { api, connectCandleSocket, type ApiCandle, type WsMessage, type ApiJournalRow } from '../lib/liveApi';
 
@@ -18,7 +18,10 @@ interface LiveSignal {
 const toBackendTf = (t: string) => (t === '1D' ? '1d' : t);
 
 function apiCandleToCandle(c: ApiCandle): Candle {
-  return { time: Math.floor(new Date(c.ts).getTime() / 1000), o: c.open, c: c.close, h: c.high, l: c.low, v: c.volume };
+  return {
+    time: Math.floor(new Date(c.ts).getTime() / 1000), o: c.open, c: c.close, h: c.high, l: c.low, v: c.volume,
+    ema20: c.ema20 ?? undefined, ema50: c.ema50 ?? undefined,
+  };
 }
 
 function journalRowToEntry(row: ApiJournalRow): JournalEntry {
@@ -40,6 +43,7 @@ function journalRowToTrade(row: ApiJournalRow): Trade | null {
   return {
     id: row.id, ticker: row.ticker, dir: (row.direction ?? 'long') as Direction, pattern: row.pattern_name,
     time: new Date(row.bar_ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    ts: row.bar_ts,
     entry: row.action.entry_price, exit: row.outcome.exit_price,
     stop: row.action.stop_price ?? row.outcome.exit_price, target: row.action.target_price ?? row.outcome.exit_price,
     shares: row.action.shares ?? 0, barsHeld: row.outcome.bars_held ?? 0, exitReason,
@@ -84,6 +88,9 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
   // (the toggle only gates new entries), so "is a position open" and "is
   // auto-trade currently on" are different facts and must not be conflated.
   const [hasOpenPosition, setHasOpenPosition] = useState(false);
+  const [zones, setZones] = useState<ChartZone[]>([]);
+  const [prevClose, setPrevClose] = useState<number | null>(null);
+  const [openPositionOpenedAt, setOpenPositionOpenedAt] = useState<string | null>(null);
 
   const feedRef = useRef<HTMLDivElement | null>(null);
   const midRef = useRef(0);
@@ -94,6 +101,15 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
   const openPositionRef = useRef<{ direction: Direction; entry: number; shares: number } | null>(null);
   const priceRef = useRef(0);
   useEffect(() => { priceRef.current = price; }, [price]);
+  // `price` reflects whatever timeframe the CHART is currently displaying
+  // (1m/5m/15m/1D) — switching timeframes changes which bar's close it
+  // holds, which used to also change the displayed Unrealised P&L purely as
+  // a side effect of what the user was looking at on the chart, with the
+  // position itself never actually changing. P&L must always be priced off
+  // the true latest 1-minute execution price, independent of chart display.
+  const [execPrice, setExecPrice] = useState(0);
+  const execPriceRef = useRef(0);
+  useEffect(() => { execPriceRef.current = execPrice; }, [execPrice]);
 
   const append = useCallback((msg: Omit<Message, 'id'>) => {
     const id = midRef.current++;
@@ -140,6 +156,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
         }));
         setPosMeta(`${pos.shares.toFixed(0)} sh · $${(pos.shares * pos.entry_price).toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
         setPosShares(pos.shares);
+        setOpenPositionOpenedAt(pos.opened_at);
         // P&L used to only recompute inside the WS candle_update handler —
         // i.e. only when a brand-new live bar arrives for THIS ticker. With
         // the ASX200 round-robin scanner, that can be minutes away, so it
@@ -147,8 +164,10 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
         // (reported as a stuck "+$0.00"). Recomputing here too means it
         // refreshes at least every 5s (this function's poll interval)
         // against whatever price is currently known, not just on live ticks.
-        if (priceRef.current) {
-          const diff = pos.direction === 'long' ? priceRef.current - pos.entry_price : pos.entry_price - priceRef.current;
+        // Always priced off execPriceRef (true 1m price), never priceRef
+        // (whatever timeframe the chart happens to be displaying).
+        if (execPriceRef.current) {
+          const diff = pos.direction === 'long' ? execPriceRef.current - pos.entry_price : pos.entry_price - execPriceRef.current;
           setPnl(diff * pos.shares);
         }
       } else {
@@ -156,6 +175,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
         setHasOpenPosition(false);
         setPnl(0);
         setPosShares(0);
+        setOpenPositionOpenedAt(null);
       }
     } catch {
       // positions endpoint transiently unavailable
@@ -250,24 +270,37 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
     openPositionRef.current = null;
     setHasOpenPosition(false);
     setPosShares(0);
+    setOpenPositionOpenedAt(null);
     setSignal(null);
     setPhase('watching');
     setChartStatus('watching');
     setPnl(0);
     setPrice(0);
+    setExecPrice(0);
     setMessages([]);
+    setZones([]);
+    setPrevClose(null);
 
     function handleWsMessage(msg: WsMessage) {
       if (msg.type === 'candle_update') {
+        // Always update execPrice/P&L off the true 1-minute price,
+        // regardless of which timeframe the chart itself is displaying —
+        // decoupled from the tf-gated block below on purpose.
+        if (msg.timeframe === '1m') {
+          setExecPrice(msg.close);
+          const pos = openPositionRef.current;
+          if (pos) {
+            const diff = pos.direction === 'long' ? msg.close - pos.entry : pos.entry - msg.close;
+            setPnl(diff * pos.shares);
+          }
+        }
         if (msg.timeframe !== toBackendTf(tfRef.current)) return;
-        const c: Candle = { time: Math.floor(new Date(msg.ts).getTime() / 1000), o: msg.open, c: msg.close, h: msg.high, l: msg.low, v: msg.volume };
+        const c: Candle = {
+          time: Math.floor(new Date(msg.ts).getTime() / 1000), o: msg.open, c: msg.close, h: msg.high, l: msg.low, v: msg.volume,
+          ema20: msg.ema20 ?? undefined, ema50: msg.ema50 ?? undefined,
+        };
         setCandles((prev) => [...prev, c].slice(-500));
         setPrice(msg.close);
-        const pos = openPositionRef.current;
-        if (pos) {
-          const diff = pos.direction === 'long' ? msg.close - pos.entry : pos.entry - msg.close;
-          setPnl(diff * pos.shares);
-        }
       } else if (msg.type === 'pattern_signal') {
         // Below the system's own signal threshold, this fired pattern is
         // "observed, not actioned" — it's always in the Journal (refreshed
@@ -309,6 +342,7 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
         openPositionRef.current = null;
         setHasOpenPosition(false);
         setPosShares(0);
+        setOpenPositionOpenedAt(null);
         setPhase('closed');
         setChartStatus('closed');
         const win = msg.net_pnl >= 0;
@@ -345,6 +379,28 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
     };
   }, [ticker, refreshJournal, refreshPositions, pushSystem, pushAI]);
 
+  // SMC zone overlay (order blocks / FVGs) + prior-session close — refreshed
+  // periodically since zones evolve as new patterns form on the live bar
+  // stream, independent of timeframe (both are 1m-derived / daily-derived
+  // regardless of what the chart is displaying).
+  useEffect(() => {
+    if (!ticker) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [zonesRes, prevCloseRes] = await Promise.all([api.getZones(ticker), api.getPrevClose(ticker)]);
+        if (cancelled) return;
+        setZones(zonesRes.zones);
+        setPrevClose(prevCloseRes.prev_close);
+      } catch {
+        // transiently unavailable — keep showing the last known state
+      }
+    };
+    load();
+    const timer = setInterval(load, 20000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [ticker]);
+
   // Candle history for the chart — separate from the ticker-connect effect
   // above so a timeframe switch (1m/5m/15m/1D) doesn't tear down and
   // reconnect the WebSocket, just refetches the REST history for the newly
@@ -361,14 +417,59 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
       // blocking the chart on it.
       await api.prioritize(ticker).catch(() => {});
       if (cancelled) return;
-      const { candles: rows } = await api.getCandles(ticker, toBackendTf(tf), 500);
+      const backendTf = toBackendTf(tf);
+      const { candles: rows } = await api.getCandles(ticker, backendTf, 500);
       if (cancelled) return;
       const mapped = rows.map(apiCandleToCandle);
       setCandles(mapped);
       if (mapped.length) setPrice(mapped[mapped.length - 1].c);
+      // execPrice (used for P&L) must always be the true 1-minute price, not
+      // whatever this fetch happened to pull for the chart's own timeframe.
+      // Reuse this same response when it already IS 1m; otherwise a small
+      // separate 1-bar fetch, not the full 500-bar history.
+      if (backendTf === '1m') {
+        if (mapped.length) setExecPrice(mapped[mapped.length - 1].c);
+      } else {
+        const { candles: execRows } = await api.getCandles(ticker, '1m', 1);
+        if (cancelled) return;
+        if (execRows.length) setExecPrice(execRows[execRows.length - 1].close);
+      }
     })();
     return () => { cancelled = true; };
   }, [ticker, tf]);
+
+  // Chart markers — "how the trade was done, highlighted along with
+  // timeframes": every closed trade for this ticker gets an entry + exit
+  // marker (both derived from real bar_ts, so they land at the actual bar
+  // regardless of which timeframe the chart is currently zoomed to — the
+  // marker's `time` is what places it, the visible timeframe just changes
+  // how much space surrounds it), plus an entry marker for whatever
+  // position is open right now.
+  const markers = useMemo(() => {
+    const out: { time: number; position: 'aboveBar' | 'belowBar'; color: string; shape: 'arrowUp' | 'arrowDown' | 'circle'; text: string }[] = [];
+    for (const t of trades) {
+      const entryTime = Math.floor(new Date(t.ts).getTime() / 1000);
+      out.push({
+        time: entryTime, position: t.dir === 'long' ? 'belowBar' : 'aboveBar',
+        color: t.dir === 'long' ? '#00c48c' : '#ff5a5a', shape: t.dir === 'long' ? 'arrowUp' : 'arrowDown',
+        text: `${t.dir === 'long' ? 'BUY' : 'SELL'} ${t.entry.toFixed(2)}`,
+      });
+      out.push({
+        time: entryTime + 1, position: t.dir === 'long' ? 'aboveBar' : 'belowBar',
+        color: t.netPnl >= 0 ? '#00c48c' : '#ff5a5a', shape: 'circle',
+        text: `EXIT ${t.exit.toFixed(2)} (${t.exitReason})`,
+      });
+    }
+    if (hasOpenPosition && openPositionOpenedAt && signal) {
+      const entryTime = Math.floor(new Date(openPositionOpenedAt).getTime() / 1000);
+      out.push({
+        time: entryTime, position: signal.direction === 'long' ? 'belowBar' : 'aboveBar',
+        color: '#6993ff', shape: signal.direction === 'long' ? 'arrowUp' : 'arrowDown',
+        text: `${signal.direction === 'long' ? 'BUY' : 'SELL'} ${signal.entry.toFixed(2)} (open)`,
+      });
+    }
+    return out.sort((a, b) => a.time - b.time);
+  }, [trades, hasOpenPosition, openPositionOpenedAt, signal]);
 
   return {
     tf, setTf,
@@ -384,5 +485,6 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
     rr: signal?.rr ?? null, patternName: signal?.patternName ?? '', direction: signal?.direction ?? 'long',
     posMeta, hasOpenPosition, posShares,
     refreshCurrentPosition: () => refreshPositions(ticker),
+    zones, prevClose, markers,
   };
 }

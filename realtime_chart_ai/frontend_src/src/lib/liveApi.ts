@@ -1,3 +1,5 @@
+import type { ChartZone } from '../types';
+
 export interface ApiCandle {
   ts: string;
   open: number;
@@ -7,6 +9,8 @@ export interface ApiCandle {
   volume: number;
   source: string;
   delayed: boolean;
+  ema20: number | null;
+  ema50: number | null;
 }
 
 export interface ApiTradeAction {
@@ -74,6 +78,8 @@ export interface WsCandleUpdate {
   volume: number;
   source: string;
   delayed: boolean;
+  ema20: number | null;
+  ema50: number | null;
 }
 
 export interface WsPatternSignal {
@@ -149,6 +155,11 @@ export const api = {
   },
   getPositions: (ticker: string) => getJson<ApiPosition[]>(`/api/positions?ticker=${encodeURIComponent(ticker)}`),
   getAllPositions: () => getJson<ApiPosition[]>('/api/positions'),
+  getZones: (ticker: string) => getJson<{ ticker: string; zones: ChartZone[] }>(`/api/zones/${encodeURIComponent(ticker)}`),
+  getPrevClose: (ticker: string) =>
+    getJson<{ ticker: string; prev_close: number | null; prev_high: number | null; prev_low: number | null }>(
+      `/api/prev-close/${encodeURIComponent(ticker)}`,
+    ),
   prioritize: (ticker: string) =>
     fetch(`/api/prioritize/${encodeURIComponent(ticker)}`, { method: 'POST' }).then((res) => {
       if (!res.ok) throw new Error(`POST /api/prioritize/${ticker} -> HTTP ${res.status}`);

@@ -95,6 +95,17 @@ RTC_ROUND_ROBIN_THRESHOLD = int(os.getenv("RTC_ROUND_ROBIN_THRESHOLD", 10))
 # not that Yahoo gets hit harder. 200 tickers * 3s ≈ 10 minutes per ticker.
 RTC_ROUND_ROBIN_SPACING_SECONDS = float(os.getenv("RTC_ROUND_ROBIN_SPACING_SECONDS", 3.0))
 
+# ── Day-trading discipline: force-close at market close ──────────────────────────
+# This is a day-trading system — stops/targets are sized off intraday ATR, not
+# overnight gap risk. A position still open when the exchange closes has to be
+# booked (profit or loss), not silently carried into the next session where a
+# gap could blow straight through its stop. RTC_EOD_FORCE_CLOSE_HOUR/MINUTE are
+# in Australia/Sydney wall-clock time (ASX's own timezone), a few minutes after
+# the 16:00 close to give the round-robin scanner a chance to pick up each
+# ticker's final price for the day first.
+RTC_EOD_FORCE_CLOSE_HOUR = int(os.getenv("RTC_EOD_FORCE_CLOSE_HOUR", 16))
+RTC_EOD_FORCE_CLOSE_MINUTE = int(os.getenv("RTC_EOD_FORCE_CLOSE_MINUTE", 10))
+
 # ── Composite score weights (must sum to 1.0) — see plan doc §7 ──────────────────
 WEIGHT_PATTERN_CONFIDENCE = 0.35
 WEIGHT_TREND_ALIGNMENT = 0.20

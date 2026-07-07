@@ -155,31 +155,45 @@ class PositionTracker:
             "stop_price": stop_price, "target_price": target_price,
         }
 
-    def manual_exit(self, ticker: str, price: float) -> Optional[Dict]:
-        """User-initiated close at the current market price, regardless of
-        where price sits relative to the stop/target — same accounting path
-        as an automatic exit (check_exit below), just a different trigger
-        and exit_reason so the journal distinguishes the two."""
+    def _close_at_price(self, ticker: str, price: float, exit_reason: str, event_type: str) -> Optional[Dict]:
+        """Shared close path for anything that books a position at a given
+        price outside the normal per-bar stop/target/max-hold check —
+        manual_exit (user-initiated) and force_close (end-of-day discipline)
+        both funnel through here so the accounting/journal/event-log shape is
+        identical regardless of why the position closed."""
         position = self._positions.get(ticker)
         if position is None:
             return None
         pnl_result = pnl.compute_pnl(position.direction, position.entry_price, price, position.shares)
         record_outcome(
-            position.trade_action_id, exit_price=price, exit_reason="manual",
+            position.trade_action_id, exit_price=price, exit_reason=exit_reason,
             gross_pnl=pnl_result["gross_pnl"], net_pnl=pnl_result["net_pnl"], bars_held=position.bars_held,
         )
         close_open_position(position.position_id)
         del self._positions[ticker]
-        log_event("manual_exit", ticker=ticker,
-                   detail=f"closed manually @ {price:.3f}, net_pnl={pnl_result['net_pnl']:.2f}")
-        logger.info("Closed MANUAL paper position: %s %s exit=%.3f net_pnl=%.2f",
-                    position.direction, ticker, price, pnl_result["net_pnl"])
+        log_event(event_type, ticker=ticker,
+                   detail=f"closed ({exit_reason}) @ {price:.3f}, net_pnl={pnl_result['net_pnl']:.2f}")
+        logger.info("Closed paper position (%s): %s %s exit=%.3f net_pnl=%.2f",
+                    exit_reason, position.direction, ticker, price, pnl_result["net_pnl"])
         return {
             "type": "trade_exit", "ticker": ticker, "direction": position.direction,
-            "entry_price": position.entry_price, "exit_price": price, "exit_reason": "manual",
+            "entry_price": position.entry_price, "exit_price": price, "exit_reason": exit_reason,
             "shares": position.shares, "gross_pnl": pnl_result["gross_pnl"], "net_pnl": pnl_result["net_pnl"],
             "bars_held": position.bars_held,
         }
+
+    def manual_exit(self, ticker: str, price: float) -> Optional[Dict]:
+        """User-initiated close at the current market price, regardless of
+        where price sits relative to the stop/target — same accounting path
+        as an automatic exit (check_exit below), just a different trigger
+        and exit_reason so the journal distinguishes the two."""
+        return self._close_at_price(ticker, price, exit_reason="manual", event_type="manual_exit")
+
+    def force_close(self, ticker: str, price: float, reason: str = "eod_close") -> Optional[Dict]:
+        """Day-trading discipline: a position still open at market close has
+        to be booked, not carried overnight into gap risk its stop/target was
+        never sized for. Called by server/app.py's end-of-day sweep."""
+        return self._close_at_price(ticker, price, exit_reason=reason, event_type="force_close")
 
     def update_manual(self, ticker: str, stop_price: Optional[float] = None,
                        target_price: Optional[float] = None, shares: Optional[float] = None) -> Optional[Dict]:

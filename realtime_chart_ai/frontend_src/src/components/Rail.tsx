@@ -4,14 +4,18 @@ import { SignalCard } from './SignalCard';
 import { CopilotTab } from './CopilotTab';
 import { JournalTab } from './JournalTab';
 import { HistoryTab } from './HistoryTab';
-import { TradesTab } from './TradesTab';
 import { ManualControls } from './ManualControls';
 
+// Trades used to live here as a 4th tab, but it's a portfolio-wide view
+// across every ticker, not scoped to whichever one is currently selected —
+// unlike Copilot/History/Journal, which are all about THIS ticker. It's now
+// its own permanent panel (see LiveApp.tsx's <TradesTab> to the right of
+// this rail) so it's always visible instead of hiding Live Signal when
+// selected.
 const TABS: { key: Tab; label: string; icon: string; iconSize: number }[] = [
   { key: 'copilot', label: 'Copilot', icon: '✦', iconSize: 13 },
   { key: 'history', label: 'History', icon: '↺', iconSize: 12 },
   { key: 'journal', label: 'Journal', icon: '▤', iconSize: 12 },
-  { key: 'trades', label: 'Trades', icon: '$', iconSize: 12 },
 ];
 
 export function Rail(props: {
@@ -55,27 +59,18 @@ export function Rail(props: {
         display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto',
       }}
     >
-      {/* Trades is a portfolio-wide view across every ticker — pinning the
-          currently-selected ticker's Live Signal/Manual override above it
-          would be misleading (it's not what Trades is showing) and just
-          eats vertical space. Give Trades its own full-height view instead,
-          a peer of Live Signal rather than nested under it. */}
-      {tab !== 'trades' && (
-        <>
-          <SignalCard
-            phase={phase} dispScore={dispScore} bd={bd} pnl={pnl}
-            patternName={props.patternName} direction={props.direction}
-            entry={props.entry} stop={props.stop} target={props.target} rr={props.rr} posMeta={props.posMeta}
-            hasOpenPosition={props.hasOpenPosition}
-          />
+      <SignalCard
+        phase={phase} dispScore={dispScore} bd={bd} pnl={pnl}
+        patternName={props.patternName} direction={props.direction}
+        entry={props.entry} stop={props.stop} target={props.target} rr={props.rr} posMeta={props.posMeta}
+        hasOpenPosition={props.hasOpenPosition}
+      />
 
-          <ManualControls
-            ticker={props.ticker} price={props.price} hasOpenPosition={props.hasOpenPosition ?? false}
-            entry={props.entry ?? 0} stop={props.stop ?? 0} target={props.target ?? 0} shares={props.shares}
-            pnl={pnl} onChanged={props.onPositionChanged}
-          />
-        </>
-      )}
+      <ManualControls
+        ticker={props.ticker} price={props.price} hasOpenPosition={props.hasOpenPosition ?? false}
+        entry={props.entry ?? 0} stop={props.stop ?? 0} target={props.target ?? 0} shares={props.shares}
+        pnl={pnl} onChanged={props.onPositionChanged}
+      />
 
       <div style={{ flex: 'none', display: 'flex', borderBottom: '1px solid var(--border)' }}>
         {TABS.map((t) => (
@@ -110,7 +105,6 @@ export function Rail(props: {
         {tab === 'history' && (
           <HistoryTab trades={props.trades} expandedTrade={props.expandedTrade} toggleTrade={props.toggleTrade} />
         )}
-        {tab === 'trades' && <TradesTab />}
       </div>
     </aside>
   );

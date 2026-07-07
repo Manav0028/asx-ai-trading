@@ -2,6 +2,7 @@ import { useRealtimeChartAILive } from './hooks/useRealtimeChartAILive';
 import { Header } from './components/Header';
 import { LiveChart } from './components/LiveChart';
 import { Rail } from './components/Rail';
+import { TradesTab } from './components/TradesTab';
 
 const BEGINNER_MODE_DEFAULT = true;
 
@@ -40,6 +41,9 @@ function LiveApp() {
           entry={rc.entry}
           stop={rc.stop}
           target={rc.target}
+          zones={rc.zones}
+          prevClose={rc.prevClose}
+          markers={rc.markers}
         />
         <Rail
           phase={rc.phase}
@@ -72,6 +76,15 @@ function LiveApp() {
           expandedTrade={rc.expandedTrade}
           toggleTrade={rc.toggleTrade}
         />
+        <aside
+          id="rcai-trades-panel"
+          style={{
+            width: 380, flex: 'none', borderLeft: '1px solid var(--border)', background: 'var(--bg-secondary)',
+            position: 'relative', overflow: 'hidden',
+          }}
+        >
+          <TradesTab activeTicker={rc.ticker} onSelectTicker={rc.switchTicker} />
+        </aside>
       </main>
     </div>
   );

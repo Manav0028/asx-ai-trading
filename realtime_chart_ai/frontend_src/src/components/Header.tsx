@@ -9,6 +9,34 @@ function sourceLabel(source: string): string {
   return source;
 }
 
+// ASX regular trading session: 10:00-16:00, Australia/Sydney time, Mon-Fri.
+// Deliberately does not account for ASX public holidays (that needs a
+// maintained holiday calendar, out of scope here) — treated as a known
+// simplification, not a claim of perfect accuracy. Computed from the
+// browser's own clock via Intl's timeZone conversion rather than trusting
+// the device's local timezone setting, so this is correct regardless of
+// where the person viewing the dashboard actually is.
+function isAsxMarketOpen(): boolean {
+  const parts = new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'Australia/Sydney', hour12: false, hour: '2-digit', minute: '2-digit', weekday: 'short',
+  }).formatToParts(new Date());
+  const weekday = parts.find((p) => p.type === 'weekday')?.value ?? '';
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? '0');
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
+  if (weekday === 'Sat' || weekday === 'Sun') return false;
+  const minutesSinceMidnight = hour * 60 + minute;
+  return minutesSinceMidnight >= 10 * 60 && minutesSinceMidnight < 16 * 60;
+}
+
+function useAsxMarketOpen(): boolean {
+  const [open, setOpen] = useState(isAsxMarketOpen);
+  useEffect(() => {
+    const timer = setInterval(() => setOpen(isAsxMarketOpen()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  return open;
+}
+
 export function Header({
   tf,
   setTf,
@@ -39,6 +67,7 @@ export function Header({
   exchangeLabel?: string;
 }) {
   const displayTicker = ticker.replace(/\.(AX|NS)$/i, '');
+  const marketOpen = useAsxMarketOpen();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('');
   const [sectorFilter, setSectorFilter] = useState<string | null>(null);
@@ -208,13 +237,23 @@ export function Header({
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span
+          title={marketOpen ? 'ASX regular session (10:00-16:00 Sydney time)' : 'Outside ASX regular trading hours — showing last available prices'}
           style={{
-            display: 'inline-flex', alignItems: 'center', gap: 7, background: 'var(--profit-dim)', borderRadius: 999,
-            padding: '5px 11px', fontSize: 12, fontWeight: 600, color: 'var(--profit)',
+            display: 'inline-flex', alignItems: 'center', gap: 7, borderRadius: 999,
+            padding: '5px 11px', fontSize: 12, fontWeight: 600,
+            background: marketOpen ? 'var(--profit-dim)' : 'var(--bg-tertiary)',
+            color: marketOpen ? 'var(--profit)' : 'var(--text-tertiary)',
+            border: marketOpen ? 'none' : '1px solid var(--border)',
           }}
         >
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--profit)', animation: 'rcaiPulse 1.8s ease-out infinite' }} />
-          LIVE
+          <span
+            style={{
+              width: 7, height: 7, borderRadius: '50%',
+              background: marketOpen ? 'var(--profit)' : 'var(--text-tertiary)',
+              animation: marketOpen ? 'rcaiPulse 1.8s ease-out infinite' : 'none',
+            }}
+          />
+          {marketOpen ? 'LIVE' : 'MARKET CLOSED'}
         </span>
         <span
           id="rcai-sourcechip"
