@@ -214,11 +214,28 @@ export function LiveChart({
   // Trade markers — "how the trade was done" highlighted directly on the
   // candle it happened on, regardless of which timeframe is currently
   // displayed (the marker's own bar time is what places it).
+  //
+  // Guarded against an empty/stale series: setting markers whose timestamps
+  // don't correspond to any bar currently on the series (e.g. right after a
+  // ticker switch, before that ticker's own candles have loaded) crashed
+  // lightweight-charts internally ("Value is null", found via direct
+  // production testing) — its marker-to-pixel coordinate mapping has
+  // nothing to resolve against on an empty series. Only ever set markers
+  // that fall within the currently-loaded candle range.
   useEffect(() => {
-    markersPluginRef.current?.setMarkers(markers.map((m) => ({
+    const plugin = markersPluginRef.current;
+    if (!plugin) return;
+    if (candles.length === 0) {
+      plugin.setMarkers([]);
+      return;
+    }
+    const minTime = candles[0].time as number;
+    const maxTime = candles[candles.length - 1].time as number;
+    const inRange = markers.filter((m) => m.time >= minTime && m.time <= maxTime);
+    plugin.setMarkers(inRange.map((m) => ({
       time: m.time as UTCTimestamp, position: m.position, color: m.color, shape: m.shape, text: m.text,
     })));
-  }, [markers]);
+  }, [markers, candles]);
 
   const stats = useMemo(() => {
     if (candles.length === 0) return null;

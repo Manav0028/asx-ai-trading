@@ -277,6 +277,16 @@ export function useRealtimeChartAILive(beginnerMode: boolean) {
     setPnl(0);
     setPrice(0);
     setExecPrice(0);
+    // `trades` used to only update once refreshJournal(newTicker) resolved
+    // (an async round trip), while `candles` above resets synchronously —
+    // for that window, chart markers (derived from `trades`) still held the
+    // PREVIOUS ticker's real timestamps while the candle series had already
+    // gone empty. Setting markers with timestamps that don't correspond to
+    // any bar on an otherwise-empty series crashed lightweight-charts
+    // ("Value is null", found via direct production testing switching
+    // tickers) — reset synchronously here so that window never exists.
+    setTrades([]);
+    setJournal([]);
     setMessages([]);
     setZones([]);
     setPrevClose(null);
