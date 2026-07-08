@@ -427,23 +427,36 @@ def get_candles(ticker: str, timeframe: str = EXECUTION_TIMEFRAME, limit: int = 
 @app.get("/api/zones/{ticker}")
 def get_zones(ticker: str):
     """Active SMC order blocks / fair value gaps for the chart's zone
-    overlay — the most recent couple of each side, not every zone ever
-    formed (that grows unbounded and would clutter the chart). These are the
-    same trackers signal_engine.py already evaluates every bar; this just
-    reads their current state rather than recomputing anything."""
+    overlay — only the single most recent (i.e. still relevant) one per
+    side, and only if it's actually near the current price. Each zone draws
+    two boundary lines on the chart, so returning "last 3 each" (the
+    previous behavior) put up to 24 near-identical dashed lines on screen —
+    reported by the user as visual clutter. A zone whose entire range is
+    already many ATRs away from price isn't an actionable reference point
+    for a day-trading chart anyway, so it's dropped rather than just capped."""
     engine = signal_engines.get(ticker)
     if engine is None:
         return {"ticker": ticker, "zones": []}
     smc = engine.smc_engine
+    price, atr = _latest_price_and_atr(ticker)
+    max_distance = (atr * 6) if atr else None
+
+    def _relevant(zone: dict) -> bool:
+        if price is None or max_distance is None or max_distance <= 0:
+            return True
+        mid = (zone["low"] + zone["high"]) / 2
+        return abs(mid - price) <= max_distance
+
     zones = []
-    for ob in list(smc.order_blocks.bullish_obs)[-3:]:
+    for ob in list(smc.order_blocks.bullish_obs)[-1:]:
         zones.append({"type": "order_block", "direction": "long", "low": ob["low"], "high": ob["high"]})
-    for ob in list(smc.order_blocks.bearish_obs)[-3:]:
+    for ob in list(smc.order_blocks.bearish_obs)[-1:]:
         zones.append({"type": "order_block", "direction": "short", "low": ob["low"], "high": ob["high"]})
-    for gap in list(smc.fvg.bullish_fvgs)[-3:]:
+    for gap in list(smc.fvg.bullish_fvgs)[-1:]:
         zones.append({"type": "fvg", "direction": "long", "low": gap["low"], "high": gap["high"]})
-    for gap in list(smc.fvg.bearish_fvgs)[-3:]:
+    for gap in list(smc.fvg.bearish_fvgs)[-1:]:
         zones.append({"type": "fvg", "direction": "short", "low": gap["low"], "high": gap["high"]})
+    zones = [z for z in zones if _relevant(z)]
     return {"ticker": ticker, "zones": zones}
 
 
