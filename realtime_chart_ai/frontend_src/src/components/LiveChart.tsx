@@ -52,7 +52,6 @@ export function LiveChart({
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
-  const ema20SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const ema50SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const priceLinesRef = useRef<ReturnType<ISeriesApi<'Candlestick'>['createPriceLine']>[]>([]);
   const zoneLinesRef = useRef<ReturnType<ISeriesApi<'Candlestick'>['createPriceLine']>[]>([]);
@@ -84,12 +83,12 @@ export function LiveChart({
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume',
     });
-    // Trend overlay — EMA20/EMA50, the same pair the composite score's own
-    // trend_alignment term is computed from server-side, so what the chart
-    // shows and what the engine actually reasoned about are the same lines.
-    const ema20Series = chart.addSeries(LineSeries, {
-      color: '#f5c452', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-    });
+    // Trend overlay — EMA50, the same one the composite score's own
+    // trend_alignment term is computed from server-side. EMA20 used to be
+    // drawn here too but shared the exact same yellow (#f5c452) as the FVG
+    // zone lines below, making the two indistinguishable on the chart —
+    // removed per explicit request rather than just recolored, since EMA50
+    // alone already conveys the trend-line context.
     const ema50Series = chart.addSeries(LineSeries, {
       color: '#c46bf5', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
     });
@@ -99,7 +98,6 @@ export function LiveChart({
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
-    ema20SeriesRef.current = ema20Series;
     ema50SeriesRef.current = ema50Series;
     markersPluginRef.current = createSeriesMarkers(candleSeries, []);
 
@@ -108,7 +106,6 @@ export function LiveChart({
       chartRef.current = null;
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
-      ema20SeriesRef.current = null;
       ema50SeriesRef.current = null;
       markersPluginRef.current = null;
       priceLinesRef.current = [];
@@ -137,13 +134,11 @@ export function LiveChart({
     const chart = chartRef.current;
     const candleSeries = candleSeriesRef.current;
     const volumeSeries = volumeSeriesRef.current;
-    const ema20Series = ema20SeriesRef.current;
     const ema50Series = ema50SeriesRef.current;
-    if (!chart || !candleSeries || !volumeSeries || !ema20Series || !ema50Series) return;
+    if (!chart || !candleSeries || !volumeSeries || !ema50Series) return;
     if (candles.length === 0) {
       candleSeries.setData([]);
       volumeSeries.setData([]);
-      ema20Series.setData([]);
       ema50Series.setData([]);
       return;
     }
@@ -154,7 +149,6 @@ export function LiveChart({
     volumeSeries.setData(bars.map((c) => ({
       time: c.time as UTCTimestamp, value: c.v ?? 0, color: c.c >= c.o ? 'rgba(0,196,140,0.5)' : 'rgba(255,90,90,0.5)',
     })));
-    ema20Series.setData(bars.filter((c) => c.ema20 != null).map((c) => ({ time: c.time as UTCTimestamp, value: c.ema20 as number })));
     ema50Series.setData(bars.filter((c) => c.ema50 != null).map((c) => ({ time: c.time as UTCTimestamp, value: c.ema50 as number })));
     chart.timeScale().fitContent();
   }, [candles]);
@@ -187,7 +181,7 @@ export function LiveChart({
     zoneLinesRef.current.forEach((l) => series.removePriceLine(l));
     zoneLinesRef.current = [];
     zones.forEach((z) => {
-      const color = z.type === 'order_block' ? '#6993ff' : '#f5c452';
+      const color = z.type === 'order_block' ? '#6993ff' : '#ff9f43';
       const label = z.type === 'order_block' ? 'order block' : 'FVG';
       zoneLinesRef.current.push(
         series.createPriceLine({ price: z.high, color, lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: `${label} ${z.direction}` }),
@@ -263,16 +257,16 @@ export function LiveChart({
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-tertiary)' }}>
-            <span style={{ width: 16, borderTop: '1.5px solid #f5c452' }} />
-            EMA20
-          </span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-tertiary)' }}>
             <span style={{ width: 16, borderTop: '1.5px solid #c46bf5' }} />
             EMA50
           </span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-tertiary)' }}>
             <span style={{ width: 14, height: 9, borderRadius: 2, background: 'var(--accent-dim)', border: '1px solid rgba(105,147,255,.4)' }} />
-            order block / FVG
+            order block
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-tertiary)' }}>
+            <span style={{ width: 14, height: 9, borderRadius: 2, background: 'rgba(255,159,67,.18)', border: '1px solid rgba(255,159,67,.4)' }} />
+            FVG
           </span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-tertiary)' }}>
             <span style={{ width: 16, borderTop: '1.5px dashed var(--profit)' }} />

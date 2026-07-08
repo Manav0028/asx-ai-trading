@@ -202,3 +202,66 @@ def query_history(ticker: Optional[str] = None, limit: int = 50,
                             "bars_held": outcome.bars_held} if outcome else None,
             })
         return results
+
+
+def query_trades(ticker: Optional[str] = None, limit: int = 200,
+                  start=None, end=None) -> List[Dict]:
+    """Every trade EXECUTION (has a real action, whether closed yet or
+    not), ordered by execution time — NOT query_history()'s "latest N
+    pattern fires" window. Found via direct user report: a real closed
+    trade on KAR.AX was missing from the global Trades list. Root cause:
+    query_history() sorts by RtcChartInterpretation.created_at, and once
+    patterns are also evaluated on 5m/15m/1d (not just 1m — see
+    signal_engine.py's context-timeframe pattern detection), the
+    interpretation table fills with thousands of never-traded observation
+    rows. A ticker's actual trade, journaled hours earlier, gets pushed
+    entirely out of a "latest 500 interpretations" window by pattern
+    fires that happened afterward on OTHER tickers — even though the trade
+    itself was recent. Starting from RtcTradeAction (which only exists for
+    rows that were actually acted on) and working backward to its
+    interpretation avoids this category of bug entirely, regardless of how
+    much pattern-observation noise exists in between."""
+    with get_session() as session:
+        q = session.query(RtcTradeAction).order_by(RtcTradeAction.executed_at.desc())
+        if ticker or start is not None or end is not None:
+            q = q.join(RtcChartInterpretation, RtcTradeAction.interpretation_id == RtcChartInterpretation.id)
+            if ticker:
+                q = q.filter(RtcChartInterpretation.ticker == ticker)
+            if start is not None:
+                q = q.filter(RtcChartInterpretation.bar_ts >= start)
+            if end is not None:
+                q = q.filter(RtcChartInterpretation.bar_ts <= end)
+        actions = q.limit(limit).all()
+        if not actions:
+            return []
+
+        interp_ids = [a.interpretation_id for a in actions]
+        interps_by_id = {
+            i.id: i for i in session.query(RtcChartInterpretation).filter(RtcChartInterpretation.id.in_(interp_ids)).all()
+        }
+        action_ids = [a.id for a in actions]
+        outcomes_by_action = {
+            o.trade_action_id: o
+            for o in session.query(RtcTradeOutcome).filter(RtcTradeOutcome.trade_action_id.in_(action_ids)).all()
+        }
+
+        results = []
+        for action in actions:
+            interp = interps_by_id.get(action.interpretation_id)
+            if interp is None:
+                continue
+            outcome = outcomes_by_action.get(action.id)
+            results.append({
+                "id": interp.id, "ticker": interp.ticker, "bar_ts": interp.bar_ts.isoformat(),
+                "timeframe": interp.timeframe, "pattern_name": interp.pattern_name, "pattern_type": interp.pattern_type,
+                "direction": interp.direction, "confidence": interp.confidence,
+                "composite_score": interp.composite_score, "rule_reason": interp.rule_reason,
+                "smc_zone": interp.smc_zone, "claude_rationale": interp.claude_rationale,
+                "action": {"action_type": action.action_type, "mode": action.mode,
+                           "entry_price": action.entry_price, "shares": action.shares,
+                           "stop_price": action.stop_price, "target_price": action.target_price},
+                "outcome": {"exit_price": outcome.exit_price, "exit_reason": outcome.exit_reason,
+                            "gross_pnl": outcome.gross_pnl, "net_pnl": outcome.net_pnl,
+                            "bars_held": outcome.bars_held} if outcome else None,
+            })
+        return results

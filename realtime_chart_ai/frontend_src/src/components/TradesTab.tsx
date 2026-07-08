@@ -55,12 +55,17 @@ export function TradesTab({
     let cancelled = false;
     const load = async () => {
       try {
-        const [journalRows, positions] = await Promise.all([
-          api.getJournalGlobal({ limit: 500, start: dateFrom || undefined, end: dateTo || undefined }),
+        const [tradeRows, positions] = await Promise.all([
+          api.getTradesGlobal({ limit: 300, start: dateFrom || undefined, end: dateTo || undefined }),
           api.getAllPositions(),
         ]);
         if (cancelled) return;
-        const closed: MergedTrade[] = journalRows
+        // getTradesGlobal already only returns rows with a real trade
+        // action, ordered by execution time — no need to filter it the way
+        // getJournalGlobal's "latest N pattern fires" needed to be, and
+        // crucially it can't miss a real trade just because a busy ticker
+        // logged thousands of pattern-only observations afterward.
+        const closed: MergedTrade[] = tradeRows
           .filter((r) => r.action && r.outcome)
           .map((r) => ({
             key: `closed-${r.id}`,

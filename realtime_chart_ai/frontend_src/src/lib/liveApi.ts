@@ -154,6 +154,18 @@ export const api = {
     if (opts.end) params.set('end', opts.end);
     return getJson<ApiJournalRow[]>(`/api/journal?${params.toString()}`);
   },
+  // Every trade EXECUTION across all tickers, ordered by when it actually
+  // happened — NOT getJournalGlobal's "latest N pattern fires" window,
+  // which can miss a real closed trade entirely once enough pattern-only
+  // observations (5m/15m/1d, never trade-actioned) crowd it out. Use this
+  // for the Trades tab instead of filtering getJournalGlobal's rows.
+  getTradesGlobal: (opts: { limit?: number; start?: string; end?: string } = {}) => {
+    const params = new URLSearchParams();
+    params.set('limit', String(opts.limit ?? 200));
+    if (opts.start) params.set('start', opts.start);
+    if (opts.end) params.set('end', opts.end);
+    return getJson<ApiJournalRow[]>(`/api/trades?${params.toString()}`);
+  },
   getPositions: (ticker: string) => getJson<ApiPosition[]>(`/api/positions?ticker=${encodeURIComponent(ticker)}`),
   getAllPositions: () => getJson<ApiPosition[]>('/api/positions'),
   getZones: (ticker: string) => getJson<{ ticker: string; zones: ChartZone[] }>(`/api/zones/${encodeURIComponent(ticker)}`),

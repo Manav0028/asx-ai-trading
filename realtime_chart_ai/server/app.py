@@ -19,7 +19,7 @@ from datasources.manager import DataSourceManager
 from engine.signal_engine import SignalEngine
 from engine.timeframe_store import EXECUTION_TIMEFRAME, TimeframeStore
 from journal.db import init_db
-from journal.recorder import get_open_positions, log_event, query_history
+from journal.recorder import get_open_positions, log_event, query_history, query_trades
 from market_hours import SYDNEY_TZ
 from server.schemas import AutoTradeToggleRequest, ManualEntryRequest, ManualUpdateRequest
 from server.ws_hub import hub
@@ -231,6 +231,16 @@ def get_journal(ticker: str = None, limit: int = 50, start: str = None, end: str
     start_dt = datetime.fromisoformat(start) if start else None
     end_dt = datetime.fromisoformat(end) if end else None
     return query_history(ticker=ticker, limit=limit, start=start_dt, end=end_dt)
+
+
+@app.get("/api/trades")
+def get_trades(ticker: str = None, limit: int = 200, start: str = None, end: str = None):
+    """Every trade EXECUTION, ordered by when it actually happened — see
+    query_trades()'s docstring for why this is a separate endpoint from
+    /api/journal rather than just a bigger limit on the same query."""
+    start_dt = datetime.fromisoformat(start) if start else None
+    end_dt = datetime.fromisoformat(end) if end else None
+    return query_trades(ticker=ticker, limit=limit, start=start_dt, end=end_dt)
 
 
 @app.get("/api/tickers")
